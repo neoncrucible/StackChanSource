@@ -27,7 +27,7 @@ extern const char kade_boot_ogg_end[] asm("_binary_kade_boot_ogg_end");
 
 namespace {
 
-constexpr std::string_view KADE_BOOT_OGG{
+const std::string_view KADE_BOOT_OGG{
     kade_boot_ogg_start,
     static_cast<std::size_t>(kade_boot_ogg_end - kade_boot_ogg_start),
 };
