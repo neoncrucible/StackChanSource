@@ -1,9 +1,9 @@
-name: Factory firmware build
+name: Kade Eye firmware build
 
 on:
   push:
     branches:
-      - feature/kade-firmware-bootstrap
+      - feature/kade-eye-v0.1
   pull_request:
     paths:
       - "firmware/**"
@@ -30,22 +30,22 @@ jobs:
           cd firmware
           python fetch_repos.py
 
-      - name: Build StackChan factory firmware
+      - name: Build Kade Eye firmware
         shell: bash
         run: |
           set -o pipefail
           source "$IDF_PATH/export.sh"
           cd firmware
-          idf.py build 2>&1 | tee factory-build.log
+          idf.py build 2>&1 | tee kade-eye-build.log
 
       - name: Collect build diagnostics
         if: always()
         shell: bash
         run: |
           mkdir -p build-diagnostics
-          if [ -f firmware/factory-build.log ]; then
-            cp firmware/factory-build.log build-diagnostics/
-            tail -n 200 firmware/factory-build.log > build-diagnostics/factory-build-tail.log
+          if [ -f firmware/kade-eye-build.log ]; then
+            cp firmware/kade-eye-build.log build-diagnostics/
+            tail -n 250 firmware/kade-eye-build.log > build-diagnostics/kade-eye-build-tail.log
           fi
           find firmware -maxdepth 2 -type f -name "sdkconfig*" -print > build-diagnostics/sdkconfig-files.txt
 
@@ -53,7 +53,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stackchan-build-diagnostics
+          name: kade-eye-v0.1-build-diagnostics
           path: build-diagnostics/
           if-no-files-found: warn
 
@@ -72,6 +72,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: stackchan-factory-firmware
+          name: stackchan-kade-eye-v0.1
           path: firmware-artifacts/
           if-no-files-found: error
