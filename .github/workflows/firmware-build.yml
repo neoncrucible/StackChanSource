@@ -22,6 +22,14 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Fetch and patch factory dependencies
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cd firmware
+          python fetch_repos.py
+
       - name: Build StackChan factory firmware
         shell: bash
         run: |
