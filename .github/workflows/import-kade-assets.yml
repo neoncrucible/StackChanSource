@@ -1,0 +1,61 @@
+name: Import Kade Eye assets
+
+on:
+  push:
+    branches:
+      - feature/kade-eye-v0.1
+    paths:
+      - ".github/workflows/import-kade-assets.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out custom firmware branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/kade-eye-v0.1
+
+      - name: Download and prepare Kade Eye assets
+        shell: bash
+        env:
+          ASSET_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-1db0-8210-9118-ce66f4b31fcd/raw?se=2026-07-27T22:15:29Z&sp=r&sv=2026-02-06&sr=b&scid=ffdde534-4f54-5322-aae1-8daf02394d88&skoid=56822d8b-6cfd-42ed-a00d-1452dca42036&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-27T19:24:50Z&ske=2026-07-29T19:24:50Z&sks=b&skv=2026-02-06&sig=aDVCfszxUKLkmtvUAV2CK9A3A25Qj5SQn8WRKm01uMo%3D"
+        run: |
+          set -euo pipefail
+          curl --fail --location "$ASSET_URL" --output /tmp/kade-custom-assets.zip
+          rm -rf /tmp/kade-assets
+          mkdir -p /tmp/kade-assets
+          unzip -q /tmp/kade-custom-assets.zip -d /tmp/kade-assets
+
+          command -v ffmpeg
+          mkdir -p firmware/main/assets/assets_bin firmware/main/assets/sfx
+
+          cp /tmp/kade-assets/avatars/optic-eye/idle1.png firmware/main/assets/assets_bin/kade_idle1.png
+          cp /tmp/kade-assets/avatars/optic-eye/idle2.png firmware/main/assets/assets_bin/kade_idle2.png
+          cp /tmp/kade-assets/avatars/optic-eye/blink.png firmware/main/assets/assets_bin/kade_blink.png
+          cp /tmp/kade-assets/avatars/optic-eye/blink2.png firmware/main/assets/assets_bin/kade_blink2.png
+          cp /tmp/kade-assets/avatars/optic-eye/listening.png firmware/main/assets/assets_bin/kade_listening.png
+          cp /tmp/kade-assets/avatars/optic-eye/error.png firmware/main/assets/assets_bin/kade_error.png
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -i /tmp/kade-assets/firmware/assets/audio/boot.wav \
+            -ac 1 -ar 24000 -c:a libopus -b:a 32k \
+            -application audio -frame_duration 60 \
+            firmware/main/assets/sfx/kade_boot.ogg
+
+          sha256sum \
+            firmware/main/assets/assets_bin/kade_*.png \
+            firmware/main/assets/sfx/kade_boot.ogg
+
+      - name: Commit binary assets to the custom branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f firmware/main/assets/assets_bin/kade_*.png
+          git add -f firmware/main/assets/sfx/kade_boot.ogg
+          git commit -m "Add Kade Eye avatar and boot audio binaries"
+          git push origin HEAD:feature/kade-eye-v0.1
