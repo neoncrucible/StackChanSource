@@ -22,17 +22,28 @@ jobs:
         with:
           ref: feature/kade-eye-v0.1
 
-      - name: Download and prepare Kade Eye assets
+      - name: Download exported asset bundle
         shell: bash
         env:
-          ASSET_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-6db0-8210-842e-783fd3e12af1/raw?se=2026-07-27T22:19:25Z&sp=r&sv=2026-02-06&sr=b&scid=25829339-ef63-5eff-b50e-a25a5f3b81d9&skoid=56822d8b-6cfd-42ed-a00d-1452dca42036&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-27T19:31:17Z&ske=2026-07-29T19:31:17Z&sks=b&skv=2026-02-06&sig=LHbGsE7gScpY536aaqD9wxskSREKoLBHeHfg43KFm2Y%3D"
+          ASSET_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-a5dc-81f4-b88c-d6c807d3dada/raw?se=2026-07-27T22:21:38Z&sp=r&sv=2026-02-06&sr=b&scid=b8f888d6-0f39-58c0-a35a-b5544c65add6&skoid=56822d8b-6cfd-42ed-a00d-1452dca42036&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-27T19:26:53Z&ske=2026-07-29T19:26:53Z&sks=b&skv=2026-02-06&sig=GCZVp0us2BcyVa2Rf/fWC0/KVsR4PEziGqd7/GBktfk%3D"
         run: |
           set -euo pipefail
-          curl --fail --location "$ASSET_URL" --output /tmp/kade-custom-assets.zip
+          curl --fail --location --retry 3 "$ASSET_URL" --output /tmp/kade-custom-assets.zip
+          ls -lh /tmp/kade-custom-assets.zip
+
+      - name: Extract exported asset bundle
+        shell: bash
+        run: |
+          set -euo pipefail
           rm -rf /tmp/kade-assets
           mkdir -p /tmp/kade-assets
           unzip -q /tmp/kade-custom-assets.zip -d /tmp/kade-assets
+          find /tmp/kade-assets -maxdepth 4 -type f -print
 
+      - name: Prepare firmware images and audio
+        shell: bash
+        run: |
+          set -euo pipefail
           command -v ffmpeg
           mkdir -p firmware/main/assets/assets_bin firmware/main/assets/sfx
 
