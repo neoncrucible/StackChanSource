@@ -34,6 +34,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          source "$IDF_PATH/export.sh"
           cd firmware
           idf.py build 2>&1 | tee factory-build.log
 
