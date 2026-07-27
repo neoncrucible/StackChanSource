@@ -4,54 +4,45 @@
  * SPDX-License-Identifier: MIT
  */
 #include <smooth_ui_toolkit.hpp>
-#include <uitk/short_namespace.hpp>
 #include <mooncake_log.h>
-#include <mooncake.h>
-#include <apps/apps.h>
 #include <hal/hal.h>
+#include <stackchan/stackchan.h>
+#include <lvgl.h>
 
-using namespace mooncake;
 using namespace smooth_ui_toolkit;
 
 extern "C" void app_main(void)
 {
-    // Setup logger
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
+    mclog::tagInfo("KADE-EYE", "starting optic-eye checkpoint");
 
-    // HAL init
+    // Use the proven factory HAL so display, audio, power and body hardware
+    // are initialised exactly as they are in the official firmware.
     GetHAL().init();
 
-    // Setup ui hal
-    ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
-    ui_hal::on_get_tick([]() { return GetHAL().millis(); });
+    // This checkpoint is deliberately stationary. Do not issue any position
+    // commands and release torque immediately after body initialisation.
+    auto& motion = GetStackChan().motion();
+    motion.setAutoAngleSyncEnabled(false);
+    motion.setAutoTorqueReleaseEnabled(false);
+    motion.setTorqueEnabled(false);
 
-    // Install apps
-    GetMooncake().installApp(std::make_unique<AppLauncher>());
-    GetMooncake().installApp(std::make_unique<AppAiAgent>());
-    GetMooncake().installApp(std::make_unique<AppAvatar>());
-    GetMooncake().installApp(std::make_unique<AppEspnowControl>());
-    GetMooncake().installApp(std::make_unique<AppAppCenter>());
-    GetMooncake().installApp(std::make_unique<AppEzdata>());
-    GetMooncake().installApp(std::make_unique<AppDance>());
-    GetMooncake().installApp(std::make_unique<AppSetup>());
+    // Temporary visual checkpoint. The embedded optic PNG state machine is
+    // added in the next commit once this stripped runtime is proven by CI.
+    {
+        LvglLockGuard lock;
+        lv_obj_t* screen = lv_screen_active();
+        lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clean(screen);
+    }
 
-    // Main loop
+    mclog::tagInfo("KADE-EYE", "stationary checkpoint ready");
+
     while (1) {
         GetHAL().feedTheDog();
         GetHAL().updateHeapStatusLog();
-
-        GetMooncake().update();
-
-        if (GetHAL().isXiaozhiStartRequested()) {
-            break;
-        }
+        GetHAL().delay(20);
     }
-
-    // Uninstall all apps and destroy mooncake
-    GetMooncake().uninstallAllApps();
-    DestroyMooncake();
-
-    // Start xiaozhi, never returns
-    GetHAL().startXiaozhi();
 }
