@@ -1,4 +1,4 @@
-name: Factory firmware build
+name: Optic-eye checkpoint build
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
           cd firmware
           python fetch_repos.py
 
-      - name: Build StackChan factory firmware
+      - name: Build StackChan firmware
         shell: bash
         run: |
           set -o pipefail
