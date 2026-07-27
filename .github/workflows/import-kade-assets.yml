@@ -6,6 +6,9 @@ on:
       - feature/kade-eye-v0.1
     paths:
       - ".github/workflows/import-kade-assets.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/import-kade-assets.yml"
 
 permissions:
   contents: write
@@ -22,7 +25,7 @@ jobs:
       - name: Download and prepare Kade Eye assets
         shell: bash
         env:
-          ASSET_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-1db0-8210-9118-ce66f4b31fcd/raw?se=2026-07-27T22:15:29Z&sp=r&sv=2026-02-06&sr=b&scid=ffdde534-4f54-5322-aae1-8daf02394d88&skoid=56822d8b-6cfd-42ed-a00d-1452dca42036&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-27T19:24:50Z&ske=2026-07-29T19:24:50Z&sks=b&skv=2026-02-06&sig=aDVCfszxUKLkmtvUAV2CK9A3A25Qj5SQn8WRKm01uMo%3D"
+          ASSET_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-6db0-8210-842e-783fd3e12af1/raw?se=2026-07-27T22:19:25Z&sp=r&sv=2026-02-06&sr=b&scid=25829339-ef63-5eff-b50e-a25a5f3b81d9&skoid=56822d8b-6cfd-42ed-a00d-1452dca42036&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-27T19:31:17Z&ske=2026-07-29T19:31:17Z&sks=b&skv=2026-02-06&sig=LHbGsE7gScpY536aaqD9wxskSREKoLBHeHfg43KFm2Y%3D"
         run: |
           set -euo pipefail
           curl --fail --location "$ASSET_URL" --output /tmp/kade-custom-assets.zip
@@ -57,5 +60,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f firmware/main/assets/assets_bin/kade_*.png
           git add -f firmware/main/assets/sfx/kade_boot.ogg
+          if git diff --cached --quiet; then
+            echo "Kade Eye binary assets are already current"
+            exit 0
+          fi
           git commit -m "Add Kade Eye avatar and boot audio binaries"
           git push origin HEAD:feature/kade-eye-v0.1
