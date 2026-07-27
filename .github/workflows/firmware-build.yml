@@ -61,12 +61,40 @@ jobs:
         if: success()
         shell: bash
         run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
           mkdir -p firmware-artifacts
+
           cp firmware/build/bootloader/bootloader.bin firmware-artifacts/
           cp firmware/build/partition_table/partition-table.bin firmware-artifacts/
           cp firmware/build/*.bin firmware-artifacts/
           cp firmware/build/flasher_args.json firmware-artifacts/
           cp firmware/build/flash_args firmware-artifacts/
+
+          esptool.py --chip esp32s3 merge_bin \
+            -o firmware-artifacts/kade-eye-v0.1-full.bin \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 16MB \
+            0x0 firmware/build/bootloader/bootloader.bin \
+            0x20000 firmware/build/stack-chan.bin \
+            0x8000 firmware/build/partition_table/partition-table.bin \
+            0xd000 firmware/build/ota_data_initial.bin \
+            0xa00000 firmware/build/generated_assets.bin
+
+          cat > firmware-artifacts/FLASHING.txt <<'EOF'
+          Kade Eye v0.1 — ESP32-S3 full flash image
+
+          Put StackChan into download mode, then run this from PowerShell inside
+          the extracted artifact folder:
+
+          & "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe" -m esptool --chip esp32s3 --port COM4 --baud 921600 write_flash 0x0 .\kade-eye-v0.1-full.bin
+
+          The full image contains the bootloader, partition table, application,
+          OTA data and Kade Eye assets partition.
+          EOF
+
+          sha256sum firmware-artifacts/kade-eye-v0.1-full.bin > firmware-artifacts/SHA256SUMS.txt
 
       - name: Upload firmware artifact
         if: success()
