@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/kade-firmware-bootstrap
+      - feature/optic-eye-checkpoint-0727
   pull_request:
     paths:
       - "firmware/**"
@@ -72,6 +73,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: stackchan-factory-firmware
+          name: stackchan-optic-eye-checkpoint
           path: firmware-artifacts/
           if-no-files-found: error
