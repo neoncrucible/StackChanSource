@@ -44,7 +44,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v ffmpeg
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
           mkdir -p firmware/main/assets/assets_bin firmware/main/assets/sfx
 
           cp /tmp/kade-assets/avatars/optic-eye/idle1.png firmware/main/assets/assets_bin/kade_idle1.png
