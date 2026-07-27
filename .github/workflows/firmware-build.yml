@@ -1,0 +1,49 @@
+name: Factory firmware build
+
+on:
+  push:
+    branches:
+      - feature/kade-firmware-bootstrap
+  pull_request:
+    paths:
+      - "firmware/**"
+      - ".github/workflows/firmware-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.4
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build StackChan factory firmware
+        shell: bash
+        run: |
+          cd firmware
+          idf.py set-target esp32s3
+          idf.py build
+
+      - name: Collect flashable files
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p firmware-artifacts
+          cp firmware/build/bootloader/bootloader.bin firmware-artifacts/
+          cp firmware/build/partition_table/partition-table.bin firmware-artifacts/
+          cp firmware/build/*.bin firmware-artifacts/
+          cp firmware/build/flasher_args.json firmware-artifacts/
+          cp firmware/build/flash_args firmware-artifacts/
+
+      - name: Upload firmware artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stackchan-factory-firmware
+          path: firmware-artifacts/
+          if-no-files-found: error
