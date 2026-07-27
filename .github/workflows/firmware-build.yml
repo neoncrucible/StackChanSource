@@ -33,9 +33,28 @@ jobs:
       - name: Build StackChan factory firmware
         shell: bash
         run: |
+          set -o pipefail
           cd firmware
-          idf.py set-target esp32s3
-          idf.py build
+          idf.py build 2>&1 | tee factory-build.log
+
+      - name: Collect build diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p build-diagnostics
+          if [ -f firmware/factory-build.log ]; then
+            cp firmware/factory-build.log build-diagnostics/
+            tail -n 200 firmware/factory-build.log > build-diagnostics/factory-build-tail.log
+          fi
+          find firmware -maxdepth 2 -type f -name "sdkconfig*" -print > build-diagnostics/sdkconfig-files.txt
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stackchan-build-diagnostics
+          path: build-diagnostics/
+          if-no-files-found: warn
 
       - name: Collect flashable files
         if: success()
