@@ -13,10 +13,10 @@ constexpr uint32_t kSettleDelayMs = 1500;
 constexpr uint32_t kMoveTimeoutMs = 4000;
 constexpr uint32_t kHoldMs = 750;
 
-inline bool wait_for_yaw_stop(stackchan::motion::Motion& motion, uint32_t timeout_ms)
+inline bool wait_for_motion_stop(stackchan::motion::Motion& motion, uint32_t timeout_ms)
 {
     const uint32_t deadline = GetHAL().millis() + timeout_ms;
-    while (motion.isYawMoving()) {
+    while (motion.isMoving()) {
         if (static_cast<int32_t>(GetHAL().millis() - deadline) >= 0) {
             return false;
         }
@@ -41,9 +41,9 @@ inline void run_once()
     mclog::tagInfo(kLogTag, "captured yaw={}, target={}", start_yaw, target_yaw);
 
     motion.setTorqueEnabled(true);
-    motion.moveYaw(target_yaw, kMoveSpeed);
+    motion.moveYawWithSpeed(target_yaw, kMoveSpeed);
 
-    if (!wait_for_yaw_stop(motion, kMoveTimeoutMs)) {
+    if (!wait_for_motion_stop(motion, kMoveTimeoutMs)) {
         mclog::tagError(kLogTag, "outbound yaw move timed out; stopping and releasing torque");
         motion.stop();
         motion.setTorqueEnabled(false);
@@ -51,9 +51,9 @@ inline void run_once()
     }
 
     GetHAL().delay(kHoldMs);
-    motion.moveYaw(start_yaw, kMoveSpeed);
+    motion.moveYawWithSpeed(start_yaw, kMoveSpeed);
 
-    if (!wait_for_yaw_stop(motion, kMoveTimeoutMs)) {
+    if (!wait_for_motion_stop(motion, kMoveTimeoutMs)) {
         mclog::tagError(kLogTag, "return yaw move timed out; stopping and releasing torque");
         motion.stop();
         motion.setTorqueEnabled(false);
