@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hal/hal.h>
+#include <hal/board/hal_bridge.h>
 #include <lvgl.h>
 #include <mooncake_log.h>
 #include <smooth_ui_toolkit.hpp>
@@ -81,9 +82,6 @@ inline void set_both_neon_colours(uint32_t colour, float duration_seconds)
 
 inline void hard_blackout_rgb_arrays()
 {
-    // The base USB rail remains powered independently of the CoreS3 runtime.
-    // Write black directly to every LED and refresh repeatedly so the external
-    // LED controller latches an off state even after the main unit powers down.
     const uint32_t deadline = GetHAL().millis() + kBlackoutSettleMs;
     do {
         for (uint8_t index = 0; index < 12; ++index) {
@@ -122,11 +120,16 @@ inline void run_rgb_boot_cycle()
 
 inline void run()
 {
-    lv_obj_t* overlay = create_project_kadence_overlay();
+    // The board bridge creates this overlay immediately after LVGL becomes
+    // available. Reuse that exact object so there is no second splash or visual
+    // handoff. Fall back to creating it here only if early creation was skipped.
+    lv_obj_t* overlay = hal_bridge::take_kadence_boot_overlay();
+    if (overlay == nullptr) {
+        overlay = create_project_kadence_overlay();
+    } else {
+        mclog::tagInfo(kLogTag, "early Project Kadence overlay adopted");
+    }
 
-    // app_main starts the boot audio immediately before this startup task. The
-    // combined splash hold and RGB cycle lasts about three seconds, matching the
-    // boot clip so the eye is revealed as the audio finishes.
     const uint32_t splash_deadline = GetHAL().millis() + kSplashHoldMs;
     while (static_cast<int32_t>(GetHAL().millis() - splash_deadline) < 0) {
         GetStackChan().update();
