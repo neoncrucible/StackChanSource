@@ -38,10 +38,11 @@ jobs:
       - name: Fetch, validate and embed dependencies
         shell: bash
         run: |
+          set -o pipefail
           git config --global core.autocrlf false
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           cd firmware
-          python fetch_repos.py
+          python fetch_repos.py 2>&1 | tee dependency-fetch.log
 
       - name: Build StackChan firmware
         shell: bash
@@ -56,6 +57,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p build-diagnostics
+          if [ -f firmware/dependency-fetch.log ]; then
+            cp firmware/dependency-fetch.log build-diagnostics/
+            tail -n 200 firmware/dependency-fetch.log > build-diagnostics/dependency-fetch-tail.log
+          fi
           if [ -f firmware/factory-build.log ]; then
             cp firmware/factory-build.log build-diagnostics/
             tail -n 200 firmware/factory-build.log > build-diagnostics/factory-build-tail.log
