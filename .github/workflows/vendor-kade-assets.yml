@@ -1,0 +1,93 @@
+name: Vendor pinned Kade assets
+
+on:
+  push:
+    branches:
+      - feature/optic-eye-checkpoint-0727
+    paths:
+      - ".github/workflows/vendor-kade-assets.yml"
+
+permissions:
+  contents: write
+  statuses: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mark asset vendoring pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error --location \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "{\"state\":\"pending\",\"context\":\"assets/vendor-kade\",\"description\":\"Vendoring pinned Kade assets\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+
+      - name: Check out checkpoint branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/optic-eye-checkpoint-0727
+          fetch-depth: 0
+
+      - name: Download and verify private asset export
+        shell: bash
+        env:
+          ASSET_ARCHIVE_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-630c-81f4-9292-072fbcdf97f2/raw?se=2026-07-28T07:23:39Z&sp=r&sv=2026-02-06&sr=b&scid=369881a2-de0d-54d5-ab04-aa05e48c0f20&skoid=56822d8b-6cfd-42ed-a00d-1452dca42036&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-28T04:48:37Z&ske=2026-07-30T04:48:37Z&sks=b&skv=2026-02-06&sig=8Ch2iqlQt74trbQPFnx1FXuljVPCf8jIbReBgmzlzf4%3D"
+          ASSET_ARCHIVE_SHA256: "1a98ed197dc77b6e13a543800495edcebcd154b7e84c00417f8c9d2db235147a"
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --location \
+            "$ASSET_ARCHIVE_URL" --output /tmp/stackchan-kade-assets.zip
+          echo "$ASSET_ARCHIVE_SHA256  /tmp/stackchan-kade-assets.zip" | sha256sum -c -
+          rm -rf /tmp/stackchan-kade-assets
+          mkdir -p /tmp/stackchan-kade-assets
+          unzip -q /tmp/stackchan-kade-assets.zip -d /tmp/stackchan-kade-assets
+          (cd /tmp/stackchan-kade-assets && sha256sum -c SHA256SUMS)
+
+      - name: Copy assets into firmware source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p firmware/assets/optic-eye firmware/assets/audio
+          cp /tmp/stackchan-kade-assets/avatars/optic-eye/*.png firmware/assets/optic-eye/
+          cp /tmp/stackchan-kade-assets/avatars/optic-eye/manifest.json firmware/assets/optic-eye/
+          cp /tmp/stackchan-kade-assets/firmware/assets/audio/boot.wav firmware/assets/audio/
+          cp /tmp/stackchan-kade-assets/firmware/assets/audio/manifest.json firmware/assets/audio/
+
+      - name: Commit vendored assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add firmware/assets/optic-eye firmware/assets/audio
+          git commit -m "Vendor pinned Kade Eye assets"
+          git push origin HEAD:feature/optic-eye-checkpoint-0727
+
+      - name: Publish asset vendoring status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=failure
+          description="Kade asset vendoring failed"
+          if [ "$JOB_STATUS" = "success" ]; then
+            state=success
+            description="Pinned Kade assets vendored"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            state=error
+            description="Kade asset vendoring cancelled"
+          fi
+          curl --fail-with-body --silent --show-error --location \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "{\"state\":\"$state\",\"context\":\"assets/vendor-kade\",\"description\":\"$description\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
