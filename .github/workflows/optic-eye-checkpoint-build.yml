@@ -78,22 +78,54 @@ jobs:
           path: build-diagnostics/
           if-no-files-found: warn
 
-      - name: Collect and checksum flashable files
+      - name: Collect, verify and checksum flashable files
         if: success()
         shell: bash
         run: |
-          mkdir -p firmware-artifacts
-          cp firmware/build/bootloader/bootloader.bin firmware-artifacts/
-          cp firmware/build/partition_table/partition-table.bin firmware-artifacts/
+          set -euo pipefail
+          mkdir -p firmware-artifacts/bootloader firmware-artifacts/partition_table
+          cp firmware/build/bootloader/bootloader.bin firmware-artifacts/bootloader/
+          cp firmware/build/partition_table/partition-table.bin firmware-artifacts/partition_table/
           cp firmware/build/*.bin firmware-artifacts/
           cp firmware/build/flasher_args.json firmware-artifacts/
           cp firmware/build/flash_args firmware-artifacts/
           (
             cd firmware-artifacts
-            sha256sum * > SHA256SUMS
             printf 'repository=%s\nref=%s\nsha=%s\nrun_id=%s\nidf_version=5.5.4\n' \
               "$GITHUB_REPOSITORY" "$GITHUB_REF" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
               > BUILD_INFO.txt
+
+            python - <<'PY'
+          import json
+          import shlex
+          from pathlib import Path
+
+          root = Path(".")
+          manifest = json.loads((root / "flasher_args.json").read_text(encoding="utf-8"))
+          expected = {str(path) for path in manifest["flash_files"].values()}
+          for relative_path in sorted(expected):
+              path = root / relative_path
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"missing or empty manifest file: {relative_path}")
+
+          tokens = shlex.split((root / "flash_args").read_text(encoding="utf-8"))
+          listed = {
+              tokens[index + 1]
+              for index, token in enumerate(tokens[:-1])
+              if token.startswith("0x")
+          }
+          if listed != expected:
+              raise SystemExit(
+                  f"flash manifest mismatch: flash_args={sorted(listed)}, "
+                  f"flasher_args.json={sorted(expected)}"
+              )
+          print("flash manifests reference the same packaged files")
+          PY
+
+            find . -type f ! -name SHA256SUMS -printf '%P\0' \
+              | sort -z \
+              | xargs -0 sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
           )
 
       - name: Upload firmware artifact
