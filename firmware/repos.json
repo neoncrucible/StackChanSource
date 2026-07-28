@@ -29,5 +29,10 @@
         "url": "https://github.com/espressif/esp-now.git",
         "path": "components/esp-now",
         "branch": "c33383de97f3ed2fc52117f5ef04f71990432e5d"
+    },
+    {
+        "url": "https://github.com/neoncrucible/Droid-dev.git",
+        "path": "assets-source",
+        "branch": "aeacf6c80467f85df7a2203b98581eafc7ab52db"
     }
 ]
