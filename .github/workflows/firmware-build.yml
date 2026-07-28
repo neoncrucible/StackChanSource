@@ -11,6 +11,10 @@ on:
       - ".github/workflows/firmware-build.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  statuses: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,12 +22,25 @@ jobs:
       image: espressif/idf:v5.5.4
 
     steps:
+      - name: Mark firmware build pending
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error --location \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "{\"state\":\"pending\",\"context\":\"firmware/optic-eye\",\"description\":\"ESP-IDF 5.5.4 build running\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+
       - name: Check out source
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Fetch and patch factory dependencies
+      - name: Fetch, validate and embed dependencies
         shell: bash
         run: |
           git config --global core.autocrlf false
@@ -49,6 +66,9 @@ jobs:
             tail -n 200 firmware/factory-build.log > build-diagnostics/factory-build-tail.log
           fi
           find firmware -maxdepth 2 -type f -name "sdkconfig*" -print > build-diagnostics/sdkconfig-files.txt
+          printf 'repository=%s\nref=%s\nsha=%s\nrun_id=%s\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_REF" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            > build-diagnostics/build-context.txt
 
       - name: Upload build diagnostics
         if: always()
@@ -58,7 +78,7 @@ jobs:
           path: build-diagnostics/
           if-no-files-found: warn
 
-      - name: Collect flashable files
+      - name: Collect and checksum flashable files
         if: success()
         shell: bash
         run: |
@@ -68,6 +88,13 @@ jobs:
           cp firmware/build/*.bin firmware-artifacts/
           cp firmware/build/flasher_args.json firmware-artifacts/
           cp firmware/build/flash_args firmware-artifacts/
+          (
+            cd firmware-artifacts
+            sha256sum * > SHA256SUMS
+            printf 'repository=%s\nref=%s\nsha=%s\nrun_id=%s\nidf_version=5.5.4\n' \
+              "$GITHUB_REPOSITORY" "$GITHUB_REF" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+              > BUILD_INFO.txt
+          )
 
       - name: Upload firmware artifact
         if: success()
@@ -76,3 +103,27 @@ jobs:
           name: stackchan-optic-eye-checkpoint
           path: firmware-artifacts/
           if-no-files-found: error
+
+      - name: Publish firmware build status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_STATUS: ${{ job.status }}
+        run: |
+          state=failure
+          description="ESP-IDF 5.5.4 build failed"
+          if [ "$BUILD_STATUS" = "success" ]; then
+            state=success
+            description="ESP-IDF 5.5.4 build and artifact complete"
+          elif [ "$BUILD_STATUS" = "cancelled" ]; then
+            state=error
+            description="ESP-IDF 5.5.4 build cancelled"
+          fi
+          curl --fail-with-body --silent --show-error --location \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "{\"state\":\"$state\",\"context\":\"firmware/optic-eye\",\"description\":\"$description\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
