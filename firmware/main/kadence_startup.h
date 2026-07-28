@@ -12,8 +12,9 @@
 namespace kadence_startup {
 
 constexpr const char* kLogTag = "KADENCE-BOOT";
-constexpr uint32_t kSplashHoldMs = 1400;
+constexpr uint32_t kSplashHoldMs = 1750;
 constexpr uint32_t kColourHoldMs = 220;
+constexpr uint32_t kBlackoutSettleMs = 180;
 
 inline lv_obj_t* create_project_kadence_overlay()
 {
@@ -78,14 +79,31 @@ inline void set_both_neon_colours(uint32_t colour, float duration_seconds)
     stackchan.rightNeonLight().setColor(colour);
 }
 
+inline void hard_blackout_rgb_arrays()
+{
+    // The base USB rail remains powered independently of the CoreS3 runtime.
+    // Write black directly to every LED and refresh repeatedly so the external
+    // LED controller latches an off state even after the main unit powers down.
+    const uint32_t deadline = GetHAL().millis() + kBlackoutSettleMs;
+    do {
+        for (uint8_t index = 0; index < 12; ++index) {
+            GetHAL().setRgbColor(index, 0, 0, 0);
+        }
+        GetHAL().refreshRgb();
+        GetHAL().feedTheDog();
+        GetHAL().delay(20);
+    } while (static_cast<int32_t>(GetHAL().millis() - deadline) < 0);
+
+    mclog::tagInfo(kLogTag, "RGB arrays hard-latched off");
+}
+
 inline void run_rgb_boot_cycle()
 {
-    constexpr std::array<uint32_t, 5> colours = {
+    constexpr std::array<uint32_t, 4> colours = {
         0xD71920,
         0x8A0F14,
         0xF2F2F2,
         0xD71920,
-        0x000000,
     };
 
     for (const uint32_t colour : colours) {
@@ -98,13 +116,17 @@ inline void run_rgb_boot_cycle()
         }
     }
 
-    mclog::tagInfo(kLogTag, "RGB boot cycle complete; arrays off");
+    hard_blackout_rgb_arrays();
+    mclog::tagInfo(kLogTag, "RGB boot cycle complete");
 }
 
 inline void run()
 {
     lv_obj_t* overlay = create_project_kadence_overlay();
 
+    // app_main starts the boot audio immediately before this startup task. The
+    // combined splash hold and RGB cycle lasts about three seconds, matching the
+    // boot clip so the eye is revealed as the audio finishes.
     const uint32_t splash_deadline = GetHAL().millis() + kSplashHoldMs;
     while (static_cast<int32_t>(GetHAL().millis() - splash_deadline) < 0) {
         GetStackChan().update();
@@ -113,7 +135,9 @@ inline void run()
     }
 
     run_rgb_boot_cycle();
+    hard_blackout_rgb_arrays();
     remove_overlay(overlay);
+    hard_blackout_rgb_arrays();
 }
 
 }  // namespace kadence_startup
