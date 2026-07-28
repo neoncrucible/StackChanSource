@@ -4,6 +4,8 @@
 #include <hal/hal.h>
 #include <stackchan/stackchan.h>
 
+#include "kadence_startup.h"
+
 namespace kade_servo_checkpoint {
 
 constexpr const char* kLogTag = "KADE-SERVO";
@@ -19,8 +21,6 @@ inline bool wait_for_yaw_stop(stackchan::motion::Motion& motion, uint32_t timeou
     const uint32_t deadline = GetHAL().millis() + timeout_ms;
 
     while (yaw.isMoving()) {
-        // Servo movement is animation-driven. The factory runtime calls Motion::update()
-        // continuously; without this call the target changes but no physical command is sent.
         motion.update();
 
         if (static_cast<int32_t>(GetHAL().millis() - deadline) >= 0) {
@@ -30,7 +30,6 @@ inline bool wait_for_yaw_stop(stackchan::motion::Motion& motion, uint32_t timeou
         GetHAL().delay(20);
     }
 
-    // Allow the final snap-to-target update to be applied before torque release.
     motion.update();
     return true;
 }
@@ -43,12 +42,15 @@ inline void release_yaw_torque(stackchan::motion::Motion& motion)
 
 inline void run_once()
 {
+    // The eye surface is already created by app_main. A full-screen startup overlay
+    // hides it until the branded splash and RGB sequence complete, then deletes
+    // itself to reveal the existing eye without rebuilding the LVGL surface.
+    kadence_startup::run();
+
     auto& motion = GetStackChan().motion();
     auto& yaw = motion.yawServo();
     auto& pitch = motion.pitchServo();
 
-    // Mirror the factory servo-test behaviour that synchronises the animation start
-    // from physical feedback, but control torque per axis so pitch remains untouched.
     yaw.setAutoAngleSyncEnabled(true);
     yaw.setAutoTorqueReleaseEnabled(false);
     pitch.setAutoTorqueReleaseEnabled(false);
