@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the pinned Kade Eye assets and generate an embedded C++ header."""
+"""Validate the vendored Kade Eye assets and generate an embedded C++ header."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ import wave
 from pathlib import Path
 
 PNG_ASSETS = {
-    "idle1_png": Path("avatars/optic-eye/idle1.png"),
-    "idle2_png": Path("avatars/optic-eye/idle2.png"),
-    "blink_png": Path("avatars/optic-eye/blink.png"),
-    "blink2_png": Path("avatars/optic-eye/blink2.png"),
-    "listening_png": Path("avatars/optic-eye/listening.png"),
-    "error_png": Path("avatars/optic-eye/error.png"),
+    "idle1_png": Path("optic-eye/idle1.png"),
+    "idle2_png": Path("optic-eye/idle2.png"),
+    "blink_png": Path("optic-eye/blink.png"),
+    "blink2_png": Path("optic-eye/blink2.png"),
+    "listening_png": Path("optic-eye/listening.png"),
+    "error_png": Path("optic-eye/error.png"),
 }
-BOOT_WAV = Path("firmware/assets/audio/boot.wav")
+BOOT_WAV = Path("audio/boot.wav")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
