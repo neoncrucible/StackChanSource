@@ -104,8 +104,25 @@ void disply_lvgl_unlock()
 
 void xiaozhi_board_init()
 {
-    // Init board
+    // StackChanAvatarDisplay creates the stock firmware/version BootLogo only
+    // when the warm-boot target is negative. Temporarily provide a non-negative
+    // target while the board/display is constructed, then restore the sentinel.
+    // This suppresses only the factory splash; it does not trigger a reboot or
+    // alter the stored servo calibration.
+    {
+        Settings warm_boot_settings("warm_boot", true);
+        warm_boot_settings.SetInt("app_index", 0);
+    }
+
     auto& board = Board::GetInstance();
+    (void)board;
+
+    {
+        Settings warm_boot_settings("warm_boot", true);
+        warm_boot_settings.SetInt("app_index", -1);
+    }
+
+    ESP_LOGI(_tag, "Factory boot logo suppressed for Project Kadence startup");
 }
 
 void start_xiaozhi_app()
