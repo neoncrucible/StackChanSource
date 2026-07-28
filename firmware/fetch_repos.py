@@ -40,7 +40,7 @@ def clone_or_update_repo(
 
 def generate_kade_assets(script_dir):
     generator = os.path.join(script_dir, "tools", "generate_kade_assets.py")
-    input_root = os.path.join(script_dir, "assets-source")
+    input_root = os.path.join(script_dir, "assets")
     output = os.path.join(script_dir, "main", "kade_assets_generated.h")
     subprocess.run(
         [
