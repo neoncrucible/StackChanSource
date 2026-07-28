@@ -1,0 +1,14 @@
+{
+  "name": "Optic Eye",
+  "format": "png",
+  "width": 320,
+  "height": 240,
+  "states": {
+    "idle_primary": "idle1.png",
+    "idle_secondary": "idle2.png",
+    "blink_closed": "blink.png",
+    "blink_half": "blink2.png",
+    "listening": "listening.png",
+    "error": "error.png"
+  }
+}

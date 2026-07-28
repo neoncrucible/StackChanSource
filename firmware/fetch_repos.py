@@ -1,13 +1,12 @@
+import json
 import os
 import subprocess
-import json
+import sys
 
 
 def clone_or_update_repo(
     repo_url, path, ref=None, with_submodules=False, patch_path=None
 ):
-    import os
-
     if not os.path.exists(path):
         subprocess.run(["git", "clone", repo_url, path], check=True)
     else:
@@ -22,14 +21,13 @@ def clone_or_update_repo(
             check=True,
         )
 
-    # 应用 patch
+    # Apply the factory dependency patch only when it still applies cleanly.
     if patch_path:
         patch_full_path = (
             patch_path
             if os.path.isabs(patch_path)
             else os.path.join(os.getcwd(), patch_path)
         )
-        # 使用 git apply --check 先检测补丁是否能应用，避免报错
         check_result = subprocess.run(
             ["git", "-C", path, "apply", "--check", patch_full_path]
         )
@@ -40,12 +38,29 @@ def clone_or_update_repo(
             print(f"Patch {patch_path} cannot be applied cleanly to {path}, skipped.")
 
 
+def generate_kade_assets(script_dir):
+    generator = os.path.join(script_dir, "tools", "generate_kade_assets.py")
+    input_root = os.path.join(script_dir, "assets")
+    output = os.path.join(script_dir, "main", "kade_assets_generated.h")
+    subprocess.run(
+        [
+            sys.executable,
+            generator,
+            "--input-root",
+            input_root,
+            "--output",
+            output,
+        ],
+        check=True,
+    )
+
+
 def fetch_dependencies():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "repos.json")
 
-    with open(config_path) as f:
-        repos = json.load(f)
+    with open(config_path, encoding="utf-8") as file:
+        repos = json.load(file)
 
     for repo in repos:
         repo_path = os.path.join(script_dir, repo["path"])
@@ -55,6 +70,8 @@ def fetch_dependencies():
         if patch and not os.path.isabs(patch):
             patch = os.path.join(script_dir, patch)
         clone_or_update_repo(repo["url"], repo_path, branch, with_submodules, patch)
+
+    generate_kade_assets(script_dir)
 
 
 if __name__ == "__main__":
