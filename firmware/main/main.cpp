@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "kade_assets_generated.h"
+#include "servo_yaw_checkpoint.h"
 
 using namespace smooth_ui_toolkit;
 
@@ -332,19 +333,39 @@ void start_boot_audio()
     }
 }
 
+void servo_checkpoint_task(void*)
+{
+    kade_servo_checkpoint::run_once();
+    vTaskDelete(nullptr);
+}
+
+void start_servo_checkpoint()
+{
+    const BaseType_t result = xTaskCreate(
+        servo_checkpoint_task,
+        "kade_servo_yaw",
+        4096,
+        nullptr,
+        5,
+        nullptr);
+    if (result != pdPASS) {
+        mclog::tagError(kLogTag, "failed to create servo yaw checkpoint task");
+    }
+}
+
 }  // namespace
 
 extern "C" void app_main(void)
 {
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
-    mclog::tagInfo(kLogTag, "starting Kade Eye v0.1");
+    mclog::tagInfo(kLogTag, "starting Kade Eye servo-yaw checkpoint v0.1");
 
     // Retain the official factory HAL initialisation path.
     GetHAL().init();
 
-    // This checkpoint is deliberately stationary. Never issue position
-    // commands, disable automatic motion behaviour and release both torques.
+    // Begin from the verified stationary safety state. The dedicated checkpoint
+    // task enables torque only immediately before its single controlled yaw move.
     auto& motion = GetStackChan().motion();
     motion.setAutoAngleSyncEnabled(false);
     motion.setAutoTorqueReleaseEnabled(false);
@@ -352,8 +373,9 @@ extern "C" void app_main(void)
 
     initialise_eye_surface();
     start_boot_audio();
+    start_servo_checkpoint();
 
-    mclog::tagInfo(kLogTag, "Kade Eye v0.1 stationary runtime ready");
+    mclog::tagInfo(kLogTag, "Kade Eye runtime ready; controlled yaw checkpoint scheduled once");
 
     while (true) {
         const uint32_t now = GetHAL().millis();
