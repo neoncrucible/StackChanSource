@@ -285,7 +285,8 @@ bool decode_wav_to_mono(const uint8_t* wav, std::size_t wav_size, uint32_t outpu
             sample += read_pcm_sample(frame + bytes_per_sample, bits_per_sample);
             sample /= 2;
         }
-        output[output_index] = static_cast<int16_t>(std::clamp(sample, -32768, 32767));
+        output[output_index] = static_cast<int16_t>(
+            std::clamp<int32_t>(sample, INT32_C(-32768), INT32_C(32767)));
     }
 
     mclog::tagInfo(kLogTag, "boot WAV decoded: {} Hz -> {} Hz, {} samples",
