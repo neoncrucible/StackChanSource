@@ -16,8 +16,8 @@ constexpr const char* kLogTag = "KADENCE-MOTION-CTRL";
 constexpr uint32_t kStepTimeoutMs = 4500;
 
 struct MotionStep {
-    int yaw;
-    int pitch;
+    int yaw_offset;
+    int pitch_offset;
     int speed;
     uint32_t hold_ms;
 };
@@ -125,11 +125,14 @@ public:
     }
 
 private:
+    // Every sequence is expressed as an offset from Project Kadence's runtime
+    // rest pose, not from factory calibrated zero. This preserves equal-looking
+    // movement around the visually corrected resting position.
     static constexpr std::array<MotionStep, 5> kNod = {{
         {0, 0, 320, 180},
-        {0, 90, 300, 160},
-        {0, -70, 300, 160},
-        {0, 70, 300, 160},
+        {0, 140, 300, 170},
+        {0, -50, 300, 170},
+        {0, 120, 300, 170},
         {0, 0, 320, 260},
     }};
 
@@ -143,9 +146,9 @@ private:
 
     static constexpr std::array<MotionStep, 5> kScan = {{
         {0, 0, 280, 220},
-        {-220, -40, 240, 260},
-        {0, 50, 240, 220},
-        {220, -40, 240, 260},
+        {-220, -30, 240, 260},
+        {0, 90, 240, 220},
+        {220, -30, 240, 260},
         {0, 0, 280, 300},
     }};
 
@@ -182,7 +185,7 @@ private:
         auto& motion = GetStackChan().motion();
         const MotionStep& requested = current_step();
         const kadence_motion::SafeTarget safe =
-            kadence_motion::clamp_target(requested.yaw, requested.pitch);
+            kadence_motion::offset_from_rest(requested.yaw_offset, requested.pitch_offset);
         const int speed = kadence_motion::clamp_speed(requested.speed);
 
         motion.moveWithSpeed(safe.yaw, safe.pitch, speed);
@@ -190,10 +193,12 @@ private:
         _deadline_ms = GetHAL().millis() + kStepTimeoutMs;
 
         mclog::tagInfo(kLogTag,
-                       "behaviour={} step={}/{} target=[{},{}] speed={}",
+                       "behaviour={} step={}/{} offset=[{},{}] target=[{},{}] speed={}",
                        static_cast<int>(_behaviour),
                        _step_index + 1,
                        _step_count,
+                       requested.yaw_offset,
+                       requested.pitch_offset,
                        safe.yaw,
                        safe.pitch,
                        speed);
@@ -204,7 +209,7 @@ private:
         auto& motion = GetStackChan().motion();
         kadence_motion::stop_and_release(motion);
         _state = State::Complete;
-        mclog::tagInfo(kLogTag, "behaviour complete; torque released");
+        mclog::tagInfo(kLogTag, "behaviour complete at rest pose; torque released");
     }
 
     void fail(const char* reason)
