@@ -125,31 +125,31 @@ public:
     }
 
 private:
-    // Every sequence is expressed as an offset from Project Kadence's runtime
-    // rest pose, not from factory calibrated zero. This preserves equal-looking
-    // movement around the visually corrected resting position.
+    // Offsets are relative to Project Kadence rest [80,300]. They follow the
+    // official factory pitch model: positive pitch offsets look upward and
+    // negative pitch offsets look downward.
     static constexpr std::array<MotionStep, 5> kNod = {{
-        {0, 0, 320, 180},
-        {0, 140, 300, 170},
-        {0, -50, 300, 170},
-        {0, 120, 300, 170},
-        {0, 0, 320, 260},
+        {0, 0, 700, 140},
+        {0, -200, 700, 120},
+        {0, 200, 700, 120},
+        {0, -200, 700, 120},
+        {0, 0, 700, 220},
     }};
 
     static constexpr std::array<MotionStep, 5> kShake = {{
-        {0, 0, 320, 180},
-        {-150, 0, 320, 150},
-        {150, 0, 320, 150},
-        {-120, 0, 320, 150},
-        {0, 0, 320, 260},
+        {0, 0, 700, 140},
+        {-180, 0, 700, 120},
+        {180, 0, 700, 120},
+        {-150, 0, 700, 120},
+        {0, 0, 700, 220},
     }};
 
     static constexpr std::array<MotionStep, 5> kScan = {{
-        {0, 0, 280, 220},
-        {-220, -30, 240, 260},
-        {0, 90, 240, 220},
-        {220, -30, 240, 260},
-        {0, 0, 280, 300},
+        {0, 0, 650, 180},
+        {-220, 120, 650, 220},
+        {0, -120, 650, 180},
+        {220, 120, 650, 220},
+        {0, 0, 650, 260},
     }};
 
     void select_sequence()
