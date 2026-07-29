@@ -11,9 +11,9 @@ namespace kade_servo_checkpoint {
 constexpr const char* kLogTag = "KADE-SERVO";
 constexpr uint32_t kCheckpointPauseMs = 650;
 
-inline bool run_yaw_checkpoint_step(kadence_motion::MotionPreset preset,
-                                    const char* label,
-                                    int speed = 280)
+inline bool run_checkpoint_step(kadence_motion::MotionPreset preset,
+                                const char* label,
+                                int speed = 260)
 {
     mclog::tagInfo(kLogTag, "servo checkpoint step: {}", label);
     const bool ok = kadence_motion::move_preset(preset, speed, true);
@@ -21,49 +21,74 @@ inline bool run_yaw_checkpoint_step(kadence_motion::MotionPreset preset,
     return ok;
 }
 
-// Hardware checkpoint sequence:
-//   calibrated home -> small left glance -> home -> small right glance -> home
+inline bool return_home_or_abort(const char* context)
+{
+    if (!kadence_motion::go_to_calibrated_home()) {
+        mclog::tagError(kLogTag, "{}; checkpoint aborted safely", context);
+        return false;
+    }
+    GetHAL().delay(kCheckpointPauseMs);
+    return true;
+}
+
+// Two-axis hardware checkpoint. StackChan supports yaw and pitch only; there is
+// no roll servo, so diagonal poses are combined yaw/pitch rather than true tilt.
+// Sequence:
+//   home -> up -> home -> down -> home -> upper-left diagonal -> home
+//        -> lower-right diagonal -> home -> torque released
 //
-// Pitch remains at calibrated zero throughout this first movement test. Every
-// step is bounded, waits for completion, releases torque and aborts safely if a
-// timeout occurs. No zero calibration is written.
+// Targets remain deliberately small: pitch 8 degrees and diagonal 14/7 degrees.
+// Every step is clamped, timeout-protected and returns to known calibrated home.
 inline void run_once()
 {
     kadence_startup::run();
 
-    mclog::tagInfo(kLogTag, "starting Alpha 1 yaw movement checkpoint");
+    mclog::tagInfo(kLogTag, "starting Alpha 1 two-axis movement checkpoint");
+    kadence_motion::log_servo_diagnostics();
 
-    if (!kadence_motion::go_to_calibrated_home()) {
-        mclog::tagError(kLogTag, "initial calibrated home failed; checkpoint aborted safely");
-        return;
-    }
-    GetHAL().delay(kCheckpointPauseMs);
-
-    if (!run_yaw_checkpoint_step(kadence_motion::MotionPreset::GlanceLeft,
-                                 "small left glance")) {
-        mclog::tagError(kLogTag, "left glance failed; checkpoint aborted safely");
+    if (!return_home_or_abort("initial calibrated home failed")) {
         return;
     }
 
-    if (!kadence_motion::go_to_calibrated_home()) {
-        mclog::tagError(kLogTag, "home after left glance failed; checkpoint aborted safely");
+    if (!run_checkpoint_step(kadence_motion::MotionPreset::LookUp,
+                             "look up 8 degrees")) {
+        mclog::tagError(kLogTag, "up movement failed; checkpoint aborted safely");
         return;
     }
-    GetHAL().delay(kCheckpointPauseMs);
-
-    if (!run_yaw_checkpoint_step(kadence_motion::MotionPreset::GlanceRight,
-                                 "small right glance")) {
-        mclog::tagError(kLogTag, "right glance failed; checkpoint aborted safely");
+    if (!return_home_or_abort("home after up movement failed")) {
         return;
     }
 
-    if (!kadence_motion::go_to_calibrated_home()) {
-        mclog::tagError(kLogTag, "final calibrated home failed; checkpoint ended safely");
+    if (!run_checkpoint_step(kadence_motion::MotionPreset::LookDown,
+                             "look down 8 degrees")) {
+        mclog::tagError(kLogTag, "down movement failed; checkpoint aborted safely");
+        return;
+    }
+    if (!return_home_or_abort("home after down movement failed")) {
         return;
     }
 
+    if (!run_checkpoint_step(kadence_motion::MotionPreset::DiagonalUpperLeft,
+                             "upper-left diagonal 14/7 degrees")) {
+        mclog::tagError(kLogTag, "upper-left diagonal failed; checkpoint aborted safely");
+        return;
+    }
+    if (!return_home_or_abort("home after upper-left diagonal failed")) {
+        return;
+    }
+
+    if (!run_checkpoint_step(kadence_motion::MotionPreset::DiagonalLowerRight,
+                             "lower-right diagonal 14/7 degrees")) {
+        mclog::tagError(kLogTag, "lower-right diagonal failed; checkpoint aborted safely");
+        return;
+    }
+    if (!return_home_or_abort("final calibrated home failed")) {
+        return;
+    }
+
+    kadence_motion::log_servo_diagnostics();
     mclog::tagInfo(kLogTag,
-                   "Alpha 1 yaw movement checkpoint complete; final torque released");
+                   "Alpha 1 two-axis movement checkpoint complete; final torque released");
 }
 
 }  // namespace kade_servo_checkpoint
