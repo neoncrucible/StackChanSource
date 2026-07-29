@@ -15,8 +15,11 @@ namespace kadence_idle_motion {
 
 constexpr const char* kLogTag = "KADENCE-IDLE-MOTION";
 
-// Production cadence: each completed gesture schedules a fresh random delay.
-// Idle movement remains active until explicitly disabled or power is removed.
+// Production cadence: enabling idle motion produces one prompt, visible gesture
+// immediately after the one-second confirmation frame. Every completed gesture
+// then schedules a fresh random production delay. Idle movement remains active
+// until explicitly disabled or power is removed.
+constexpr uint32_t kFirstGestureDelayMs = 1500;
 constexpr uint32_t kIntervalMinimumMs = 90000;
 constexpr uint32_t kIntervalMaximumMs = 180000;
 constexpr uint32_t kMotionTimeoutMs = 4500;
@@ -78,15 +81,16 @@ public:
             return;
         }
 
-        // Enabling movement never energises a servo by itself. The scheduler
-        // waits for the first production interval and enables torque only when
-        // an actual gesture begins.
+        // Enabling movement never energises a servo by itself. The first gesture
+        // begins immediately after the one-second confirmation frame, then the
+        // normal 90-180 second production cadence takes over.
         cancel_and_release();
         _enabled = true;
         _state = State::Waiting;
-        schedule_next(GetHAL().millis());
+        _next_tick_ms = GetHAL().millis() + kFirstGestureDelayMs;
         mclog::tagInfo(kLogTag,
-                       "enabled; torque remains released while waiting for next gesture");
+                       "enabled; first idle gesture scheduled in {} ms; torque remains released",
+                       kFirstGestureDelayMs);
     }
 
     void toggle()
@@ -100,7 +104,6 @@ public:
             return;
         }
 
-        auto& motion = GetStackChan().motion();
         const uint32_t now = GetHAL().millis();
 
         switch (_state) {
@@ -109,13 +112,11 @@ public:
                     return;
                 }
 
-                // Match the official idle-motion lifecycle: never queue a new
-                // command on top of an existing movement.
-                if (motion.isMoving()) {
-                    _next_tick_ms = now + 500;
-                    return;
-                }
-
+                // Do not gate an owned idle gesture on Motion::isMoving(). The
+                // official ScsServo implementation treats a failed ReadMove (-1)
+                // as true, which can postpone a torque-off idle gesture forever.
+                // This service owns the motion request while enabled and tracks
+                // its lifecycle with proven position read-back instead.
                 begin_random_gesture(now);
                 return;
 
@@ -125,22 +126,12 @@ public:
                     return;
                 }
 
-                if (!motion.isMoving()) {
-                    const auto current = motion.getCurrentAngles();
-                    const kadence_motion::SafeTarget actual{current.x, current.y};
-                    if (!kadence_motion::readback_matches(_active_target, actual)) {
-                        mclog::tagError(kLogTag,
-                                        "idle gesture read-back failed: target=[{},{}], actual=[{},{}]",
-                                        _active_target.yaw,
-                                        _active_target.pitch,
-                                        actual.yaw,
-                                        actual.pitch);
-                        fail_closed("idle gesture target was not reached");
-                        return;
-                    }
-
+                if (target_reached(_active_target)) {
                     _state = State::Holding;
                     _deadline_ms = now + _hold_ms;
+                    mclog::tagInfo(kLogTag,
+                                   "idle gesture target reached; holding for {} ms",
+                                   _hold_ms);
                 }
                 return;
 
@@ -151,9 +142,9 @@ public:
 
                 // Keep torque enabled only long enough to return to the approved
                 // Project Kadence rest pose, then release it immediately.
-                motion.moveWithSpeed(kadence_motion::kRestYaw,
-                                     kadence_motion::kRestPitch,
-                                     _speed);
+                GetStackChan().motion().moveWithSpeed(kadence_motion::kRestYaw,
+                                                      kadence_motion::kRestPitch,
+                                                      _speed);
                 _state = State::Returning;
                 _deadline_ms = now + kMotionTimeoutMs;
                 mclog::tagInfo(kLogTag,
@@ -163,37 +154,25 @@ public:
                                _speed);
                 return;
 
-            case State::Returning:
+            case State::Returning: {
                 if (deadline_reached(now, _deadline_ms)) {
                     fail_closed("idle gesture return movement timed out");
                     return;
                 }
 
-                if (!motion.isMoving()) {
-                    const auto current = motion.getCurrentAngles();
-                    const kadence_motion::SafeTarget actual{current.x, current.y};
-                    const kadence_motion::SafeTarget rest{
-                        kadence_motion::kRestYaw,
-                        kadence_motion::kRestPitch,
-                    };
-                    if (!kadence_motion::readback_matches(rest, actual)) {
-                        mclog::tagError(kLogTag,
-                                        "idle rest read-back failed: target=[{},{}], actual=[{},{}]",
-                                        rest.yaw,
-                                        rest.pitch,
-                                        actual.yaw,
-                                        actual.pitch);
-                        fail_closed("idle gesture did not return to rest");
-                        return;
-                    }
-
-                    kadence_motion::stop_and_release(motion);
+                const kadence_motion::SafeTarget rest{
+                    kadence_motion::kRestYaw,
+                    kadence_motion::kRestPitch,
+                };
+                if (target_reached(rest)) {
+                    kadence_motion::stop_and_release(GetStackChan().motion());
                     _state = State::Waiting;
                     schedule_next(now);
                     mclog::tagInfo(kLogTag,
                                    "idle gesture complete at rest; torque released");
                 }
                 return;
+            }
 
             case State::Disabled:
             default:
@@ -202,15 +181,18 @@ public:
     }
 
 private:
+    // Slightly larger than the first candidate so each movement remains subtle
+    // but is unmistakable during physical sign-off. All targets remain well
+    // inside the physically approved factory-coordinate envelope.
     static constexpr std::array<GestureTarget, 8> kGestures = {{
-        {20, 300, "small glance left"},
-        {140, 300, "small glance right"},
-        {80, 360, "slight look up"},
-        {80, 240, "slight look down"},
-        {30, 350, "small upper-left glance"},
-        {130, 350, "small upper-right glance"},
-        {30, 250, "small lower-left glance"},
-        {130, 250, "small lower-right glance"},
+        {-20, 300, "small glance left"},
+        {180, 300, "small glance right"},
+        {80, 380, "slight look up"},
+        {80, 220, "slight look down"},
+        {0, 370, "small upper-left glance"},
+        {160, 370, "small upper-right glance"},
+        {0, 230, "small lower-left glance"},
+        {160, 230, "small lower-right glance"},
     }};
 
     static bool deadline_reached(uint32_t now, uint32_t deadline)
@@ -221,6 +203,13 @@ private:
     static uint32_t random_between(uint32_t minimum, uint32_t maximum)
     {
         return minimum + (esp_random() % (maximum - minimum + 1));
+    }
+
+    static bool target_reached(const kadence_motion::SafeTarget& target)
+    {
+        const auto current = GetStackChan().motion().getCurrentAngles();
+        const kadence_motion::SafeTarget actual{current.x, current.y};
+        return kadence_motion::readback_matches(target, actual);
     }
 
     void schedule_next(uint32_t now)
@@ -237,8 +226,8 @@ private:
         const GestureTarget& requested = kGestures[index];
 
         _active_target = kadence_motion::clamp_target(requested.yaw, requested.pitch);
-        _speed = static_cast<int>(random_between(220, 280));
-        _hold_ms = random_between(250, 450);
+        _speed = static_cast<int>(random_between(260, 340));
+        _hold_ms = random_between(300, 500);
 
         kadence_motion::prepare_controlled_move(motion);
         motion.moveWithSpeed(_active_target.yaw, _active_target.pitch, _speed);
@@ -256,8 +245,7 @@ private:
 
     void cancel_and_release()
     {
-        auto& motion = GetStackChan().motion();
-        kadence_motion::stop_and_release(motion);
+        kadence_motion::stop_and_release(GetStackChan().motion());
     }
 
     void fail_closed(const char* reason)
@@ -275,7 +263,7 @@ private:
     uint32_t _next_tick_ms = 0;
     uint32_t _deadline_ms = 0;
     uint32_t _hold_ms = 0;
-    int _speed = 240;
+    int _speed = 300;
     kadence_motion::SafeTarget _active_target{
         kadence_motion::kRestYaw,
         kadence_motion::kRestPitch,
