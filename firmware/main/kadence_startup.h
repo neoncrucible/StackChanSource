@@ -15,7 +15,8 @@ namespace kadence_startup {
 constexpr const char* kLogTag = "KADENCE-BOOT";
 constexpr uint32_t kSplashHoldMs = 1750;
 constexpr uint32_t kColourHoldMs = 220;
-constexpr uint32_t kBlackoutSettleMs = 180;
+constexpr uint32_t kRainbowHoldMs = 85;
+constexpr uint32_t kBlackoutSettleMs = 500;
 
 inline lv_obj_t* create_project_kadence_overlay()
 {
@@ -80,10 +81,31 @@ inline void set_both_neon_colours(uint32_t colour, float duration_seconds)
     stackchan.rightNeonLight().setColor(colour);
 }
 
+inline void hold_colour(uint32_t colour, uint32_t hold_ms, float duration_seconds)
+{
+    set_both_neon_colours(colour, duration_seconds);
+    const uint32_t deadline = GetHAL().millis() + hold_ms;
+    while (static_cast<int32_t>(GetHAL().millis() - deadline) < 0) {
+        GetStackChan().update();
+        GetHAL().feedTheDog();
+        GetHAL().delay(20);
+    }
+}
+
 inline void hard_blackout_rgb_arrays()
 {
+    auto& stackchan = GetStackChan();
+
+    // Stop the high-level neon animations first. Otherwise a later StackChan
+    // update can repaint the last animated colour after the raw LEDs were cleared.
+    stackchan.leftNeonLight().setDuration(0.0f);
+    stackchan.rightNeonLight().setDuration(0.0f);
+    stackchan.leftNeonLight().setColor(0x000000);
+    stackchan.rightNeonLight().setColor(0x000000);
+
     const uint32_t deadline = GetHAL().millis() + kBlackoutSettleMs;
     do {
+        GetStackChan().update();
         for (uint8_t index = 0; index < 12; ++index) {
             GetHAL().setRgbColor(index, 0, 0, 0);
         }
@@ -92,30 +114,39 @@ inline void hard_blackout_rgb_arrays()
         GetHAL().delay(20);
     } while (static_cast<int32_t>(GetHAL().millis() - deadline) < 0);
 
-    mclog::tagInfo(kLogTag, "RGB arrays hard-latched off");
+    mclog::tagInfo(kLogTag, "RGB animations stopped and arrays hard-latched off");
 }
 
 inline void run_rgb_boot_cycle()
 {
-    constexpr std::array<uint32_t, 4> colours = {
+    constexpr std::array<uint32_t, 4> signature_colours = {
         0xD71920,
         0x8A0F14,
         0xF2F2F2,
         0xD71920,
     };
 
-    for (const uint32_t colour : colours) {
-        set_both_neon_colours(colour, 0.16f);
-        const uint32_t deadline = GetHAL().millis() + kColourHoldMs;
-        while (static_cast<int32_t>(GetHAL().millis() - deadline) < 0) {
-            GetStackChan().update();
-            GetHAL().feedTheDog();
-            GetHAL().delay(20);
-        }
+    for (const uint32_t colour : signature_colours) {
+        hold_colour(colour, kColourHoldMs, 0.16f);
+    }
+
+    // Final fast full-spectrum flourish before both arrays are forced dark.
+    constexpr std::array<uint32_t, 7> rainbow = {
+        0xFF0000,
+        0xFF7F00,
+        0xFFFF00,
+        0x00FF00,
+        0x00BFFF,
+        0x0000FF,
+        0x8B00FF,
+    };
+
+    for (const uint32_t colour : rainbow) {
+        hold_colour(colour, kRainbowHoldMs, 0.05f);
     }
 
     hard_blackout_rgb_arrays();
-    mclog::tagInfo(kLogTag, "RGB boot cycle complete");
+    mclog::tagInfo(kLogTag, "RGB boot cycle and full-colour sweep complete");
 }
 
 inline void run()
@@ -138,7 +169,6 @@ inline void run()
     }
 
     run_rgb_boot_cycle();
-    hard_blackout_rgb_arrays();
     remove_overlay(overlay);
     hard_blackout_rgb_arrays();
 }
