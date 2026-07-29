@@ -3,92 +3,90 @@
 #include <hal/hal.h>
 #include <mooncake_log.h>
 
+#include "kadence_motion_controller.h"
 #include "kadence_startup.h"
 #include "safe_motion_foundation.h"
 
 namespace kade_servo_checkpoint {
 
 constexpr const char* kLogTag = "KADE-SERVO";
-constexpr uint32_t kCheckpointPauseMs = 650;
+constexpr uint32_t kLoopDelayMs = 20;
+constexpr uint32_t kBehaviourPauseMs = 700;
 
-inline bool run_checkpoint_step(kadence_motion::MotionPreset preset,
-                                const char* label,
-                                int speed = 260)
+inline bool run_behaviour(kadence_motion_controller::Controller& controller,
+                          kadence_motion_controller::Behaviour behaviour,
+                          const char* label)
 {
-    mclog::tagInfo(kLogTag, "servo checkpoint step: {}", label);
-    const bool ok = kadence_motion::move_preset(preset, speed, true);
-    GetHAL().delay(kCheckpointPauseMs);
-    return ok;
-}
+    mclog::tagInfo(kLogTag, "starting non-blocking behaviour: {}", label);
 
-inline bool return_home_or_abort(const char* context)
-{
-    if (!kadence_motion::go_to_calibrated_home()) {
-        mclog::tagError(kLogTag, "{}; checkpoint aborted safely", context);
+    if (!controller.start(behaviour)) {
+        mclog::tagError(kLogTag, "could not start behaviour: {}", label);
         return false;
     }
-    GetHAL().delay(kCheckpointPauseMs);
+
+    while (controller.isBusy()) {
+        controller.update();
+        GetStackChan().update();
+        GetHAL().feedTheDog();
+        GetHAL().delay(kLoopDelayMs);
+    }
+
+    if (controller.hasFailed()) {
+        mclog::tagError(kLogTag, "behaviour failed safely: {}", label);
+        return false;
+    }
+
+    mclog::tagInfo(kLogTag, "behaviour complete: {}", label);
+    GetHAL().delay(kBehaviourPauseMs);
     return true;
 }
 
-// Two-axis hardware checkpoint. StackChan supports yaw and pitch only; there is
-// no roll servo, so diagonal poses are combined yaw/pitch rather than true tilt.
-// Sequence:
-//   home -> up -> home -> down -> home -> upper-left diagonal -> home
-//        -> lower-right diagonal -> home -> torque released
+// Non-blocking motion-controller hardware checkpoint:
+//   startup -> calibrated home -> nod -> shake -> scan -> calibrated home
 //
-// Targets remain deliberately small: pitch 8 degrees and diagonal 14/7 degrees.
-// Every step is clamped, timeout-protected and returns to known calibrated home.
+// Controller::update() advances each behaviour incrementally, allowing the main
+// StackChan update, watchdog and other runtime work to continue between servo
+// commands. All targets remain inside the already proven yaw/pitch envelope.
 inline void run_once()
 {
     kadence_startup::run();
-
-    mclog::tagInfo(kLogTag, "starting Alpha 1 two-axis movement checkpoint");
+    mclog::tagInfo(kLogTag, "starting Alpha 1 non-blocking motion checkpoint");
     kadence_motion::log_servo_diagnostics();
 
-    if (!return_home_or_abort("initial calibrated home failed")) {
+    if (!kadence_motion::go_to_calibrated_home()) {
+        mclog::tagError(kLogTag, "initial calibrated home failed; checkpoint aborted safely");
+        return;
+    }
+    GetHAL().delay(kBehaviourPauseMs);
+
+    kadence_motion_controller::Controller controller;
+
+    if (!run_behaviour(controller,
+                       kadence_motion_controller::Behaviour::Nod,
+                       "nod")) {
         return;
     }
 
-    if (!run_checkpoint_step(kadence_motion::MotionPreset::LookUp,
-                             "look up 8 degrees")) {
-        mclog::tagError(kLogTag, "up movement failed; checkpoint aborted safely");
-        return;
-    }
-    if (!return_home_or_abort("home after up movement failed")) {
+    if (!run_behaviour(controller,
+                       kadence_motion_controller::Behaviour::Shake,
+                       "shake")) {
         return;
     }
 
-    if (!run_checkpoint_step(kadence_motion::MotionPreset::LookDown,
-                             "look down 8 degrees")) {
-        mclog::tagError(kLogTag, "down movement failed; checkpoint aborted safely");
-        return;
-    }
-    if (!return_home_or_abort("home after down movement failed")) {
+    if (!run_behaviour(controller,
+                       kadence_motion_controller::Behaviour::Scan,
+                       "scan")) {
         return;
     }
 
-    if (!run_checkpoint_step(kadence_motion::MotionPreset::DiagonalUpperLeft,
-                             "upper-left diagonal 14/7 degrees")) {
-        mclog::tagError(kLogTag, "upper-left diagonal failed; checkpoint aborted safely");
-        return;
-    }
-    if (!return_home_or_abort("home after upper-left diagonal failed")) {
-        return;
-    }
-
-    if (!run_checkpoint_step(kadence_motion::MotionPreset::DiagonalLowerRight,
-                             "lower-right diagonal 14/7 degrees")) {
-        mclog::tagError(kLogTag, "lower-right diagonal failed; checkpoint aborted safely");
-        return;
-    }
-    if (!return_home_or_abort("final calibrated home failed")) {
+    if (!kadence_motion::go_to_calibrated_home()) {
+        mclog::tagError(kLogTag, "final calibrated home failed; checkpoint ended safely");
         return;
     }
 
     kadence_motion::log_servo_diagnostics();
     mclog::tagInfo(kLogTag,
-                   "Alpha 1 two-axis movement checkpoint complete; final torque released");
+                   "Alpha 1 non-blocking motion checkpoint complete; torque released");
 }
 
 }  // namespace kade_servo_checkpoint
