@@ -1,0 +1,88 @@
+name: Clean Voice UI foundation
+
+on:
+  pull_request:
+    branches:
+      - feature/alpha1-startup-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out voice branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/voice-checkpoint-1
+
+      - name: Remove duplicate generated blocks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('firmware/main/main.cpp')
+          text = path.read_text(encoding='utf-8')
+
+          signature = 'void update_voice_ui(uint32_t now)\n'
+          first = text.find(signature)
+          second = text.find(signature, first + len(signature)) if first >= 0 else -1
+          if second >= 0:
+              eye = text.find('void update_eye_state(uint32_t now)\n', second)
+              if eye < 0:
+                  raise SystemExit('could not locate eye updater after duplicate voice updater')
+              text = text[:second] + text[eye:]
+
+          duplicate_guard = (
+              '    if (g_voice_ui_runtime.state != VoiceUiState::Idle) {\n'
+              '        return;\n'
+              '    }\n\n'
+              '    if (g_voice_ui_runtime.state != VoiceUiState::Idle) {\n'
+              '        return;\n'
+              '    }\n'
+          )
+          single_guard = (
+              '    if (g_voice_ui_runtime.state != VoiceUiState::Idle) {\n'
+              '        return;\n'
+              '    }\n'
+          )
+          text = text.replace(duplicate_guard, single_guard, 1)
+          text = text.replace(
+              '            g_touch_swipe_direction = 0;\n'
+              '            g_touch_swipe_direction = 0;\n',
+              '            g_touch_swipe_direction = 0;\n',
+              1,
+          )
+          text = text.replace(
+              '        update_voice_ui(now);\n'
+              '        update_voice_ui(now);\n',
+              '        update_voice_ui(now);\n',
+              1,
+          )
+
+          if text.count(signature) != 1:
+              raise SystemExit(f'expected one voice updater, found {text.count(signature)}')
+          if text.count('        update_voice_ui(now);\n') != 1:
+              raise SystemExit('runtime must call voice updater exactly once')
+          if duplicate_guard in text:
+              raise SystemExit('duplicate voice guard remains')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add firmware/main/main.cpp
+          if git diff --cached --quiet; then
+            echo "Voice UI foundation is already clean."
+            exit 0
+          fi
+          git commit -m "Clean duplicate voice UI foundation blocks"
+          git push origin HEAD:feature/voice-checkpoint-1
