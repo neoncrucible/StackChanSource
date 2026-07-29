@@ -15,19 +15,27 @@
 #include <freertos/task.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <vector>
 
 #include "kade_assets_generated.h"
-#include "servo_yaw_checkpoint.h"
+#include "kadence_idle_motion.h"
+#include "kadence_startup.h"
+#include "safe_motion_foundation.h"
 
 using namespace smooth_ui_toolkit;
 
 namespace {
 
 constexpr const char* kLogTag = "KADE-EYE";
+constexpr uint32_t kIdleMotionConfirmationMs = 1000;
+
+constexpr uint32_t kTouchEventPress = 1U << 0;
+constexpr uint32_t kTouchEventRelease = 1U << 1;
+constexpr uint32_t kTouchEventSwipe = 1U << 2;
 
 lv_obj_t* g_eye_image = nullptr;
 lv_image_dsc_t g_idle1_dsc{};
@@ -50,9 +58,18 @@ struct EyeRuntime {
     uint32_t state_deadline_ms = 0;
     uint32_t next_blink_ms = 0;
     uint32_t next_idle_variation_ms = 0;
+    bool confirmation_active = false;
+    uint32_t confirmation_deadline_ms = 0;
 };
 
 EyeRuntime g_eye_runtime;
+kadence_idle_motion::Service g_idle_motion;
+std::atomic<uint32_t> g_head_touch_events{0};
+std::atomic<bool> g_startup_complete{false};
+
+bool g_touch_active = false;
+bool g_touch_swiped = false;
+int g_head_touch_connection = -1;
 
 uint32_t random_between(uint32_t minimum, uint32_t maximum)
 {
@@ -91,6 +108,24 @@ void show_frame(const lv_image_dsc_t& frame)
     lv_obj_invalidate(g_eye_image);
 }
 
+void reset_eye_runtime(uint32_t now)
+{
+    show_frame(g_idle1_dsc);
+    g_eye_runtime.state = EyeState::IdlePrimary;
+    g_eye_runtime.state_deadline_ms = 0;
+    g_eye_runtime.next_blink_ms = now + random_between(3000, 8000);
+    g_eye_runtime.next_idle_variation_ms = now + random_between(9000, 16000);
+}
+
+void show_idle_motion_confirmation(uint32_t now)
+{
+    // Use the repository's existing listening.png asset (Image Gen 5) for both
+    // toggle directions. The changed movement state is also recorded in logs.
+    show_frame(g_listening_dsc);
+    g_eye_runtime.confirmation_active = true;
+    g_eye_runtime.confirmation_deadline_ms = now + kIdleMotionConfirmationMs;
+}
+
 void initialise_eye_surface()
 {
     initialise_image_descriptors();
@@ -117,6 +152,14 @@ void initialise_eye_surface()
 
 void update_eye_state(uint32_t now)
 {
+    if (g_eye_runtime.confirmation_active) {
+        if (deadline_reached(now, g_eye_runtime.confirmation_deadline_ms)) {
+            g_eye_runtime.confirmation_active = false;
+            reset_eye_runtime(now);
+        }
+        return;
+    }
+
     switch (g_eye_runtime.state) {
         case EyeState::BlinkClosing:
             if (deadline_reached(now, g_eye_runtime.state_deadline_ms)) {
@@ -175,6 +218,64 @@ void update_eye_state(uint32_t now)
         g_eye_runtime.state = EyeState::IdleSecondary;
         g_eye_runtime.state_deadline_ms = now + random_between(700, 1500);
     }
+}
+
+void initialise_head_touch_toggle()
+{
+    // The official Si12T task emits Press/Release/Swipe events. Keep its callback
+    // minimal and consume the flags from the normal 50 Hz runtime loop.
+    g_head_touch_connection = GetHAL().onHeadPetGesture.connect([](HeadPetGesture gesture) {
+        switch (gesture) {
+            case HeadPetGesture::Press:
+                g_head_touch_events.fetch_or(kTouchEventPress);
+                break;
+            case HeadPetGesture::Release:
+                g_head_touch_events.fetch_or(kTouchEventRelease);
+                break;
+            case HeadPetGesture::SwipeForward:
+            case HeadPetGesture::SwipeBackward:
+                g_head_touch_events.fetch_or(kTouchEventSwipe);
+                break;
+            case HeadPetGesture::None:
+            default:
+                break;
+        }
+    });
+
+    mclog::tagInfo(kLogTag,
+                   "head-touch idle-motion toggle connected (signal connection {})",
+                   g_head_touch_connection);
+}
+
+void process_head_touch_events(uint32_t now)
+{
+    const uint32_t events = g_head_touch_events.exchange(0);
+
+    if ((events & kTouchEventPress) != 0U) {
+        g_touch_active = true;
+        g_touch_swiped = false;
+    }
+
+    if ((events & kTouchEventSwipe) != 0U) {
+        g_touch_swiped = true;
+    }
+
+    if ((events & kTouchEventRelease) == 0U) {
+        return;
+    }
+
+    // A clean tap toggles idle movement. Swipes stay available for later voice,
+    // petting or UI features and never toggle motion accidentally.
+    if (g_touch_active && !g_touch_swiped) {
+        g_idle_motion.toggle();
+        show_idle_motion_confirmation(now);
+        mclog::tagInfo(kLogTag,
+                       "touch toggle: idle motion {}",
+                       g_idle_motion.enabled() ? "enabled" : "disabled");
+    }
+
+    g_touch_active = false;
+    g_touch_swiped = false;
 }
 
 uint16_t read_u16_le(const uint8_t* data)
@@ -333,23 +434,32 @@ void start_boot_audio()
     }
 }
 
-void servo_checkpoint_task(void*)
+void project_kadence_startup_task(void*)
 {
-    kade_servo_checkpoint::run_once();
+    kadence_startup::run();
+
+    // Startup completion is a stationary production state. Restore the official
+    // servicing policy, explicitly release both torques, and let the main runtime
+    // become the sole 50 Hz StackChan updater.
+    kadence_motion::restore_factory_idle_policy(GetStackChan().motion());
+    g_startup_complete.store(true);
+
+    mclog::tagInfo(kLogTag,
+                   "startup complete; idle motion is OFF and servo torque is released");
     vTaskDelete(nullptr);
 }
 
-void start_servo_checkpoint()
+void start_project_kadence_startup()
 {
     const BaseType_t result = xTaskCreate(
-        servo_checkpoint_task,
-        "kade_servo_yaw",
+        project_kadence_startup_task,
+        "kade_startup",
         4096,
         nullptr,
         5,
         nullptr);
     if (result != pdPASS) {
-        mclog::tagError(kLogTag, "failed to create servo yaw checkpoint task");
+        mclog::tagError(kLogTag, "failed to create Project Kadence startup task");
     }
 }
 
@@ -359,26 +469,43 @@ extern "C" void app_main(void)
 {
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
-    mclog::tagInfo(kLogTag, "starting Kade Eye servo-yaw checkpoint v0.1");
+    mclog::tagInfo(kLogTag, "starting Project Kadence production idle-motion runtime");
 
-    // Retain the official factory HAL initialisation path.
+    // Retain the official factory HAL initialisation path, including the Si12T
+    // head-touch task and its HeadPetGesture signal.
     GetHAL().init();
 
-    // Begin from the verified stationary safety state. The dedicated checkpoint
-    // task enables torque only immediately before its single controlled yaw move.
-    auto& motion = GetStackChan().motion();
-    motion.setAutoAngleSyncEnabled(false);
-    motion.setAutoTorqueReleaseEnabled(false);
-    motion.setTorqueEnabled(false);
+    // Safe production default: no movement request means both torques are off.
+    // The physically signed-off movement checkpoint remains in source as a
+    // recovery diagnostic but is no longer executed automatically on boot.
+    kadence_motion::restore_factory_idle_policy(GetStackChan().motion());
+    g_idle_motion.initialise();
 
     initialise_eye_surface();
+    initialise_head_touch_toggle();
     start_boot_audio();
-    start_servo_checkpoint();
+    start_project_kadence_startup();
 
-    mclog::tagInfo(kLogTag, "Kade Eye runtime ready; controlled yaw checkpoint scheduled once");
+    mclog::tagInfo(kLogTag,
+                   "runtime ready; tap head sensor to toggle persistent idle movement");
 
     while (true) {
         const uint32_t now = GetHAL().millis();
+
+        if (g_startup_complete.load()) {
+            // Match the official firmware lifecycle. This is the sole permanent
+            // StackChan update path after the startup task hands control over.
+            GetStackChan().update();
+            process_head_touch_events(now);
+            g_idle_motion.update();
+        } else {
+            // Ignore accidental startup touches and keep the boot sequence
+            // stationary. The startup task services StackChan while it runs.
+            g_head_touch_events.exchange(0);
+            g_touch_active = false;
+            g_touch_swiped = false;
+        }
+
         update_eye_state(now);
         GetHAL().feedTheDog();
         GetHAL().updateHeapStatusLog();
