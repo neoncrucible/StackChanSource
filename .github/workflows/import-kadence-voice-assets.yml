@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/voice-checkpoint-1
+  pull_request:
+    branches:
+      - feature/alpha1-startup-foundation
 
 permissions:
   contents: write
