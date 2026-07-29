@@ -11,13 +11,12 @@ namespace kadence_motion {
 
 constexpr const char* kLogTag = "KADENCE-MOTION";
 
-// Project Kadence movement coordinates are calibrated offsets from the stored
-// servo zero: [0,0] is the official goHome() position. The BSP's documented
-// yaw/pitch angle limits describe the underlying physical servo domain and must
-// not be reused as calibrated movement coordinates.
+// StackChan has two rotational axes only: yaw (left/right) and pitch (up/down).
+// There is no roll axis, so a true head tilt/twist is physically impossible.
+// Diagonal poses are simultaneous yaw and pitch commands.
 //
-// Alpha 1 therefore uses a deliberately narrow envelope around calibrated home.
-// Wider limits must only be introduced after staged hardware observation.
+// Motion values are tenths of a degree relative to stored calibrated home:
+// [0,0] is the official goHome() position, 100 = 10 degrees.
 constexpr int kSafeYawMinimum = -320;
 constexpr int kSafeYawMaximum = 320;
 constexpr int kSafePitchMinimum = -180;
@@ -39,8 +38,10 @@ enum class MotionPreset : uint8_t {
     GlanceRight,
     LookUp,
     LookDown,
-    CuriousLeft,
-    CuriousRight,
+    DiagonalUpperLeft,
+    DiagonalUpperRight,
+    DiagonalLowerLeft,
+    DiagonalLowerRight,
 };
 
 inline SafeTarget clamp_target(int yaw, int pitch)
@@ -64,17 +65,38 @@ inline SafeTarget preset_target(MotionPreset preset)
         case MotionPreset::GlanceRight:
             return {180, 0};
         case MotionPreset::LookUp:
-            return {0, -100};
+            return {0, -80};
         case MotionPreset::LookDown:
-            return {0, 100};
-        case MotionPreset::CuriousLeft:
+            return {0, 80};
+        case MotionPreset::DiagonalUpperLeft:
             return {-140, -70};
-        case MotionPreset::CuriousRight:
+        case MotionPreset::DiagonalUpperRight:
             return {140, -70};
+        case MotionPreset::DiagonalLowerLeft:
+            return {-140, 70};
+        case MotionPreset::DiagonalLowerRight:
+            return {140, 70};
         case MotionPreset::Home:
         default:
             return {0, 0};
     }
+}
+
+inline void log_servo_diagnostics()
+{
+    auto& motion = GetStackChan().motion();
+    const auto yaw_limits = motion.yawServo().getAngleLimit();
+    const auto pitch_limits = motion.pitchServo().getAngleLimit();
+    const auto current = motion.getCurrentAngles();
+
+    mclog::tagInfo(kLogTag,
+                   "servo diagnostics: yaw limits [{},{}], pitch limits [{},{}], current [{},{}]",
+                   yaw_limits.x,
+                   yaw_limits.y,
+                   pitch_limits.x,
+                   pitch_limits.y,
+                   current.x,
+                   current.y);
 }
 
 inline void release_all_torque(stackchan::motion::Motion& motion)
@@ -132,7 +154,10 @@ inline bool move_safe(int yaw, int pitch, int speed, bool release_torque = true)
     if (safe.yaw != yaw || safe.pitch != pitch) {
         mclog::tagWarn(kLogTag,
                        "calibrated target clamped from [{},{}] to [{},{}]",
-                       yaw, pitch, safe.yaw, safe.pitch);
+                       yaw,
+                       pitch,
+                       safe.yaw,
+                       safe.pitch);
     }
 
     prepare_controlled_move(motion);
@@ -141,7 +166,8 @@ inline bool move_safe(int yaw, int pitch, int speed, bool release_torque = true)
     if (!wait_for_stop(motion, kMoveTimeoutMs)) {
         mclog::tagError(kLogTag,
                         "movement to calibrated target [{},{}] timed out",
-                        safe.yaw, safe.pitch);
+                        safe.yaw,
+                        safe.pitch);
         stop_and_release(motion);
         return false;
     }
@@ -152,7 +178,9 @@ inline bool move_safe(int yaw, int pitch, int speed, bool release_torque = true)
 
     mclog::tagInfo(kLogTag,
                    "calibrated target reached [{},{}] at speed {}",
-                   safe.yaw, safe.pitch, safe_speed);
+                   safe.yaw,
+                   safe.pitch,
+                   safe_speed);
     return true;
 }
 
