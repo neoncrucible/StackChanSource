@@ -209,8 +209,44 @@ void update_voice_ui(uint32_t now)
     }
 }
 
+void update_voice_ui(uint32_t now)
+{
+    switch (g_voice_ui_runtime.state) {
+        case VoiceUiState::CuePlaying:
+            if (g_listening_cue_complete.exchange(false)) {
+                g_voice_ui_runtime.state = VoiceUiState::Listening;
+                g_voice_ui_runtime.green_frame_visible = true;
+                g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
+                g_voice_capture_allowed.store(true);
+                show_frame(g_listening2_dsc);
+                mclog::tagInfo(kLogTag,
+                               "listening cue complete; robot microphone capture gate open");
+            }
+            return;
+
+        case VoiceUiState::Listening:
+            if (deadline_reached(now, g_voice_ui_runtime.next_pulse_ms)) {
+                g_voice_ui_runtime.green_frame_visible =
+                    !g_voice_ui_runtime.green_frame_visible;
+                show_frame(g_voice_ui_runtime.green_frame_visible
+                               ? g_listening2_dsc
+                               : g_listening_dsc);
+                g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
+            }
+            return;
+
+        case VoiceUiState::Idle:
+        default:
+            return;
+    }
+}
+
 void update_eye_state(uint32_t now)
 {
+    if (g_voice_ui_runtime.state != VoiceUiState::Idle) {
+        return;
+    }
+
     if (g_voice_ui_runtime.state != VoiceUiState::Idle) {
         return;
     }
@@ -671,8 +707,10 @@ extern "C" void app_main(void)
             g_touch_active = false;
             g_touch_swiped = false;
             g_touch_swipe_direction = 0;
+            g_touch_swipe_direction = 0;
         }
 
+        update_voice_ui(now);
         update_voice_ui(now);
         update_eye_state(now);
         GetHAL().feedTheDog();
