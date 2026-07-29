@@ -27,11 +27,10 @@ constexpr int kHomeSpeed = 500;
 constexpr uint32_t kMoveTimeoutMs = 4500;
 constexpr uint32_t kHomeTimeoutMs = 7000;
 
-// Project Kadence's visual rest pose is deliberately offset from factory zero.
-// This is a runtime target only: it never overwrites the stored servo calibration.
-// Positive yaw moves right; negative pitch moves up.
-constexpr int kRestYaw = 80;      // 8 degrees right.
-constexpr int kRestPitch = -100;  // 10 degrees up.
+// Runtime rest pose only; stored calibration is never modified.
+// Pitch is deliberately kept inside the physically signed-off -80..+80 range.
+constexpr int kRestYaw = 80;     // 8 degrees right.
+constexpr int kRestPitch = -40;  // 4 degrees up.
 
 struct SafeTarget {
     int yaw;
@@ -72,21 +71,21 @@ inline SafeTarget preset_target(MotionPreset preset)
 {
     switch (preset) {
         case MotionPreset::GlanceLeft:
-            return offset_from_rest(-180, 0);
+            return {-100, kRestPitch};
         case MotionPreset::GlanceRight:
-            return offset_from_rest(180, 0);
+            return {260, kRestPitch};
         case MotionPreset::LookUp:
-            return offset_from_rest(0, -70);
+            return {kRestYaw, -80};
         case MotionPreset::LookDown:
-            return offset_from_rest(0, 120);
+            return {kRestYaw, 80};
         case MotionPreset::DiagonalUpperLeft:
-            return offset_from_rest(-140, -60);
+            return {-60, -70};
         case MotionPreset::DiagonalUpperRight:
-            return offset_from_rest(140, -60);
+            return {220, -70};
         case MotionPreset::DiagonalLowerLeft:
-            return offset_from_rest(-140, 100);
+            return {-60, 70};
         case MotionPreset::DiagonalLowerRight:
-            return offset_from_rest(140, 100);
+            return {220, 70};
         case MotionPreset::Home:
         default:
             return {kRestYaw, kRestPitch};
