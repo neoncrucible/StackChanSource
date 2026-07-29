@@ -14,9 +14,13 @@ PNG_ASSETS = {
     "blink_png": Path("optic-eye/blink.png"),
     "blink2_png": Path("optic-eye/blink2.png"),
     "listening_png": Path("optic-eye/listening.png"),
+    "listening2_png": Path("optic-eye/listening2.png"),
     "error_png": Path("optic-eye/error.png"),
 }
-BOOT_WAV = Path("audio/boot.wav")
+WAV_ASSETS = {
+    "boot_wav": Path("audio/boot.wav"),
+    "chirp_wav": Path("audio/chirp.wav"),
+}
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -66,11 +70,12 @@ def generate(input_root: Path, output: Path) -> None:
         print(f"validated {relative_path}: {width}x{height}, {len(data)} bytes")
         arrays.append((name, data))
 
-    wav_path = input_root / BOOT_WAV
-    wav_description = validate_wav(wav_path)
-    wav_data = wav_path.read_bytes()
-    print(f"validated {BOOT_WAV}: {wav_description}, {len(wav_data)} bytes")
-    arrays.append(("boot_wav", wav_data))
+    for name, relative_path in WAV_ASSETS.items():
+        wav_path = input_root / relative_path
+        wav_description = validate_wav(wav_path)
+        wav_data = wav_path.read_bytes()
+        print(f"validated {relative_path}: {wav_description}, {len(wav_data)} bytes")
+        arrays.append((name, wav_data))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     parts = [
