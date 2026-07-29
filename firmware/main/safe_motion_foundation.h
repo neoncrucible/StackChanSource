@@ -16,7 +16,7 @@ constexpr const char* kLogTag = "KADENCE-MOTION";
 // Diagonal poses are simultaneous yaw and pitch commands.
 //
 // Motion values are tenths of a degree relative to stored calibrated home:
-// [0,0] is the official goHome() position, 100 = 10 degrees.
+// [0,0] is the official factory-calibrated zero and 100 = 10 degrees.
 constexpr int kSafeYawMinimum = -320;
 constexpr int kSafeYawMaximum = 320;
 constexpr int kSafePitchMinimum = -180;
@@ -26,6 +26,12 @@ constexpr int kMaximumMoveSpeed = 650;
 constexpr int kHomeSpeed = 500;
 constexpr uint32_t kMoveTimeoutMs = 4500;
 constexpr uint32_t kHomeTimeoutMs = 7000;
+
+// Project Kadence's visual rest pose is deliberately offset from factory zero.
+// This is a runtime target only: it never overwrites the stored servo calibration.
+// Positive yaw moves right; negative pitch moves up.
+constexpr int kRestYaw = 80;      // 8 degrees right.
+constexpr int kRestPitch = -100;  // 10 degrees up.
 
 struct SafeTarget {
     int yaw;
@@ -52,6 +58,11 @@ inline SafeTarget clamp_target(int yaw, int pitch)
     };
 }
 
+inline SafeTarget offset_from_rest(int yaw_offset, int pitch_offset)
+{
+    return clamp_target(kRestYaw + yaw_offset, kRestPitch + pitch_offset);
+}
+
 inline int clamp_speed(int speed)
 {
     return std::clamp(speed, kMinimumMoveSpeed, kMaximumMoveSpeed);
@@ -61,24 +72,24 @@ inline SafeTarget preset_target(MotionPreset preset)
 {
     switch (preset) {
         case MotionPreset::GlanceLeft:
-            return {-180, 0};
+            return offset_from_rest(-180, 0);
         case MotionPreset::GlanceRight:
-            return {180, 0};
+            return offset_from_rest(180, 0);
         case MotionPreset::LookUp:
-            return {0, -80};
+            return offset_from_rest(0, -70);
         case MotionPreset::LookDown:
-            return {0, 80};
+            return offset_from_rest(0, 120);
         case MotionPreset::DiagonalUpperLeft:
-            return {-140, -70};
+            return offset_from_rest(-140, -60);
         case MotionPreset::DiagonalUpperRight:
-            return {140, -70};
+            return offset_from_rest(140, -60);
         case MotionPreset::DiagonalLowerLeft:
-            return {-140, 70};
+            return offset_from_rest(-140, 100);
         case MotionPreset::DiagonalLowerRight:
-            return {140, 70};
+            return offset_from_rest(140, 100);
         case MotionPreset::Home:
         default:
-            return {0, 0};
+            return {kRestYaw, kRestPitch};
     }
 }
 
@@ -90,13 +101,15 @@ inline void log_servo_diagnostics()
     const auto current = motion.getCurrentAngles();
 
     mclog::tagInfo(kLogTag,
-                   "servo diagnostics: yaw limits [{},{}], pitch limits [{},{}], current [{},{}]",
+                   "servo diagnostics: yaw limits [{},{}], pitch limits [{},{}], current [{},{}], rest [{},{}]",
                    yaw_limits.x,
                    yaw_limits.y,
                    pitch_limits.x,
                    pitch_limits.y,
                    current.x,
-                   current.y);
+                   current.y,
+                   kRestYaw,
+                   kRestPitch);
 }
 
 inline void release_all_torque(stackchan::motion::Motion& motion)
@@ -213,6 +226,15 @@ inline bool go_to_calibrated_home()
     stop_and_release(motion);
     mclog::tagInfo(kLogTag, "calibrated home reached; torque released");
     return true;
+}
+
+inline bool go_to_rest_pose()
+{
+    mclog::tagInfo(kLogTag,
+                   "moving to Project Kadence rest pose [{},{}]",
+                   kRestYaw,
+                   kRestPitch);
+    return move_safe(kRestYaw, kRestPitch, kHomeSpeed, true);
 }
 
 }  // namespace kadence_motion
