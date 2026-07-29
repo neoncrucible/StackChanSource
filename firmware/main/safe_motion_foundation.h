@@ -11,26 +11,26 @@ namespace kadence_motion {
 
 constexpr const char* kLogTag = "KADENCE-MOTION";
 
-// StackChan has two rotational axes only: yaw (left/right) and pitch (up/down).
-// There is no roll axis, so a true head tilt/twist is physically impossible.
-// Diagonal poses are simultaneous yaw and pitch commands.
-//
-// Motion values are tenths of a degree relative to stored calibrated home:
-// [0,0] is the official factory-calibrated zero and 100 = 10 degrees.
+// Factory/Open-Source StackChan coordinate model:
+//   yaw   = signed tenths of a degree around centre.
+//   pitch = positive tenths of a degree, with larger values looking upward.
+// The official HAL configures pitch to 30..870 and yaw to -1280..1280.
+// Project Kadence deliberately uses a smaller conservative yaw envelope while
+// preserving the official pitch coordinate system exactly.
 constexpr int kSafeYawMinimum = -320;
 constexpr int kSafeYawMaximum = 320;
-constexpr int kSafePitchMinimum = -180;
-constexpr int kSafePitchMaximum = 180;
+constexpr int kSafePitchMinimum = 30;
+constexpr int kSafePitchMaximum = 870;
 constexpr int kMinimumMoveSpeed = 120;
-constexpr int kMaximumMoveSpeed = 650;
-constexpr int kHomeSpeed = 500;
+constexpr int kMaximumMoveSpeed = 850;
+constexpr int kHomeSpeed = 650;
+constexpr int kPositionTolerance = 40;
 constexpr uint32_t kMoveTimeoutMs = 4500;
 constexpr uint32_t kHomeTimeoutMs = 7000;
 
-// Runtime rest pose only; stored calibration is never modified.
-// Pitch is deliberately kept inside the physically signed-off -80..+80 range.
-constexpr int kRestYaw = 80;     // 8 degrees right.
-constexpr int kRestPitch = -40;  // 4 degrees up.
+// Runtime rest pose only; stored zero calibration is never modified.
+constexpr int kRestYaw = 80;      // 8 degrees right.
+constexpr int kRestPitch = 300;   // 30 degrees upward in the official pitch model.
 
 struct SafeTarget {
     int yaw;
@@ -48,6 +48,12 @@ enum class MotionPreset : uint8_t {
     DiagonalLowerLeft,
     DiagonalLowerRight,
 };
+
+inline int absolute_difference(int first, int second)
+{
+    const int difference = first - second;
+    return difference < 0 ? -difference : difference;
+}
 
 inline SafeTarget clamp_target(int yaw, int pitch)
 {
@@ -75,17 +81,17 @@ inline SafeTarget preset_target(MotionPreset preset)
         case MotionPreset::GlanceRight:
             return {260, kRestPitch};
         case MotionPreset::LookUp:
-            return {kRestYaw, -80};
+            return {kRestYaw, 500};
         case MotionPreset::LookDown:
-            return {kRestYaw, 80};
+            return {kRestYaw, 100};
         case MotionPreset::DiagonalUpperLeft:
-            return {-60, -70};
+            return {-60, 420};
         case MotionPreset::DiagonalUpperRight:
-            return {220, -70};
+            return {220, 420};
         case MotionPreset::DiagonalLowerLeft:
-            return {-60, 70};
+            return {-60, 180};
         case MotionPreset::DiagonalLowerRight:
-            return {220, 70};
+            return {220, 180};
         case MotionPreset::Home:
         default:
             return {kRestYaw, kRestPitch};
@@ -115,6 +121,18 @@ inline void release_all_torque(stackchan::motion::Motion& motion)
 {
     motion.yawServo().setTorqueEnabled(false);
     motion.pitchServo().setTorqueEnabled(false);
+}
+
+inline void restore_factory_idle_policy(stackchan::motion::Motion& motion)
+{
+    auto& yaw = motion.yawServo();
+    auto& pitch = motion.pitchServo();
+
+    yaw.setAutoAngleSyncEnabled(true);
+    pitch.setAutoAngleSyncEnabled(true);
+    yaw.setAutoTorqueReleaseEnabled(true);
+    pitch.setAutoTorqueReleaseEnabled(true);
+    release_all_torque(motion);
 }
 
 inline void prepare_controlled_move(stackchan::motion::Motion& motion)
@@ -148,13 +166,15 @@ inline bool wait_for_stop(stackchan::motion::Motion& motion, uint32_t timeout_ms
 
 inline void stop_and_release(stackchan::motion::Motion& motion)
 {
-    auto& yaw = motion.yawServo();
-    auto& pitch = motion.pitchServo();
-
-    yaw.move(yaw.getCurrentAngle());
-    pitch.move(pitch.getCurrentAngle());
+    motion.stop();
     motion.update();
-    release_all_torque(motion);
+    restore_factory_idle_policy(motion);
+}
+
+inline bool readback_matches(const SafeTarget& target, const SafeTarget& actual)
+{
+    return absolute_difference(target.yaw, actual.yaw) <= kPositionTolerance &&
+           absolute_difference(target.pitch, actual.pitch) <= kPositionTolerance;
 }
 
 inline bool move_safe(int yaw, int pitch, int speed, bool release_torque = true)
@@ -165,7 +185,7 @@ inline bool move_safe(int yaw, int pitch, int speed, bool release_torque = true)
 
     if (safe.yaw != yaw || safe.pitch != pitch) {
         mclog::tagWarn(kLogTag,
-                       "calibrated target clamped from [{},{}] to [{},{}]",
+                       "factory-coordinate target clamped from [{},{}] to [{},{}]",
                        yaw,
                        pitch,
                        safe.yaw,
@@ -177,26 +197,43 @@ inline bool move_safe(int yaw, int pitch, int speed, bool release_torque = true)
 
     if (!wait_for_stop(motion, kMoveTimeoutMs)) {
         mclog::tagError(kLogTag,
-                        "movement to calibrated target [{},{}] timed out",
+                        "movement to factory-coordinate target [{},{}] timed out",
                         safe.yaw,
                         safe.pitch);
         stop_and_release(motion);
         return false;
     }
 
-    if (release_torque) {
-        stop_and_release(motion);
-    }
-
+    const auto current = motion.getCurrentAngles();
+    const SafeTarget actual{current.x, current.y};
     mclog::tagInfo(kLogTag,
-                   "calibrated target reached [{},{}] at speed {}",
+                   "movement read-back: requested [{},{}], actual [{},{}], speed {}",
                    safe.yaw,
                    safe.pitch,
+                   actual.yaw,
+                   actual.pitch,
                    safe_speed);
+
+    if (!readback_matches(safe, actual)) {
+        mclog::tagError(kLogTag,
+                        "movement read-back outside tolerance: requested [{},{}], actual [{},{}], tolerance {}",
+                        safe.yaw,
+                        safe.pitch,
+                        actual.yaw,
+                        actual.pitch,
+                        kPositionTolerance);
+        stop_and_release(motion);
+        return false;
+    }
+
+    if (release_torque) {
+        restore_factory_idle_policy(motion);
+    }
+
     return true;
 }
 
-inline bool move_preset(MotionPreset preset, int speed = 320, bool release_torque = true)
+inline bool move_preset(MotionPreset preset, int speed = 650, bool release_torque = true)
 {
     const SafeTarget target = preset_target(preset);
     return move_safe(target.yaw, target.pitch, speed, release_torque);
@@ -206,24 +243,29 @@ inline bool go_to_calibrated_home()
 {
     auto& motion = GetStackChan().motion();
 
-    // Use the official stored zero calibration. Never call
+    // Use the stored official zero calibration. The factory HAL itself clamps
+    // pitch 0 to its configured physical minimum (normally 30). Never call
     // setCurrentAngleAsZero() or resetZeroCalibration() automatically.
-    release_all_torque(motion);
+    restore_factory_idle_policy(motion);
     GetHAL().delay(500);
     prepare_controlled_move(motion);
 
     motion.goHome(kHomeSpeed);
-    mclog::tagInfo(kLogTag, "moving to stored calibrated home [0,0]");
+    mclog::tagInfo(kLogTag, "requesting official stored home [0,0]");
 
     if (!wait_for_stop(motion, kHomeTimeoutMs)) {
         mclog::tagError(kLogTag,
-                        "home movement timed out; holding current angles and releasing torque");
+                        "home movement timed out; stopping and releasing torque");
         stop_and_release(motion);
         return false;
     }
 
-    stop_and_release(motion);
-    mclog::tagInfo(kLogTag, "calibrated home reached; torque released");
+    const auto current = motion.getCurrentAngles();
+    mclog::tagInfo(kLogTag,
+                   "official home read-back [{},{}]; pitch reflects factory HAL minimum",
+                   current.x,
+                   current.y);
+    restore_factory_idle_policy(motion);
     return true;
 }
 
