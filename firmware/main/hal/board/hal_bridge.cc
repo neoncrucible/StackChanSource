@@ -33,6 +33,7 @@ namespace hal_bridge {
 
 static std::mutex _mutex;
 static Data_t _data;
+static lv_obj_t* _kadence_boot_overlay = nullptr;
 
 void lock()
 {
@@ -98,14 +99,82 @@ void disply_lvgl_unlock()
     display->LvglUnlock();
 }
 
+static lv_obj_t* create_early_kadence_overlay()
+{
+    lv_obj_t* screen = lv_screen_active();
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_t* overlay = lv_obj_create(screen);
+    lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(overlay, 320, 240);
+    lv_obj_center(overlay);
+    lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
+
+    lv_obj_t* title = lv_label_create(overlay);
+    lv_label_set_text(title, "PROJECT KADENCE");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xD71920), LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -12);
+
+    lv_obj_t* subtitle = lv_label_create(overlay);
+    lv_label_set_text(subtitle, "ALPHA 1");
+    lv_obj_set_style_text_color(subtitle, lv_color_hex(0xE8E8E8), LV_PART_MAIN);
+    lv_obj_set_style_text_font(subtitle, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_align(subtitle, LV_ALIGN_CENTER, 0, 24);
+
+    lv_obj_t* line = lv_obj_create(overlay);
+    lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(line, 190, 2);
+    lv_obj_set_style_bg_color(line, lv_color_hex(0xD71920), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(line, 0, LV_PART_MAIN);
+    lv_obj_align(line, LV_ALIGN_CENTER, 0, 49);
+
+    lv_obj_move_foreground(overlay);
+    lv_obj_invalidate(overlay);
+    return overlay;
+}
+
+lv_obj_t* take_kadence_boot_overlay()
+{
+    lv_obj_t* overlay = _kadence_boot_overlay;
+    _kadence_boot_overlay = nullptr;
+    return overlay;
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                 Application                                */
 /* -------------------------------------------------------------------------- */
 
 void xiaozhi_board_init()
 {
-    // Init board
+    // StackChanAvatarDisplay creates the stock firmware/version BootLogo only
+    // when the warm-boot target is negative. Temporarily provide a non-negative
+    // target while the board/display is constructed, then restore the sentinel.
+    {
+        Settings warm_boot_settings("warm_boot", true);
+        warm_boot_settings.SetInt("app_index", 0);
+    }
+
     auto& board = Board::GetInstance();
+    (void)board;
+
+    // LVGL now exists. Replace the constructor's temporary white surface at the
+    // earliest safe point, before the rest of HAL initialization continues.
+    disply_lvgl_lock();
+    _kadence_boot_overlay = create_early_kadence_overlay();
+    disply_lvgl_unlock();
+
+    {
+        Settings warm_boot_settings("warm_boot", true);
+        warm_boot_settings.SetInt("app_index", -1);
+    }
+
+    ESP_LOGI(_tag, "Factory boot logo suppressed; early Project Kadence overlay shown");
 }
 
 void start_xiaozhi_app()
@@ -121,7 +190,6 @@ void start_xiaozhi_app()
 XiaozhiConfig_t get_xiaozhi_config()
 {
     XiaozhiConfig_t config;
-
     Settings settings(_xiaozhi_config_nvs_ns.data(), false);
     config.idleShutdownTimeSeconds = settings.GetInt(_xiaozhi_config_idle_shutdown_time_key.data(),
                                                      static_cast<int>(config.idleShutdownTimeSeconds));
@@ -129,7 +197,6 @@ XiaozhiConfig_t get_xiaozhi_config()
         settings.GetBool(_xiaozhi_config_allow_shutdown_when_charging_key.data(), config.allowShutdownWhenCharging);
     config.idleRandomMovementLevel =
         settings.GetInt(_xiaozhi_config_idle_random_movement_key.data(), config.idleRandomMovementLevel);
-
     return config;
 }
 

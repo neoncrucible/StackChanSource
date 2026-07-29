@@ -45,6 +45,12 @@ void disply_lvgl_lock();
 void disply_lvgl_unlock();
 lv_disp_t* display_get_lvgl_display();
 
+// Created immediately after the display constructor completes so Project
+// Kadence replaces the factory logo at the earliest safe LVGL point. Ownership
+// is transferred to the later startup sequence, which removes it after audio
+// and RGB boot effects complete.
+lv_obj_t* take_kadence_boot_overlay();
+
 void xiaozhi_board_init();
 void start_xiaozhi_app();
 bool is_xiaozhi_ready();
