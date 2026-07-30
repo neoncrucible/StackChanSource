@@ -4,6 +4,7 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <hal/hal.h>
 #include <lvgl.h>
 #include <mooncake_log.h>
 #include <settings.h>
@@ -13,6 +14,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
