@@ -155,24 +155,16 @@ public:
             discard_send_queue();
         }
 
-        bool cancel_sent = false;
-        {
-            std::lock_guard<std::mutex> lock(protocol_mutex_);
-            if (protocol_ != nullptr && protocol_->IsAudioChannelOpened()) {
-                cancel_sent = protocol_->SendText(
-                    "{\"type\":\"listen\",\"state\":\"cancel\"}");
-            }
-        }
-
-        if (!cancel_sent && protocol_open_.load()) {
-            protocol_open_.store(false);
-            close_requested_.store(true);
-            prepare_requested_.store(true);
-        }
+        // Closing the channel discards the partial sample server-side without
+        // asking Faster Whisper to transcribe it. Reconnect happens while idle.
+        protocol_open_.store(false);
+        close_requested_.store(true);
+        prepare_requested_.store(network_connected_.load());
+        retry_not_before_us_.store(0);
 
         clear_result_state();
         mclog::tagInfo(kLogTag,
-                       "voice capture cancelled; queued microphone audio discarded");
+                       "voice capture cancelled; partial sample discarded and warm reconnect scheduled");
     }
 
     void complete_session()
@@ -348,7 +340,9 @@ private:
         protocol_open_.store(false);
         prepare_requested_.store(true);
         retry_not_before_us_.store(esp_timer_get_time() + kReconnectDelayUs);
-        mclog::tagError(kLogTag, "{}; retrying warm connection in 3 seconds", message);
+        mclog::tagError(kLogTag,
+                        "{}; retrying warm connection in 3 seconds",
+                        message);
     }
 
     void discard_send_queue()
@@ -417,14 +411,20 @@ private:
         }
 
         int allow_broadcast = 1;
-        setsockopt(sock, SOL_SOCKET, SO_BROADCAST,
-                   &allow_broadcast, sizeof(allow_broadcast));
+        setsockopt(sock,
+                   SOL_SOCKET,
+                   SO_BROADCAST,
+                   &allow_broadcast,
+                   sizeof(allow_broadcast));
 
         timeval timeout{};
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
-                   &timeout, sizeof(timeout));
+        setsockopt(sock,
+                   SOL_SOCKET,
+                   SO_RCVTIMEO,
+                   &timeout,
+                   sizeof(timeout));
 
         sockaddr_in destination{};
         destination.sin_family = AF_INET;
@@ -501,7 +501,8 @@ private:
             mclog::tagInfo(kLogTag, "WebSocket connected");
         });
         protocol.OnAudioChannelOpened([]() {
-            mclog::tagInfo(kLogTag, "version-1 Opus audio channel opened");
+            mclog::tagInfo(kLogTag,
+                           "version-1 Opus audio channel opened");
         });
         protocol.OnAudioChannelClosed([this]() {
             protocol_open_.store(false);
@@ -574,7 +575,8 @@ private:
 
         if (created != pdPASS) {
             open_task_running_.store(false);
-            schedule_prepare_retry("failed to create warm voice transport task");
+            schedule_prepare_retry(
+                "failed to create warm voice transport task");
         }
     }
 
@@ -582,7 +584,8 @@ private:
     {
         if (!wait_for_network()) {
             open_task_running_.store(false);
-            schedule_prepare_retry("Wi-Fi did not connect before warm transport timeout");
+            schedule_prepare_retry(
+                "Wi-Fi did not connect before warm transport timeout");
             return;
         }
 
