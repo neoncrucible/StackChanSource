@@ -1,67 +1,126 @@
-/*
- * Project Kadence Alpha 1 reply-volume wrapper.
- *
- * The proven response transport remains in kadence_voice_response_base.inc.
- * This wrapper adds reply-only volume management while preserving the existing
- * warm WebSocket, decoder queue and optic-eye state behaviour.
- */
+#include <application.h>
+#include <audio_service.h>
+#include <cJSON.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <hal/hal.h>
+#include <lvgl.h>
+#include <mooncake_log.h>
+#include <settings.h>
+#include <smooth_ui_toolkit.hpp>
+#include <websocket_protocol.h>
 
-#include <audio_codec.h>
-#include <board.h>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <string>
 
-#define handle_voice_state kadence_base_handle_voice_state
-#define configure_callbacks kadence_base_configure_callbacks
-#define open_response_channel kadence_base_open_response_channel
-#define response_task kadence_base_response_task
-#define start_kadence_voice_response_service kadence_base_start_kadence_voice_response_service
-#include "kadence_voice_response_base.inc"
-#undef start_kadence_voice_response_service
-#undef response_task
-#undef open_response_channel
-#undef configure_callbacks
-#undef handle_voice_state
+#include "kade_assets_generated.h"
+
+using namespace smooth_ui_toolkit;
 
 namespace kadence_voice_response {
 namespace {
 
-constexpr int kKadenceReplyVolume = 85;
-std::atomic<bool> g_reply_volume_active{false};
-std::atomic<int> g_reply_previous_volume{70};
+constexpr const char* kLogTag = "KADENCE-VOICE-RX";
+constexpr const char* kTranscriptPath = "/kadence/v1";
+constexpr const char* kResponsePath = "/kadence/response/v1";
+constexpr int64_t kReconnectDelayUs = 3000000;
+constexpr uint32_t kInitialDelayMs = 12000;
+constexpr uint32_t kThinkingPulseMs = 280;
 
-void enable_reply_volume()
+enum class ResponseState : uint8_t {
+    Idle,
+    Thinking,
+    Speaking,
+    Error,
+};
+
+std::unique_ptr<WebsocketProtocol> g_protocol;
+std::mutex g_protocol_mutex;
+std::atomic<bool> g_connected{false};
+std::atomic<bool> g_opening{false};
+std::atomic<bool> g_close_requested{false};
+std::atomic<int64_t> g_retry_not_before_us{0};
+std::atomic<ResponseState> g_state{ResponseState::Idle};
+std::atomic<uint32_t> g_audio_packets{0};
+
+lv_image_dsc_t g_green_dsc{};
+lv_image_dsc_t g_red_dsc{};
+bool g_descriptors_ready = false;
+bool g_thinking_green = false;
+uint32_t g_next_thinking_pulse_ms = 0;
+
+lv_image_dsc_t make_png_descriptor(const uint8_t* data, std::size_t size)
 {
-    AudioCodec* codec = Board::GetInstance().GetAudioCodec();
-    if (codec == nullptr) {
-        mclog::tagError(kLogTag, "cannot raise Kadence reply volume: audio codec unavailable");
-        return;
-    }
-
-    bool expected = false;
-    if (g_reply_volume_active.compare_exchange_strong(expected, true)) {
-        g_reply_previous_volume.store(codec->output_volume());
-    }
-
-    codec->SetOutputVolume(kKadenceReplyVolume);
-    mclog::tagInfo(kLogTag,
-                   "Kadence reply volume set to {} (previous {})",
-                   kKadenceReplyVolume,
-                   g_reply_previous_volume.load());
+    lv_image_dsc_t descriptor{};
+    descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+    descriptor.header.cf = LV_COLOR_FORMAT_RAW;
+    descriptor.data_size = static_cast<uint32_t>(size);
+    descriptor.data = data;
+    return descriptor;
 }
 
-void restore_reply_volume()
+void ensure_descriptors()
 {
-    if (!g_reply_volume_active.exchange(false)) {
+    if (g_descriptors_ready) {
         return;
     }
+    g_green_dsc = make_png_descriptor(
+        kade_assets::listening2_png,
+        kade_assets::listening2_png_size);
+    g_red_dsc = make_png_descriptor(
+        kade_assets::error_png,
+        kade_assets::error_png_size);
+    g_descriptors_ready = true;
+}
 
-    AudioCodec* codec = Board::GetInstance().GetAudioCodec();
-    if (codec == nullptr) {
+void show_frame(const lv_image_dsc_t& frame)
+{
+    ensure_descriptors();
+    LvglLockGuard lock;
+    lv_obj_t* screen = lv_screen_active();
+    if (screen == nullptr) {
         return;
     }
+    lv_obj_t* image = lv_obj_get_child(screen, 0);
+    if (image == nullptr) {
+        return;
+    }
+    lv_image_set_src(image, &frame);
+    lv_obj_invalidate(image);
+}
 
-    const int previous = g_reply_previous_volume.load();
-    codec->SetOutputVolume(previous);
-    mclog::tagInfo(kLogTag, "audio volume restored to {} after Kadence reply", previous);
+void show_state(ResponseState state)
+{
+    switch (state) {
+        case ResponseState::Thinking:
+            g_thinking_green = false;
+            show_frame(g_red_dsc);
+            break;
+        case ResponseState::Speaking:
+            show_frame(g_green_dsc);
+            break;
+        case ResponseState::Error:
+            show_frame(g_red_dsc);
+            break;
+        case ResponseState::Idle:
+        default:
+            // The main voice runtime restores the normal idle eye after the
+            // transcript completion message arrives on the proven mic channel.
+            break;
+    }
+}
+
+void set_state(ResponseState state)
+{
+    g_state.store(state);
+    g_next_thinking_pulse_ms = 0;
+    show_state(state);
 }
 
 void handle_voice_state(const cJSON* root)
@@ -77,7 +136,6 @@ void handle_voice_state(const cJSON* root)
         mclog::tagInfo(kLogTag, "Gemini thinking state received");
     } else if (std::strcmp(state->valuestring, "speaking") == 0) {
         Application::GetInstance().GetAudioService().ResetDecoder();
-        enable_reply_volume();
         g_audio_packets.store(0);
         set_state(ResponseState::Speaking);
         const cJSON* text = cJSON_GetObjectItem(root, "text");
@@ -88,14 +146,12 @@ void handle_voice_state(const cJSON* root)
             cJSON_IsString(text) ? text->valuestring : "");
     } else if (std::strcmp(state->valuestring, "stop") == 0) {
         const uint32_t packets = g_audio_packets.load();
-        restore_reply_volume();
         set_state(ResponseState::Idle);
         mclog::tagInfo(
             kLogTag,
             "robot response playback complete after {} Opus packet(s)",
             packets);
     } else if (std::strcmp(state->valuestring, "error") == 0) {
-        restore_reply_volume();
         set_state(ResponseState::Error);
         const cJSON* message = cJSON_GetObjectItem(root, "message");
         mclog::tagError(
@@ -119,14 +175,12 @@ void configure_callbacks(WebsocketProtocol& protocol)
             "warm robot speaker channel opened; Gemini and Edge TTS responses are ready");
     });
     protocol.OnAudioChannelClosed([]() {
-        restore_reply_volume();
         g_connected.store(false);
         g_close_requested.store(true);
         g_retry_not_before_us.store(esp_timer_get_time() + kReconnectDelayUs);
         mclog::tagError(kLogTag, "robot speaker channel closed; reconnect scheduled");
     });
     protocol.OnNetworkError([](const std::string& message) {
-        restore_reply_volume();
         g_connected.store(false);
         g_close_requested.store(true);
         g_retry_not_before_us.store(esp_timer_get_time() + kReconnectDelayUs);
@@ -150,13 +204,31 @@ void configure_callbacks(WebsocketProtocol& protocol)
         }
         auto& audio_service = Application::GetInstance().GetAudioService();
         if (!audio_service.PushPacketToDecodeQueue(std::move(packet), true)) {
-            restore_reply_volume();
             set_state(ResponseState::Error);
             mclog::tagError(kLogTag, "failed to queue returned Opus audio for robot playback");
             return;
         }
         g_audio_packets.fetch_add(1);
     });
+}
+
+std::string make_response_url(const std::string& transcript_url)
+{
+    const std::size_t path = transcript_url.rfind(kTranscriptPath);
+    if (path == std::string::npos) {
+        return {};
+    }
+    return transcript_url.substr(0, path) + kResponsePath;
+}
+
+void close_protocol()
+{
+    std::lock_guard<std::mutex> lock(g_protocol_mutex);
+    if (g_protocol != nullptr) {
+        g_protocol->CloseAudioChannel(false);
+        g_protocol.reset();
+    }
+    g_connected.store(false);
 }
 
 bool open_response_channel()
@@ -183,6 +255,8 @@ bool open_response_channel()
     protocol->Start();
     const bool opened = protocol->OpenAudioChannel();
 
+    // The signed-off microphone transport owns the canonical stored URL. Restore
+    // it immediately after this second WebSocket has read its response endpoint.
     settings.SetString("url", transcript_url);
     settings.SetString("token", "");
     settings.SetInt("version", 1);
@@ -210,6 +284,20 @@ bool open_response_channel()
     return true;
 }
 
+void update_thinking_animation(uint32_t now_ms)
+{
+    if (g_state.load() != ResponseState::Thinking) {
+        return;
+    }
+    if (g_next_thinking_pulse_ms != 0 &&
+        static_cast<int32_t>(now_ms - g_next_thinking_pulse_ms) < 0) {
+        return;
+    }
+    g_thinking_green = !g_thinking_green;
+    show_frame(g_thinking_green ? g_green_dsc : g_red_dsc);
+    g_next_thinking_pulse_ms = now_ms + kThinkingPulseMs;
+}
+
 void response_task(void*)
 {
     vTaskDelay(pdMS_TO_TICKS(kInitialDelayMs));
@@ -219,7 +307,6 @@ void response_task(void*)
 
     while (true) {
         if (g_close_requested.exchange(false)) {
-            restore_reply_volume();
             close_protocol();
         }
 
