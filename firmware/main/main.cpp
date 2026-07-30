@@ -14,6 +14,7 @@
 #include <assets.h>
 #include <audio_service.h>
 #include <esp_random.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -39,12 +40,13 @@ constexpr uint32_t kIdleMotionConfirmationMs = 1000;
 constexpr uint32_t kListeningPulseMs = 550;
 constexpr uint32_t kListeningCueGuardMs = 100;
 constexpr uint32_t kListeningWakeTestTimeoutMs = 10000;
-constexpr bool kEnableVoiceUiDiagnosticSwipes = true;
 
 constexpr uint32_t kTouchEventPress = 1U << 0;
 constexpr uint32_t kTouchEventRelease = 1U << 1;
 constexpr uint32_t kTouchEventSwipeForward = 1U << 2;
 constexpr uint32_t kTouchEventSwipeBackward = 1U << 3;
+constexpr uint32_t kTouchEventAnySwipe =
+    kTouchEventSwipeForward | kTouchEventSwipeBackward;
 
 lv_obj_t* g_eye_image = nullptr;
 lv_image_dsc_t g_idle1_dsc{};
@@ -101,7 +103,6 @@ bool g_wake_word_detection_enabled = false;
 
 bool g_touch_active = false;
 bool g_touch_swiped = false;
-int g_touch_swipe_direction = 0;
 int g_head_touch_connection = -1;
 
 bool start_listening_cue_audio();
@@ -118,6 +119,44 @@ uint32_t random_between(uint32_t minimum, uint32_t maximum)
 bool deadline_reached(uint32_t now, uint32_t deadline)
 {
     return static_cast<int32_t>(now - deadline) >= 0;
+}
+
+const char* reset_reason_name(esp_reset_reason_t reason)
+{
+    switch (reason) {
+        case ESP_RST_POWERON:
+            return "power-on";
+        case ESP_RST_EXT:
+            return "external-reset";
+        case ESP_RST_SW:
+            return "software-reset";
+        case ESP_RST_PANIC:
+            return "panic";
+        case ESP_RST_INT_WDT:
+            return "interrupt-watchdog";
+        case ESP_RST_TASK_WDT:
+            return "task-watchdog";
+        case ESP_RST_WDT:
+            return "other-watchdog";
+        case ESP_RST_DEEPSLEEP:
+            return "deep-sleep";
+        case ESP_RST_BROWNOUT:
+            return "brownout";
+        case ESP_RST_SDIO:
+            return "sdio";
+        case ESP_RST_UNKNOWN:
+        default:
+            return "unknown-or-other";
+    }
+}
+
+void log_reset_reason()
+{
+    const esp_reset_reason_t reason = esp_reset_reason();
+    mclog::tagInfo(kLogTag,
+                   "ESP reset reason: {} ({})",
+                   reset_reason_name(reason),
+                   static_cast<int>(reason));
 }
 
 lv_image_dsc_t make_png_descriptor(const uint8_t* data, std::size_t size)
@@ -159,8 +198,6 @@ void reset_eye_runtime(uint32_t now)
 
 void show_idle_motion_confirmation(uint32_t now)
 {
-    // Use the repository's existing listening.png asset (Image Gen 5) for both
-    // toggle directions. The changed movement state is also recorded in logs.
     show_frame(g_listening_dsc);
     g_eye_runtime.confirmation_active = true;
     g_eye_runtime.confirmation_deadline_ms = now + kIdleMotionConfirmationMs;
@@ -305,8 +342,6 @@ void update_eye_state(uint32_t now)
 
 void initialise_head_touch_toggle()
 {
-    // The official Si12T task emits Press/Release/Swipe events. Keep its callback
-    // minimal and consume the flags from the normal 50 Hz runtime loop.
     g_head_touch_connection = GetHAL().onHeadPetGesture.connect([](HeadPetGesture gesture) {
         switch (gesture) {
             case HeadPetGesture::Press:
@@ -328,7 +363,7 @@ void initialise_head_touch_toggle()
     });
 
     mclog::tagInfo(kLogTag,
-                   "head-touch idle-motion toggle connected (signal connection {})",
+                   "head-touch control connected (signal connection {})",
                    g_head_touch_connection);
 }
 
@@ -339,23 +374,26 @@ void process_head_touch_events(uint32_t now)
     if ((events & kTouchEventPress) != 0U) {
         g_touch_active = true;
         g_touch_swiped = false;
-        g_touch_swipe_direction = 0;
     }
 
-    if ((events & kTouchEventSwipeForward) != 0U) {
+    const bool swipe_detected = (events & kTouchEventAnySwipe) != 0U;
+    if (swipe_detected) {
         g_touch_swiped = true;
-        g_touch_swipe_direction = 1;
-    }
-    if ((events & kTouchEventSwipeBackward) != 0U) {
-        g_touch_swiped = true;
-        g_touch_swipe_direction = -1;
+
+        // Voice cancellation must not depend on a later Release event or direction.
+        if (g_voice_ui_runtime.state != VoiceUiState::Idle) {
+            mclog::tagInfo(kLogTag, "head swipe cancelled active listening immediately");
+            stop_listening_sequence(now);
+            g_touch_active = false;
+            g_touch_swiped = false;
+            return;
+        }
     }
 
     if ((events & kTouchEventRelease) == 0U) {
         return;
     }
 
-    // A clean tap retains the physically signed-off idle-motion toggle.
     if (g_touch_active && !g_touch_swiped &&
         g_voice_ui_runtime.state == VoiceUiState::Idle) {
         g_idle_motion.toggle();
@@ -365,19 +403,8 @@ void process_head_touch_events(uint32_t now)
                        g_idle_motion.enabled() ? "enabled" : "disabled");
     }
 
-    // Temporary physical-test gate. The production wake-word callback
-    // will call the same begin/stop functions without changing UI logic.
-    if (g_touch_active && g_touch_swiped && kEnableVoiceUiDiagnosticSwipes) {
-        if (g_touch_swipe_direction > 0) {
-            begin_listening_sequence(now);
-        } else if (g_touch_swipe_direction < 0) {
-            stop_listening_sequence(now);
-        }
-    }
-
     g_touch_active = false;
     g_touch_swiped = false;
-    g_touch_swipe_direction = 0;
 }
 
 uint16_t read_u16_le(const uint8_t* data)
@@ -517,7 +544,6 @@ bool play_embedded_wav(const uint8_t* wav, std::size_t wav_size, const char* lab
         mclog::tagInfo(kLogTag, "{} playback complete", label);
     }
 
-    // Capture remains closed until the speaker path has settled.
     vTaskDelay(pdMS_TO_TICKS(kListeningCueGuardMs));
     codec->EnableOutput(false);
     return decoded;
@@ -572,7 +598,6 @@ void begin_listening_sequence(uint32_t now)
 
     set_wake_word_detection(false);
 
-    // Voice owns the interaction. Fail to the stationary torque-off state.
     g_idle_motion.set_enabled(false);
     g_eye_runtime.confirmation_active = false;
     g_voice_capture_allowed.store(false);
@@ -607,7 +632,10 @@ void stop_listening_sequence(uint32_t now)
     reset_eye_runtime(now);
     mclog::tagInfo(kLogTag,
                    "listening stopped; microphone gate closed and idle eye restored");
-    set_wake_word_detection(true);
+
+    if (!g_listening_cue_active.load()) {
+        set_wake_word_detection(true);
+    }
 }
 
 void set_wake_word_detection(bool enable)
@@ -679,9 +707,15 @@ void project_kadence_startup_task(void*)
 {
     kadence_startup::run();
 
-    // Startup completion is a stationary production state. Restore the official
-    // servicing policy, explicitly release both torques, and let the main runtime
-    // become the sole 50 Hz StackChan updater.
+    const bool rest_reached = kadence_motion::go_to_rest_pose();
+    if (rest_reached) {
+        mclog::tagInfo(kLogTag,
+                       "startup rest pose [80,300] reached and servo torque released");
+    } else {
+        mclog::tagError(kLogTag,
+                        "startup rest pose failed; motion stopped and servo torque released");
+    }
+
     kadence_motion::restore_factory_idle_policy(GetStackChan().motion());
     g_startup_complete.store(true);
 
@@ -711,14 +745,10 @@ extern "C" void app_main(void)
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
     mclog::tagInfo(kLogTag, "starting Project Kadence production idle-motion runtime");
+    log_reset_reason();
 
-    // Retain the official factory HAL initialisation path, including the Si12T
-    // head-touch task and its HeadPetGesture signal.
     GetHAL().init();
 
-    // Safe production default: no movement request means both torques are off.
-    // The physically signed-off movement checkpoint remains in source as a
-    // recovery diagnostic but is no longer executed automatically on boot.
     kadence_motion::restore_factory_idle_policy(GetStackChan().motion());
     g_idle_motion.initialise();
     (void)initialise_kadence_wake_word();
@@ -729,14 +759,12 @@ extern "C" void app_main(void)
     start_project_kadence_startup();
 
     mclog::tagInfo(kLogTag,
-                   "runtime ready; tap toggles idle motion; forward/back swipes test voice UI");
+                   "runtime ready; tap toggles idle motion; either swipe cancels listening");
 
     while (true) {
         const uint32_t now = GetHAL().millis();
 
         if (g_startup_complete.load()) {
-            // Match the official firmware lifecycle. This is the sole permanent
-            // StackChan update path after the startup task hands control over.
             GetStackChan().update();
             process_head_touch_events(now);
 
@@ -745,6 +773,7 @@ extern "C" void app_main(void)
             }
 
             if (!g_boot_audio_active.load() &&
+                !g_listening_cue_active.load() &&
                 g_voice_ui_runtime.state == VoiceUiState::Idle &&
                 g_wake_word_service_ready &&
                 !g_wake_word_detection_enabled) {
@@ -755,12 +784,9 @@ extern "C" void app_main(void)
                 g_idle_motion.update();
             }
         } else {
-            // Ignore accidental startup touches and keep the boot sequence
-            // stationary. The startup task services StackChan while it runs.
             g_head_touch_events.exchange(0);
             g_touch_active = false;
             g_touch_swiped = false;
-            g_touch_swipe_direction = 0;
         }
 
         update_voice_ui(now);
