@@ -36,6 +36,12 @@ public:
             return;
         }
 
+        // Prime the microphone processor once, after boot audio has completed but
+        // before the first wake. The processor stays live between sessions while
+        // its idle Opus packets are discarded. This moves the AudioService 120 ms
+        // input warm-up and first AFE fetch entirely out of the speaking window.
+        ensure_processor_primed();
+
         Board::GetInstance().SetNetworkEventCallback(
             [this](NetworkEvent event, const std::string& data) {
                 switch (event) {
@@ -66,8 +72,9 @@ public:
                         network_connected_.store(false);
                         protocol_open_.store(false);
                         close_requested_.store(true);
-                        mclog::tagError(kLogTag,
-                                        "Wi-Fi credentials unavailable; device entered configuration mode");
+                        mclog::tagError(
+                            kLogTag,
+                            "Wi-Fi credentials unavailable; device entered configuration mode");
                         break;
                     case NetworkEvent::WifiConfigModeExit:
                         mclog::tagInfo(kLogTag, "Wi-Fi configuration mode exited");
@@ -89,9 +96,10 @@ public:
 
     bool begin_capture()
     {
-        if (audio_service_ == nullptr || open_task_running_.load() ||
-            session_active() || !protocol_open_.load()) {
-            prepare_requested_.store(true);
+        if (audio_service_ == nullptr || !processor_primed_.load() ||
+            open_task_running_.load() || session_active() ||
+            !protocol_open_.load()) {
+            prepare_requested_.store(network_connected_.load());
             return false;
         }
 
@@ -114,17 +122,20 @@ public:
         if (!channel_ready) {
             protocol_open_.store(false);
             close_requested_.store(true);
-            prepare_requested_.store(true);
+            prepare_requested_.store(network_connected_.load());
             return false;
         }
 
-        audio_service_->EnableVoiceProcessing(true);
+        // Voice processing is already running and warm. Everything produced
+        // before this point was discarded, so the next Opus frame belongs to the
+        // user's post-chirp speech and can be forwarded immediately.
+        discard_send_queue();
         capture_active_.store(true);
         capture_started_event_.store(true);
         mclog::tagInfo(kLogTag,
                        "preconnected transcript channel accepted capture start");
         mclog::tagInfo(kLogTag,
-                       "robot microphone is streaming 16 kHz mono Opus to Windows");
+                       "primed robot microphone is streaming 16 kHz mono Opus to Windows");
         return true;
     }
 
@@ -135,36 +146,44 @@ public:
             return;
         }
 
-        audio_service_->EnableVoiceProcessing(false);
         capture_active_.store(false);
-        finish_not_before_us_.store(esp_timer_get_time() + 180000);
+        finish_not_before_us_.store(esp_timer_get_time() + kFinalOpusFlushUs);
         finish_pending_.store(true);
         send_queue_pending_.store(true);
-        mclog::tagInfo(kLogTag,
-                       "microphone capture stopped; flushing final Opus frames before transcript request");
+        mclog::tagInfo(
+            kLogTag,
+            "microphone capture stopped; flushing final Opus frames before transcript request");
     }
 
     void cancel()
     {
+        const bool server_session_started = capture_active_.load() ||
+                                            finish_pending_.load() ||
+                                            awaiting_transcript_.load();
+
         finish_pending_.store(false);
         awaiting_transcript_.store(false);
         capture_active_.store(false);
-
-        if (audio_service_ != nullptr) {
-            audio_service_->EnableVoiceProcessing(false);
-            discard_send_queue();
-        }
-
-        // Closing the channel discards the partial sample server-side without
-        // asking Faster Whisper to transcribe it. Reconnect happens while idle.
-        protocol_open_.store(false);
-        close_requested_.store(true);
-        prepare_requested_.store(network_connected_.load());
-        retry_not_before_us_.store(0);
-
+        capture_started_event_.store(false);
+        send_queue_pending_.store(false);
+        discard_send_queue();
         clear_result_state();
-        mclog::tagInfo(kLogTag,
-                       "voice capture cancelled; partial sample discarded and warm reconnect scheduled");
+
+        if (server_session_started) {
+            // Closing discards the partial sample server-side without asking
+            // Faster Whisper to transcribe it. The processor itself remains warm.
+            protocol_open_.store(false);
+            close_requested_.store(true);
+            prepare_requested_.store(network_connected_.load());
+            retry_not_before_us_.store(0);
+            mclog::tagInfo(
+                kLogTag,
+                "voice capture cancelled; partial sample discarded and warm reconnect scheduled");
+        } else {
+            mclog::tagInfo(
+                kLogTag,
+                "voice cue cancelled before server capture; primed microphone remains ready");
+        }
     }
 
     void complete_session()
@@ -175,10 +194,10 @@ public:
         discard_send_queue();
 
         if (!protocol_open_.load()) {
-            prepare_requested_.store(true);
+            prepare_requested_.store(network_connected_.load());
         } else {
             mclog::tagInfo(kLogTag,
-                           "transcript session complete; warm WebSocket remains ready");
+                           "transcript session complete; warm WebSocket and microphone remain ready");
         }
     }
 
@@ -188,9 +207,16 @@ public:
             close_protocol();
         }
 
-        if (send_queue_pending_.exchange(false) ||
-            capture_active_.load() || finish_pending_.load()) {
-            drain_send_queue(true);
+        if (capture_active_.load() || finish_pending_.load()) {
+            if (send_queue_pending_.exchange(false) || capture_active_.load() ||
+                finish_pending_.load()) {
+                drain_send_queue(true);
+            }
+        } else if (processor_primed_.load()) {
+            // Continuous voice processing keeps the AFE and resampler hot. Never
+            // allow idle/chirp audio to accumulate or leak onto the wire.
+            send_queue_pending_.store(false);
+            discard_send_queue();
         }
 
         if (finish_pending_.load() &&
@@ -214,18 +240,15 @@ public:
             } else {
                 protocol_open_.store(false);
                 close_requested_.store(true);
-                prepare_requested_.store(true);
+                prepare_requested_.store(network_connected_.load());
                 set_error("voice transport closed before transcript request");
             }
         }
 
         const int64_t now_us = esp_timer_get_time();
-        if (network_connected_.load() &&
-            prepare_requested_.load() &&
-            !protocol_open_.load() &&
-            !open_task_running_.load() &&
-            !session_active() &&
-            now_us >= retry_not_before_us_.load()) {
+        if (network_connected_.load() && prepare_requested_.load() &&
+            !protocol_open_.load() && !open_task_running_.load() &&
+            !session_active() && now_us >= retry_not_before_us_.load()) {
             start_prepare_task();
         }
     }
@@ -262,7 +285,7 @@ public:
 
     bool ready() const
     {
-        return protocol_open_.load();
+        return processor_primed_.load() && protocol_open_.load();
     }
 
     bool network_connected() const
@@ -276,6 +299,7 @@ private:
     static constexpr const char* kDiscoveryRequest = "KADENCE_DISCOVER_V1";
     static constexpr const char* kDiscoveryReplyPrefix = "KADENCE_SERVER_V1 ";
     static constexpr int64_t kReconnectDelayUs = 3000000;
+    static constexpr int64_t kFinalOpusFlushUs = 180000;
 
     AudioService* audio_service_ = nullptr;
     std::unique_ptr<WebsocketProtocol> protocol_;
@@ -284,6 +308,7 @@ private:
 
     std::atomic<bool> network_started_{false};
     std::atomic<bool> network_connected_{false};
+    std::atomic<bool> processor_primed_{false};
     std::atomic<bool> prepare_requested_{false};
     std::atomic<bool> open_task_running_{false};
     std::atomic<bool> close_requested_{false};
@@ -305,6 +330,19 @@ private:
     {
         return capture_active_.load() || finish_pending_.load() ||
                awaiting_transcript_.load();
+    }
+
+    void ensure_processor_primed()
+    {
+        if (audio_service_ == nullptr || processor_primed_.exchange(true)) {
+            return;
+        }
+
+        audio_service_->EnableVoiceProcessing(true);
+        discard_send_queue();
+        mclog::tagInfo(
+            kLogTag,
+            "microphone processor primed while idle; pre-wake audio will be discarded");
     }
 
     void clear_result_state()
@@ -372,7 +410,7 @@ private:
             if (!sent) {
                 protocol_open_.store(false);
                 close_requested_.store(true);
-                prepare_requested_.store(true);
+                prepare_requested_.store(network_connected_.load());
                 if (fail_on_send_error) {
                     set_error("failed to send microphone Opus frame to Windows");
                 }
@@ -501,8 +539,7 @@ private:
             mclog::tagInfo(kLogTag, "WebSocket connected");
         });
         protocol.OnAudioChannelOpened([]() {
-            mclog::tagInfo(kLogTag,
-                           "version-1 Opus audio channel opened");
+            mclog::tagInfo(kLogTag, "version-1 Opus audio channel opened");
         });
         protocol.OnAudioChannelClosed([this]() {
             protocol_open_.store(false);
@@ -511,8 +548,9 @@ private:
             if (session_active()) {
                 set_error("Windows transcript WebSocket disconnected unexpectedly");
             } else {
-                mclog::tagError(kLogTag,
-                                "warm transcript WebSocket disconnected; reconnect scheduled");
+                mclog::tagError(
+                    kLogTag,
+                    "warm transcript WebSocket disconnected; reconnect scheduled");
             }
         });
         protocol.OnNetworkError([this](const std::string& message) {
@@ -546,7 +584,7 @@ private:
                                     message->valuestring
                               : "Windows transcript server returned an error");
             } else if (std::strcmp(type->valuestring, "keepalive") == 0) {
-                // Receipt updates the protocol activity timestamp. No UI action.
+                // Receipt updates protocol activity. No visible UI action.
             }
         });
         protocol.OnIncomingAudio([](std::unique_ptr<AudioStreamPacket>) {
@@ -575,8 +613,7 @@ private:
 
         if (created != pdPASS) {
             open_task_running_.store(false);
-            schedule_prepare_retry(
-                "failed to create warm voice transport task");
+            schedule_prepare_retry("failed to create warm voice transport task");
         }
     }
 
@@ -639,7 +676,7 @@ private:
         open_task_running_.store(false);
         mclog::tagInfo(
             kLogTag,
-            "transcript transport standing by; wake capture will start without discovery delay");
+            "transcript transport standing by; warm microphone capture will start without AFE delay");
     }
 };
 
