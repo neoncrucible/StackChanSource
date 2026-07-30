@@ -198,7 +198,7 @@ void update_voice_ui(uint32_t now)
                     !g_voice_ui_runtime.green_frame_visible;
                 show_frame(g_voice_ui_runtime.green_frame_visible
                                ? g_listening2_dsc
-                               : g_listening_dsc);
+                               : g_error_dsc);
                 g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
             }
             return;
