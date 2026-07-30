@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -29,6 +30,7 @@
 #include "kade_assets_generated.h"
 #include "kadence_idle_motion.h"
 #include "kadence_startup.h"
+#include "kadence_voice_transport.h"
 #include "safe_motion_foundation.h"
 
 using namespace smooth_ui_toolkit;
@@ -39,7 +41,10 @@ constexpr const char* kLogTag = "KADE-EYE";
 constexpr uint32_t kIdleMotionConfirmationMs = 1000;
 constexpr uint32_t kListeningPulseMs = 550;
 constexpr uint32_t kListeningCueGuardMs = 100;
-constexpr uint32_t kListeningWakeTestTimeoutMs = 10000;
+constexpr uint32_t kCaptureDurationMs = 10000;
+constexpr uint32_t kTransportConnectTimeoutMs = 22000;
+constexpr uint32_t kTranscriptTimeoutMs = 30000;
+constexpr uint32_t kErrorDisplayMs = 1800;
 
 constexpr uint32_t kTouchEventPress = 1U << 0;
 constexpr uint32_t kTouchEventRelease = 1U << 1;
@@ -77,19 +82,23 @@ struct EyeRuntime {
 enum class VoiceUiState : uint8_t {
     Idle,
     CuePlaying,
+    Connecting,
     Listening,
+    Transcribing,
+    Error,
 };
 
 struct VoiceUiRuntime {
     VoiceUiState state = VoiceUiState::Idle;
     uint32_t next_pulse_ms = 0;
-    uint32_t listening_deadline_ms = 0;
+    uint32_t state_deadline_ms = 0;
     bool green_frame_visible = true;
 };
 
 EyeRuntime g_eye_runtime;
 VoiceUiRuntime g_voice_ui_runtime;
 kadence_idle_motion::Service g_idle_motion;
+kadence_voice_transport::Service g_voice_transport;
 std::atomic<uint32_t> g_head_touch_events{0};
 std::atomic<bool> g_startup_complete{false};
 std::atomic<bool> g_listening_cue_active{false};
@@ -100,6 +109,7 @@ std::atomic<bool> g_boot_audio_active{false};
 AudioService* g_audio_service = nullptr;
 bool g_wake_word_service_ready = false;
 bool g_wake_word_detection_enabled = false;
+bool g_network_start_requested = false;
 
 bool g_touch_active = false;
 bool g_touch_swiped = false;
@@ -109,7 +119,7 @@ bool start_listening_cue_audio();
 bool initialise_kadence_wake_word();
 void set_wake_word_detection(bool enable);
 void begin_listening_sequence(uint32_t now);
-void stop_listening_sequence(uint32_t now);
+void cancel_listening_sequence(uint32_t now, const char* reason);
 
 uint32_t random_between(uint32_t minimum, uint32_t maximum)
 {
@@ -227,36 +237,126 @@ void initialise_eye_surface()
     g_eye_runtime.next_idle_variation_ms = now + random_between(9000, 16000);
 }
 
+void restore_idle_voice_state(uint32_t now)
+{
+    g_voice_capture_allowed.store(false);
+    g_listening_cue_complete.store(false);
+    g_voice_ui_runtime.state = VoiceUiState::Idle;
+    g_voice_ui_runtime.next_pulse_ms = 0;
+    g_voice_ui_runtime.state_deadline_ms = 0;
+    reset_eye_runtime(now);
+
+    if (!g_listening_cue_active.load() && !g_voice_transport.busy()) {
+        set_wake_word_detection(true);
+    }
+}
+
+void fail_voice_sequence(uint32_t now, const std::string& message)
+{
+    mclog::tagError(kLogTag, "voice checkpoint error: {}", message);
+    g_voice_capture_allowed.store(false);
+    g_voice_transport.cancel();
+    show_frame(g_error_dsc);
+    g_voice_ui_runtime.state = VoiceUiState::Error;
+    g_voice_ui_runtime.state_deadline_ms = now + kErrorDisplayMs;
+}
+
+void update_listening_pulse(uint32_t now)
+{
+    if (!deadline_reached(now, g_voice_ui_runtime.next_pulse_ms)) {
+        return;
+    }
+
+    g_voice_ui_runtime.green_frame_visible =
+        !g_voice_ui_runtime.green_frame_visible;
+    show_frame(g_voice_ui_runtime.green_frame_visible
+                   ? g_listening2_dsc
+                   : g_error_dsc);
+    g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
+}
+
 void update_voice_ui(uint32_t now)
 {
+    g_voice_transport.update();
+
+    std::string transport_error;
+    if (g_voice_ui_runtime.state != VoiceUiState::Idle &&
+        g_voice_ui_runtime.state != VoiceUiState::Error &&
+        g_voice_transport.take_error(transport_error)) {
+        fail_voice_sequence(now, transport_error);
+        return;
+    }
+
     switch (g_voice_ui_runtime.state) {
         case VoiceUiState::CuePlaying:
             if (g_listening_cue_complete.exchange(false)) {
-                g_voice_ui_runtime.state = VoiceUiState::Listening;
+                g_voice_ui_runtime.state = VoiceUiState::Connecting;
                 g_voice_ui_runtime.green_frame_visible = true;
                 g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
-                g_voice_ui_runtime.listening_deadline_ms =
-                    now + kListeningWakeTestTimeoutMs;
-                g_voice_capture_allowed.store(true);
+                g_voice_ui_runtime.state_deadline_ms =
+                    now + kTransportConnectTimeoutMs;
                 show_frame(g_listening2_dsc);
+
+                if (!g_voice_transport.begin_capture()) {
+                    fail_voice_sequence(now, "voice transport was already busy");
+                    return;
+                }
+
                 mclog::tagInfo(kLogTag,
-                               "listening cue complete; robot microphone capture gate open");
+                               "listening cue complete; discovering Windows transcript server");
             }
             return;
 
-        case VoiceUiState::Listening:
-            if (deadline_reached(now, g_voice_ui_runtime.listening_deadline_ms)) {
-                mclog::tagInfo(kLogTag, "wake-word test listening timeout reached");
-                stop_listening_sequence(now);
+        case VoiceUiState::Connecting:
+            if (g_voice_transport.take_capture_started()) {
+                g_voice_capture_allowed.store(true);
+                g_voice_ui_runtime.state = VoiceUiState::Listening;
+                g_voice_ui_runtime.state_deadline_ms = now + kCaptureDurationMs;
+                mclog::tagInfo(kLogTag,
+                               "robot microphone capture gate open; 10-second transcript sample started");
                 return;
             }
-            if (deadline_reached(now, g_voice_ui_runtime.next_pulse_ms)) {
-                g_voice_ui_runtime.green_frame_visible =
-                    !g_voice_ui_runtime.green_frame_visible;
-                show_frame(g_voice_ui_runtime.green_frame_visible
-                               ? g_listening2_dsc
-                               : g_error_dsc);
-                g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                fail_voice_sequence(now, "Windows transcript connection timed out");
+                return;
+            }
+            update_listening_pulse(now);
+            return;
+
+        case VoiceUiState::Listening:
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                g_voice_capture_allowed.store(false);
+                g_voice_transport.request_transcript();
+                g_voice_ui_runtime.state = VoiceUiState::Transcribing;
+                g_voice_ui_runtime.state_deadline_ms = now + kTranscriptTimeoutMs;
+                show_frame(g_listening2_dsc);
+                mclog::tagInfo(kLogTag,
+                               "voice sample complete; waiting for Faster Whisper transcript on Windows");
+                return;
+            }
+            update_listening_pulse(now);
+            return;
+
+        case VoiceUiState::Transcribing: {
+            std::string transcript;
+            if (g_voice_transport.take_transcript(transcript)) {
+                mclog::tagInfo(kLogTag,
+                               "WINDOWS TRANSCRIPT: {}",
+                               transcript.empty() ? "<no speech recognised>" : transcript);
+                g_voice_transport.complete_session();
+                restore_idle_voice_state(now);
+                return;
+            }
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                fail_voice_sequence(now, "Windows transcript response timed out");
+                return;
+            }
+            return;
+        }
+
+        case VoiceUiState::Error:
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                restore_idle_voice_state(now);
             }
             return;
 
@@ -330,7 +430,8 @@ void update_eye_state(uint32_t now)
         return;
     }
 
-    const int32_t time_until_blink = static_cast<int32_t>(g_eye_runtime.next_blink_ms - now);
+    const int32_t time_until_blink =
+        static_cast<int32_t>(g_eye_runtime.next_blink_ms - now);
     if (g_eye_runtime.state == EyeState::IdlePrimary &&
         deadline_reached(now, g_eye_runtime.next_idle_variation_ms) &&
         time_until_blink > 2200) {
@@ -367,6 +468,19 @@ void initialise_head_touch_toggle()
                    g_head_touch_connection);
 }
 
+void cancel_listening_sequence(uint32_t now, const char* reason)
+{
+    if (g_voice_ui_runtime.state == VoiceUiState::Idle) {
+        return;
+    }
+
+    g_voice_capture_allowed.store(false);
+    g_listening_cue_complete.store(false);
+    g_voice_transport.cancel();
+    restore_idle_voice_state(now);
+    mclog::tagInfo(kLogTag, "listening cancelled: {}", reason);
+}
+
 void process_head_touch_events(uint32_t now)
 {
     const uint32_t events = g_head_touch_events.exchange(0);
@@ -379,11 +493,8 @@ void process_head_touch_events(uint32_t now)
     const bool swipe_detected = (events & kTouchEventAnySwipe) != 0U;
     if (swipe_detected) {
         g_touch_swiped = true;
-
-        // Voice cancellation must not depend on a later Release event or direction.
         if (g_voice_ui_runtime.state != VoiceUiState::Idle) {
-            mclog::tagInfo(kLogTag, "head swipe cancelled active listening immediately");
-            stop_listening_sequence(now);
+            cancel_listening_sequence(now, "head swipe");
             g_touch_active = false;
             g_touch_swiped = false;
             return;
@@ -444,7 +555,9 @@ int32_t read_pcm_sample(const uint8_t* data, uint16_t bits_per_sample)
     }
 }
 
-bool decode_wav_to_mono(const uint8_t* wav, std::size_t wav_size, uint32_t output_rate,
+bool decode_wav_to_mono(const uint8_t* wav,
+                        std::size_t wav_size,
+                        uint32_t output_rate,
                         std::vector<int16_t>& output)
 {
     if (wav_size < 44 || std::memcmp(wav, "RIFF", 4) != 0 ||
@@ -490,7 +603,10 @@ bool decode_wav_to_mono(const uint8_t* wav, std::size_t wav_size, uint32_t outpu
         source_rate == 0 || output_rate == 0 || pcm_data == nullptr) {
         mclog::tagError(kLogTag,
                         "unsupported embedded WAV: format={}, channels={}, bits={}, rate={}",
-                        audio_format, channels, bits_per_sample, source_rate);
+                        audio_format,
+                        channels,
+                        bits_per_sample,
+                        source_rate);
         return false;
     }
 
@@ -520,8 +636,11 @@ bool decode_wav_to_mono(const uint8_t* wav, std::size_t wav_size, uint32_t outpu
             std::clamp<int32_t>(sample, INT32_C(-32768), INT32_C(32767)));
     }
 
-    mclog::tagInfo(kLogTag, "embedded WAV decoded: {} Hz -> {} Hz, {} samples",
-                   source_rate, output_rate, output.size());
+    mclog::tagInfo(kLogTag,
+                   "embedded WAV decoded: {} Hz -> {} Hz, {} samples",
+                   source_rate,
+                   output_rate,
+                   output.size());
     return true;
 }
 
@@ -592,12 +711,11 @@ bool start_listening_cue_audio()
 void begin_listening_sequence(uint32_t now)
 {
     if (g_voice_ui_runtime.state != VoiceUiState::Idle ||
-        g_listening_cue_active.load()) {
+        g_listening_cue_active.load() || g_voice_transport.busy()) {
         return;
     }
 
     set_wake_word_detection(false);
-
     g_idle_motion.set_enabled(false);
     g_eye_runtime.confirmation_active = false;
     g_voice_capture_allowed.store(false);
@@ -606,36 +724,12 @@ void begin_listening_sequence(uint32_t now)
     show_frame(g_listening2_dsc);
 
     if (!start_listening_cue_audio()) {
-        g_voice_ui_runtime.state = VoiceUiState::Idle;
-        show_frame(g_error_dsc);
-        g_eye_runtime.confirmation_active = true;
-        g_eye_runtime.confirmation_deadline_ms = now + kIdleMotionConfirmationMs;
-        set_wake_word_detection(true);
+        fail_voice_sequence(now, "listening chirp could not start");
         return;
     }
 
     mclog::tagInfo(kLogTag,
                    "Kadence wake accepted; green listening frame and chirp started");
-}
-
-void stop_listening_sequence(uint32_t now)
-{
-    if (g_voice_ui_runtime.state == VoiceUiState::Idle) {
-        return;
-    }
-
-    g_voice_capture_allowed.store(false);
-    g_listening_cue_complete.store(false);
-    g_voice_ui_runtime.state = VoiceUiState::Idle;
-    g_voice_ui_runtime.next_pulse_ms = 0;
-    g_voice_ui_runtime.listening_deadline_ms = 0;
-    reset_eye_runtime(now);
-    mclog::tagInfo(kLogTag,
-                   "listening stopped; microphone gate closed and idle eye restored");
-
-    if (!g_listening_cue_active.load()) {
-        set_wake_word_detection(true);
-    }
 }
 
 void set_wake_word_detection(bool enable)
@@ -650,7 +744,8 @@ void set_wake_word_detection(bool enable)
     g_audio_service->EnableWakeWordDetection(enable);
     g_wake_word_detection_enabled =
         enable && g_audio_service->IsWakeWordRunning();
-    mclog::tagInfo(kLogTag, "Kadence wake-word detection {}",
+    mclog::tagInfo(kLogTag,
+                   "Kadence wake-word detection {}",
                    g_wake_word_detection_enabled ? "armed" : "disarmed");
 }
 
@@ -658,14 +753,19 @@ bool initialise_kadence_wake_word()
 {
     AudioCodec* codec = Board::GetInstance().GetAudioCodec();
     if (codec == nullptr) {
-        mclog::tagError(kLogTag, "cannot initialise Kadence wake word: audio codec unavailable");
+        mclog::tagError(kLogTag,
+                        "cannot initialise Kadence wake word: audio codec unavailable");
         return false;
     }
 
     auto& audio_service = Application::GetInstance().GetAudioService();
     g_audio_service = &audio_service;
+    g_voice_transport.initialise(g_audio_service);
 
     AudioServiceCallbacks callbacks{};
+    callbacks.on_send_queue_available = []() {
+        g_voice_transport.notify_send_queue_available();
+    };
     callbacks.on_wake_word_detected = [](const std::string& wake_word) {
         mclog::tagInfo(kLogTag, "wake-word callback: {}", wake_word);
         if (wake_word == "Kadence") {
@@ -677,7 +777,8 @@ bool initialise_kadence_wake_word()
     audio_service.Start();
 
     if (!Assets::GetInstance().Apply()) {
-        mclog::tagError(kLogTag, "failed to apply speech-model assets for Kadence wake word");
+        mclog::tagError(kLogTag,
+                        "failed to apply speech-model assets for Kadence wake word");
         return false;
     }
 
@@ -744,7 +845,8 @@ extern "C" void app_main(void)
 {
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
-    mclog::tagInfo(kLogTag, "starting Project Kadence production idle-motion runtime");
+    mclog::tagInfo(kLogTag,
+                   "starting Project Kadence transcript-transport checkpoint");
     log_reset_reason();
 
     GetHAL().init();
@@ -759,7 +861,7 @@ extern "C" void app_main(void)
     start_project_kadence_startup();
 
     mclog::tagInfo(kLogTag,
-                   "runtime ready; tap toggles idle motion; either swipe cancels listening");
+                   "runtime ready; tap toggles idle motion; either swipe cancels voice");
 
     while (true) {
         const uint32_t now = GetHAL().millis();
@@ -768,6 +870,11 @@ extern "C" void app_main(void)
             GetStackChan().update();
             process_head_touch_events(now);
 
+            if (!g_boot_audio_active.load() && !g_network_start_requested) {
+                g_network_start_requested = true;
+                g_voice_transport.start_network();
+            }
+
             if (g_kadence_wake_detected.exchange(false)) {
                 begin_listening_sequence(now);
             }
@@ -775,6 +882,7 @@ extern "C" void app_main(void)
             if (!g_boot_audio_active.load() &&
                 !g_listening_cue_active.load() &&
                 g_voice_ui_runtime.state == VoiceUiState::Idle &&
+                !g_voice_transport.busy() &&
                 g_wake_word_service_ready &&
                 !g_wake_word_detection_enabled) {
                 set_wake_word_detection(true);
