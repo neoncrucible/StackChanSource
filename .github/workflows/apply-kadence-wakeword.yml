@@ -1,0 +1,348 @@
+name: Apply Kadence Wake Word
+
+on:
+  pull_request:
+    branches:
+      - feature/alpha1-startup-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out voice branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/voice-checkpoint-1
+
+      - name: Apply wake-word checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str, marker: str) -> str:
+              if old in text:
+                  return text.replace(old, new, 1)
+              if marker in text:
+                  return text
+              raise SystemExit(f'{label} anchor not found')
+
+          sdk_path = Path('firmware/sdkconfig.defaults')
+          sdk = sdk_path.read_text(encoding='utf-8')
+          sdk = sdk.replace('CONFIG_SR_WN_WN9_HISTACKCHAN_TTS3=y\n', '')
+          sdk = sdk.replace('CONFIG_SR_WN_WN9L_HISTACKCHAN_TTS3=y\n', '')
+          wake_config = (
+              'CONFIG_USE_CUSTOM_WAKE_WORD=y\n'
+              'CONFIG_CUSTOM_WAKE_WORD="cadence"\n'
+              'CONFIG_CUSTOM_WAKE_WORD_DISPLAY="Kadence"\n'
+              'CONFIG_CUSTOM_WAKE_WORD_THRESHOLD=20\n'
+              'CONFIG_SR_MN_EN_MULTINET7_QUANT=y\n'
+          )
+          anchor = 'CONFIG_SEND_WAKE_WORD_DATA=n\n'
+          if 'CONFIG_USE_CUSTOM_WAKE_WORD=y' not in sdk:
+              if anchor not in sdk:
+                  raise SystemExit('sdkconfig wake-word anchor not found')
+              sdk = sdk.replace(anchor, anchor + wake_config, 1)
+          sdk_path.write_text(sdk, encoding='utf-8')
+
+          path = Path('firmware/main/main.cpp')
+          text = path.read_text(encoding='utf-8')
+
+          text = replace_once(
+              text,
+              '#include <audio_codec.h>\n#include <esp_random.h>\n',
+              '#include <audio_codec.h>\n#include <application.h>\n#include <assets.h>\n#include <audio_service.h>\n#include <esp_random.h>\n',
+              'audio includes',
+              '#include <audio_service.h>',
+          )
+          text = replace_once(
+              text,
+              '#include <cstring>\n#include <vector>\n',
+              '#include <cstring>\n#include <string>\n#include <vector>\n',
+              'standard includes',
+              '#include <string>',
+          )
+          text = replace_once(
+              text,
+              'constexpr uint32_t kListeningCueGuardMs = 100;\n',
+              'constexpr uint32_t kListeningCueGuardMs = 100;\n'
+              'constexpr uint32_t kListeningWakeTestTimeoutMs = 10000;\n',
+              'wake timeout constant',
+              'kListeningWakeTestTimeoutMs',
+          )
+          text = replace_once(
+              text,
+              'struct VoiceUiRuntime {\n'
+              '    VoiceUiState state = VoiceUiState::Idle;\n'
+              '    uint32_t next_pulse_ms = 0;\n'
+              '    bool green_frame_visible = true;\n'
+              '};\n',
+              'struct VoiceUiRuntime {\n'
+              '    VoiceUiState state = VoiceUiState::Idle;\n'
+              '    uint32_t next_pulse_ms = 0;\n'
+              '    uint32_t listening_deadline_ms = 0;\n'
+              '    bool green_frame_visible = true;\n'
+              '};\n',
+              'voice runtime deadline',
+              'listening_deadline_ms',
+          )
+          text = replace_once(
+              text,
+              'std::atomic<bool> g_voice_capture_allowed{false};\n\n'
+              'bool g_touch_active = false;\n',
+              'std::atomic<bool> g_voice_capture_allowed{false};\n'
+              'std::atomic<bool> g_kadence_wake_detected{false};\n'
+              'std::atomic<bool> g_boot_audio_active{false};\n'
+              'AudioService* g_audio_service = nullptr;\n'
+              'bool g_wake_word_service_ready = false;\n'
+              'bool g_wake_word_detection_enabled = false;\n\n'
+              'bool g_touch_active = false;\n',
+              'wake globals',
+              'g_kadence_wake_detected',
+          )
+          text = replace_once(
+              text,
+              'bool start_listening_cue_audio();\n'
+              'void begin_listening_sequence(uint32_t now);\n'
+              'void stop_listening_sequence(uint32_t now);\n',
+              'bool start_listening_cue_audio();\n'
+              'bool initialise_kadence_wake_word();\n'
+              'void set_wake_word_detection(bool enable);\n'
+              'void begin_listening_sequence(uint32_t now);\n'
+              'void stop_listening_sequence(uint32_t now);\n',
+              'wake declarations',
+              'initialise_kadence_wake_word',
+          )
+          text = replace_once(
+              text,
+              '                g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;\n'
+              '                g_voice_capture_allowed.store(true);\n',
+              '                g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;\n'
+              '                g_voice_ui_runtime.listening_deadline_ms =\n'
+              '                    now + kListeningWakeTestTimeoutMs;\n'
+              '                g_voice_capture_allowed.store(true);\n',
+              'listening deadline start',
+              'now + kListeningWakeTestTimeoutMs',
+          )
+          text = replace_once(
+              text,
+              '        case VoiceUiState::Listening:\n'
+              '            if (deadline_reached(now, g_voice_ui_runtime.next_pulse_ms)) {\n',
+              '        case VoiceUiState::Listening:\n'
+              '            if (deadline_reached(now, g_voice_ui_runtime.listening_deadline_ms)) {\n'
+              '                mclog::tagInfo(kLogTag, "wake-word test listening timeout reached");\n'
+              '                stop_listening_sequence(now);\n'
+              '                return;\n'
+              '            }\n'
+              '            if (deadline_reached(now, g_voice_ui_runtime.next_pulse_ms)) {\n',
+              'listening timeout handling',
+              'wake-word test listening timeout reached',
+          )
+          text = replace_once(
+              text,
+              'void begin_listening_sequence(uint32_t now)\n{\n'
+              '    if (g_voice_ui_runtime.state != VoiceUiState::Idle ||\n'
+              '        g_listening_cue_active.load()) {\n'
+              '        return;\n'
+              '    }\n\n'
+              '    // Voice owns the interaction. Fail to the stationary torque-off state.\n',
+              'void begin_listening_sequence(uint32_t now)\n{\n'
+              '    if (g_voice_ui_runtime.state != VoiceUiState::Idle ||\n'
+              '        g_listening_cue_active.load()) {\n'
+              '        return;\n'
+              '    }\n\n'
+              '    set_wake_word_detection(false);\n\n'
+              '    // Voice owns the interaction. Fail to the stationary torque-off state.\n',
+              'wake disable on listen',
+              '    set_wake_word_detection(false);',
+          )
+          text = replace_once(
+              text,
+              '        g_eye_runtime.confirmation_deadline_ms = now + kIdleMotionConfirmationMs;\n'
+              '        return;\n'
+              '    }\n\n'
+              '    mclog::tagInfo(kLogTag,\n'
+              '                   "Kadence wake accepted; green listening frame and chirp started");\n',
+              '        g_eye_runtime.confirmation_deadline_ms = now + kIdleMotionConfirmationMs;\n'
+              '        set_wake_word_detection(true);\n'
+              '        return;\n'
+              '    }\n\n'
+              '    mclog::tagInfo(kLogTag,\n'
+              '                   "Kadence wake accepted; green listening frame and chirp started");\n',
+              'wake rearm on cue failure',
+              '        set_wake_word_detection(true);\n',
+          )
+          text = replace_once(
+              text,
+              '    g_voice_ui_runtime.state = VoiceUiState::Idle;\n'
+              '    g_voice_ui_runtime.next_pulse_ms = 0;\n'
+              '    reset_eye_runtime(now);\n'
+              '    mclog::tagInfo(kLogTag,\n'
+              '                   "listening stopped; microphone gate closed and idle eye restored");\n'
+              '}\n\n'
+              'void start_boot_audio()\n',
+              '    g_voice_ui_runtime.state = VoiceUiState::Idle;\n'
+              '    g_voice_ui_runtime.next_pulse_ms = 0;\n'
+              '    g_voice_ui_runtime.listening_deadline_ms = 0;\n'
+              '    reset_eye_runtime(now);\n'
+              '    mclog::tagInfo(kLogTag,\n'
+              '                   "listening stopped; microphone gate closed and idle eye restored");\n'
+              '    set_wake_word_detection(true);\n'
+              '}\n\n'
+              'void set_wake_word_detection(bool enable)\n'
+              '{\n'
+              '    if (g_audio_service == nullptr || !g_wake_word_service_ready) {\n'
+              '        return;\n'
+              '    }\n'
+              '    if (enable == g_wake_word_detection_enabled) {\n'
+              '        return;\n'
+              '    }\n\n'
+              '    g_audio_service->EnableWakeWordDetection(enable);\n'
+              '    g_wake_word_detection_enabled =\n'
+              '        enable && g_audio_service->IsWakeWordRunning();\n'
+              '    mclog::tagInfo(kLogTag, "Kadence wake-word detection {}",\n'
+              '                   g_wake_word_detection_enabled ? "armed" : "disarmed");\n'
+              '}\n\n'
+              'bool initialise_kadence_wake_word()\n'
+              '{\n'
+              '    AudioCodec* codec = Board::GetInstance().GetAudioCodec();\n'
+              '    if (codec == nullptr) {\n'
+              '        mclog::tagError(kLogTag, "cannot initialise Kadence wake word: audio codec unavailable");\n'
+              '        return false;\n'
+              '    }\n\n'
+              '    auto& audio_service = Application::GetInstance().GetAudioService();\n'
+              '    g_audio_service = &audio_service;\n\n'
+              '    AudioServiceCallbacks callbacks{};\n'
+              '    callbacks.on_wake_word_detected = [](const std::string& wake_word) {\n'
+              '        mclog::tagInfo(kLogTag, "wake-word callback: {}", wake_word);\n'
+              '        if (wake_word == "Kadence") {\n'
+              '            g_kadence_wake_detected.store(true);\n'
+              '        }\n'
+              '    };\n'
+              '    audio_service.SetCallbacks(callbacks);\n'
+              '    audio_service.Initialize(codec);\n'
+              '    audio_service.Start();\n\n'
+              '    if (!Assets::GetInstance().Apply()) {\n'
+              '        mclog::tagError(kLogTag, "failed to apply speech-model assets for Kadence wake word");\n'
+              '        return false;\n'
+              '    }\n\n'
+              '    g_wake_word_service_ready = true;\n'
+              '    mclog::tagInfo(kLogTag,\n'
+              '                   "Kadence wake-word service initialised; arming after startup audio");\n'
+              '    return true;\n'
+              '}\n\n'
+              'void start_boot_audio()\n',
+              'wake service implementation',
+              'bool initialise_kadence_wake_word()',
+          )
+          text = replace_once(
+              text,
+              'void boot_audio_task(void*)\n{\n'
+              '    (void)play_embedded_wav(\n'
+              '        kade_assets::boot_wav, kade_assets::boot_wav_size, "boot sound");\n'
+              '    vTaskDelete(nullptr);\n'
+              '}\n',
+              'void boot_audio_task(void*)\n{\n'
+              '    (void)play_embedded_wav(\n'
+              '        kade_assets::boot_wav, kade_assets::boot_wav_size, "boot sound");\n'
+              '    g_boot_audio_active.store(false);\n'
+              '    vTaskDelete(nullptr);\n'
+              '}\n',
+              'boot audio completion flag',
+              'g_boot_audio_active.store(false);',
+          )
+          text = replace_once(
+              text,
+              'void start_boot_audio()\n{\n'
+              '    const BaseType_t result = xTaskCreate(\n',
+              'void start_boot_audio()\n{\n'
+              '    g_boot_audio_active.store(true);\n'
+              '    const BaseType_t result = xTaskCreate(\n',
+              'boot audio start flag',
+              '    g_boot_audio_active.store(true);',
+          )
+          text = replace_once(
+              text,
+              '    if (result != pdPASS) {\n'
+              '        mclog::tagError(kLogTag, "failed to create boot audio task");\n'
+              '    }\n'
+              '}\n\n'
+              'void project_kadence_startup_task',
+              '    if (result != pdPASS) {\n'
+              '        g_boot_audio_active.store(false);\n'
+              '        mclog::tagError(kLogTag, "failed to create boot audio task");\n'
+              '    }\n'
+              '}\n\n'
+              'void project_kadence_startup_task',
+              'boot audio task failure flag',
+              '        g_boot_audio_active.store(false);\n',
+          )
+          text = replace_once(
+              text,
+              '    g_idle_motion.initialise();\n\n'
+              '    initialise_eye_surface();\n',
+              '    g_idle_motion.initialise();\n'
+              '    (void)initialise_kadence_wake_word();\n\n'
+              '    initialise_eye_surface();\n',
+              'wake service startup',
+              '(void)initialise_kadence_wake_word();',
+          )
+          text = replace_once(
+              text,
+              '            GetStackChan().update();\n'
+              '            process_head_touch_events(now);\n'
+              '            if (g_voice_ui_runtime.state == VoiceUiState::Idle) {\n'
+              '                g_idle_motion.update();\n'
+              '            }\n',
+              '            GetStackChan().update();\n'
+              '            process_head_touch_events(now);\n\n'
+              '            if (g_kadence_wake_detected.exchange(false)) {\n'
+              '                begin_listening_sequence(now);\n'
+              '            }\n\n'
+              '            if (!g_boot_audio_active.load() &&\n'
+              '                g_voice_ui_runtime.state == VoiceUiState::Idle &&\n'
+              '                g_wake_word_service_ready &&\n'
+              '                !g_wake_word_detection_enabled) {\n'
+              '                set_wake_word_detection(true);\n'
+              '            }\n\n'
+              '            if (g_voice_ui_runtime.state == VoiceUiState::Idle) {\n'
+              '                g_idle_motion.update();\n'
+              '            }\n',
+              'wake event loop',
+              'g_kadence_wake_detected.exchange(false)',
+          )
+
+          path.write_text(text, encoding='utf-8')
+
+          final = path.read_text(encoding='utf-8')
+          required = [
+              'CONFIG_USE_CUSTOM_WAKE_WORD=y',
+              ': g_error_dsc);',
+              'initialise_kadence_wake_word',
+              'g_kadence_wake_detected.exchange(false)',
+              'wake-word test listening timeout reached',
+          ]
+          combined = sdk_path.read_text(encoding='utf-8') + final
+          missing = [item for item in required if item not in combined]
+          if missing:
+              raise SystemExit(f'missing intended wake-word edits: {missing}')
+          PY
+
+      - name: Commit wake-word checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add firmware/sdkconfig.defaults firmware/main/main.cpp
+          if git diff --cached --quiet; then
+            echo "Wake-word checkpoint already applied."
+            exit 0
+          fi
+          git commit -m "Add real Kadence wake-word checkpoint"
+          git push origin HEAD:feature/voice-checkpoint-1
