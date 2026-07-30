@@ -1,465 +1,185 @@
 /*
- * SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+ * Project Kadence Alpha 1 final runtime wrapper.
  *
- * SPDX-License-Identifier: MIT
+ * The physically proven runtime remains intact in main_base.inc. This wrapper
+ * replaces only the fixed microphone timer with AFE end-of-speech detection
+ * and keeps the original ten-second limit as a safety cap.
  */
-#include <smooth_ui_toolkit.hpp>
-#include <mooncake_log.h>
-#include <hal/hal.h>
-#include <stackchan/stackchan.h>
-#include <lvgl.h>
-#include <board.h>
-#include <audio_codec.h>
-#include <esp_random.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 
-#include <algorithm>
-#include <atomic>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
-#include <vector>
-
-#include "kade_assets_generated.h"
-#include "kadence_idle_motion.h"
-#include "kadence_startup.h"
-#include "safe_motion_foundation.h"
-
-using namespace smooth_ui_toolkit;
+#define app_main kadence_base_app_main
+#include "main_base.inc"
+#undef app_main
 
 namespace {
 
-constexpr const char* kLogTag = "KADE-EYE";
-constexpr uint32_t kIdleMotionConfirmationMs = 1000;
+constexpr uint32_t kAlphaVadArmDelayMs = 200;
+constexpr uint32_t kAlphaEndOfSpeechSilenceMs = 850;
 
-constexpr uint32_t kTouchEventPress = 1U << 0;
-constexpr uint32_t kTouchEventRelease = 1U << 1;
-constexpr uint32_t kTouchEventSwipe = 1U << 2;
+std::atomic<bool> g_alpha_vad_speaking{false};
+bool g_alpha_speech_seen = false;
+uint32_t g_alpha_capture_started_ms = 0;
+uint32_t g_alpha_vad_armed_ms = 0;
+uint32_t g_alpha_last_speech_ms = 0;
 
-lv_obj_t* g_eye_image = nullptr;
-lv_image_dsc_t g_idle1_dsc{};
-lv_image_dsc_t g_idle2_dsc{};
-lv_image_dsc_t g_blink_dsc{};
-lv_image_dsc_t g_blink2_dsc{};
-lv_image_dsc_t g_listening_dsc{};
-lv_image_dsc_t g_error_dsc{};
-
-enum class EyeState {
-    IdlePrimary,
-    IdleSecondary,
-    BlinkClosing,
-    BlinkClosed,
-    BlinkOpening,
-};
-
-struct EyeRuntime {
-    EyeState state = EyeState::IdlePrimary;
-    uint32_t state_deadline_ms = 0;
-    uint32_t next_blink_ms = 0;
-    uint32_t next_idle_variation_ms = 0;
-    bool confirmation_active = false;
-    uint32_t confirmation_deadline_ms = 0;
-};
-
-EyeRuntime g_eye_runtime;
-kadence_idle_motion::Service g_idle_motion;
-std::atomic<uint32_t> g_head_touch_events{0};
-std::atomic<bool> g_startup_complete{false};
-
-bool g_touch_active = false;
-bool g_touch_swiped = false;
-int g_head_touch_connection = -1;
-
-uint32_t random_between(uint32_t minimum, uint32_t maximum)
+void install_alpha_audio_callbacks()
 {
-    return minimum + (esp_random() % (maximum - minimum + 1));
-}
-
-bool deadline_reached(uint32_t now, uint32_t deadline)
-{
-    return static_cast<int32_t>(now - deadline) >= 0;
-}
-
-lv_image_dsc_t make_png_descriptor(const uint8_t* data, std::size_t size)
-{
-    lv_image_dsc_t descriptor{};
-    descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
-    descriptor.header.cf = LV_COLOR_FORMAT_RAW;
-    descriptor.data_size = static_cast<uint32_t>(size);
-    descriptor.data = data;
-    return descriptor;
-}
-
-void initialise_image_descriptors()
-{
-    g_idle1_dsc = make_png_descriptor(kade_assets::idle1_png, kade_assets::idle1_png_size);
-    g_idle2_dsc = make_png_descriptor(kade_assets::idle2_png, kade_assets::idle2_png_size);
-    g_blink_dsc = make_png_descriptor(kade_assets::blink_png, kade_assets::blink_png_size);
-    g_blink2_dsc = make_png_descriptor(kade_assets::blink2_png, kade_assets::blink2_png_size);
-    g_listening_dsc = make_png_descriptor(kade_assets::listening_png, kade_assets::listening_png_size);
-    g_error_dsc = make_png_descriptor(kade_assets::error_png, kade_assets::error_png_size);
-}
-
-void show_frame(const lv_image_dsc_t& frame)
-{
-    LvglLockGuard lock;
-    lv_image_set_src(g_eye_image, &frame);
-    lv_obj_invalidate(g_eye_image);
-}
-
-void reset_eye_runtime(uint32_t now)
-{
-    show_frame(g_idle1_dsc);
-    g_eye_runtime.state = EyeState::IdlePrimary;
-    g_eye_runtime.state_deadline_ms = 0;
-    g_eye_runtime.next_blink_ms = now + random_between(3000, 8000);
-    g_eye_runtime.next_idle_variation_ms = now + random_between(9000, 16000);
-}
-
-void show_idle_motion_confirmation(uint32_t now)
-{
-    // Use the repository's existing listening.png asset (Image Gen 5) for both
-    // toggle directions. The changed movement state is also recorded in logs.
-    show_frame(g_listening_dsc);
-    g_eye_runtime.confirmation_active = true;
-    g_eye_runtime.confirmation_deadline_ms = now + kIdleMotionConfirmationMs;
-}
-
-void initialise_eye_surface()
-{
-    initialise_image_descriptors();
-
-    LvglLockGuard lock;
-    lv_obj_t* screen = lv_screen_active();
-    lv_obj_clean(screen);
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(screen, 0, LV_PART_MAIN);
-    lv_obj_set_style_border_width(screen, 0, LV_PART_MAIN);
-
-    g_eye_image = lv_image_create(screen);
-    lv_image_set_src(g_eye_image, &g_idle1_dsc);
-    lv_obj_set_size(g_eye_image, 320, 240);
-    lv_obj_center(g_eye_image);
-
-    const uint32_t now = GetHAL().millis();
-    g_eye_runtime.state = EyeState::IdlePrimary;
-    g_eye_runtime.next_blink_ms = now + random_between(3000, 8000);
-    g_eye_runtime.next_idle_variation_ms = now + random_between(9000, 16000);
-}
-
-void update_eye_state(uint32_t now)
-{
-    if (g_eye_runtime.confirmation_active) {
-        if (deadline_reached(now, g_eye_runtime.confirmation_deadline_ms)) {
-            g_eye_runtime.confirmation_active = false;
-            reset_eye_runtime(now);
-        }
+    if (g_audio_service == nullptr) {
+        mclog::tagError(kLogTag, "cannot install Alpha VAD callbacks: audio service unavailable");
         return;
     }
 
-    switch (g_eye_runtime.state) {
-        case EyeState::BlinkClosing:
-            if (deadline_reached(now, g_eye_runtime.state_deadline_ms)) {
-                show_frame(g_blink_dsc);
-                g_eye_runtime.state = EyeState::BlinkClosed;
-                g_eye_runtime.state_deadline_ms = now + 120;
+    AudioServiceCallbacks callbacks{};
+    callbacks.on_send_queue_available = []() {
+        g_voice_transport.notify_send_queue_available();
+    };
+    callbacks.on_wake_word_detected = [](const std::string& wake_word) {
+        mclog::tagInfo(kLogTag, "wake-word callback: {}", wake_word);
+        if (wake_word == "Kadence") {
+            g_kadence_wake_detected.store(true);
+        }
+    };
+    callbacks.on_vad_change = [](bool speaking) {
+        g_alpha_vad_speaking.store(speaking);
+    };
+    g_audio_service->SetCallbacks(callbacks);
+
+    mclog::tagInfo(kLogTag,
+                   "AFE end-of-speech callback installed ({} ms silence, {} ms hard cap)",
+                   kAlphaEndOfSpeechSilenceMs,
+                   kCaptureDurationMs);
+}
+
+void reset_alpha_capture_tracking(uint32_t now)
+{
+    g_alpha_speech_seen = false;
+    g_alpha_capture_started_ms = now;
+    g_alpha_vad_armed_ms = now + kAlphaVadArmDelayMs;
+    g_alpha_last_speech_ms = 0;
+}
+
+void submit_alpha_voice_sample(uint32_t now, const char* reason)
+{
+    const uint32_t capture_ms = now - g_alpha_capture_started_ms;
+    g_voice_capture_allowed.store(false);
+    g_voice_transport.request_transcript();
+    g_voice_ui_runtime.state = VoiceUiState::Transcribing;
+    g_voice_ui_runtime.state_deadline_ms = now + kTranscriptTimeoutMs;
+    show_frame(g_listening2_dsc);
+    mclog::tagInfo(kLogTag,
+                   "voice sample submitted after {} ms ({}); waiting for Faster Whisper",
+                   capture_ms,
+                   reason);
+}
+
+void update_voice_ui_alpha(uint32_t now)
+{
+    g_voice_transport.update();
+
+    std::string transport_error;
+    if (g_voice_ui_runtime.state != VoiceUiState::Idle &&
+        g_voice_ui_runtime.state != VoiceUiState::Error &&
+        g_voice_transport.take_error(transport_error)) {
+        fail_voice_sequence(now, transport_error);
+        return;
+    }
+
+    switch (g_voice_ui_runtime.state) {
+        case VoiceUiState::CuePlaying:
+            if (g_listening_cue_complete.exchange(false)) {
+                g_voice_ui_runtime.state = VoiceUiState::Connecting;
+                g_voice_ui_runtime.green_frame_visible = true;
+                g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
+                g_voice_ui_runtime.state_deadline_ms =
+                    now + kTransportConnectTimeoutMs;
+                show_frame(g_listening2_dsc);
+
+                if (!g_voice_transport.begin_capture()) {
+                    fail_voice_sequence(now, "voice transport was already busy");
+                    return;
+                }
+
+                mclog::tagInfo(kLogTag,
+                               "listening cue complete; using warm Windows transcript channel");
             }
             return;
 
-        case EyeState::BlinkClosed:
-            if (deadline_reached(now, g_eye_runtime.state_deadline_ms)) {
-                show_frame(g_blink2_dsc);
-                g_eye_runtime.state = EyeState::BlinkOpening;
-                g_eye_runtime.state_deadline_ms = now + 60;
+        case VoiceUiState::Connecting:
+            if (g_voice_transport.take_capture_started()) {
+                g_voice_capture_allowed.store(true);
+                g_voice_ui_runtime.state = VoiceUiState::Listening;
+                g_voice_ui_runtime.state_deadline_ms = now + kCaptureDurationMs;
+                reset_alpha_capture_tracking(now);
+                mclog::tagInfo(
+                    kLogTag,
+                    "robot microphone capture gate open; AFE cutoff armed after {} ms, {} ms silence ends speech, {} ms hard limit",
+                    kAlphaVadArmDelayMs,
+                    kAlphaEndOfSpeechSilenceMs,
+                    kCaptureDurationMs);
+                return;
             }
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                fail_voice_sequence(now, "Windows transcript connection timed out");
+                return;
+            }
+            update_listening_pulse(now);
             return;
 
-        case EyeState::BlinkOpening:
-            if (deadline_reached(now, g_eye_runtime.state_deadline_ms)) {
-                show_frame(g_idle1_dsc);
-                g_eye_runtime.state = EyeState::IdlePrimary;
-                g_eye_runtime.next_blink_ms = now + random_between(3000, 8000);
-                if (deadline_reached(now, g_eye_runtime.next_idle_variation_ms)) {
-                    g_eye_runtime.next_idle_variation_ms = now + random_between(9000, 16000);
+        case VoiceUiState::Listening: {
+            if (deadline_reached(now, g_alpha_vad_armed_ms)) {
+                const bool speaking = g_alpha_vad_speaking.load();
+                if (speaking) {
+                    if (!g_alpha_speech_seen) {
+                        g_alpha_speech_seen = true;
+                        mclog::tagInfo(kLogTag, "AFE detected user speech");
+                    }
+                    g_alpha_last_speech_ms = now;
+                } else if (g_alpha_speech_seen && g_alpha_last_speech_ms != 0 &&
+                           deadline_reached(
+                               now,
+                               g_alpha_last_speech_ms + kAlphaEndOfSpeechSilenceMs)) {
+                    submit_alpha_voice_sample(now, "AFE end-of-speech silence");
+                    return;
                 }
             }
+
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                submit_alpha_voice_sample(
+                    now,
+                    g_alpha_speech_seen ? "ten-second safety cap" :
+                                          "ten-second safety cap without detected speech");
+                return;
+            }
+
+            update_listening_pulse(now);
+            return;
+        }
+
+        case VoiceUiState::Transcribing: {
+            std::string transcript;
+            if (g_voice_transport.take_transcript(transcript)) {
+                mclog::tagInfo(kLogTag,
+                               "WINDOWS TRANSCRIPT: {}",
+                               transcript.empty() ? "<no speech recognised>" : transcript);
+                g_voice_transport.complete_session();
+                restore_idle_voice_state(now);
+                return;
+            }
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                fail_voice_sequence(now, "Windows transcript response timed out");
+                return;
+            }
+            return;
+        }
+
+        case VoiceUiState::Error:
+            if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                restore_idle_voice_state(now);
+            }
             return;
 
-        case EyeState::IdleSecondary:
-            if (deadline_reached(now, g_eye_runtime.state_deadline_ms)) {
-                show_frame(g_idle1_dsc);
-                g_eye_runtime.state = EyeState::IdlePrimary;
-                g_eye_runtime.next_idle_variation_ms = now + random_between(9000, 16000);
-            }
-            break;
-
-        case EyeState::IdlePrimary:
-            break;
-    }
-
-    if (deadline_reached(now, g_eye_runtime.next_blink_ms)) {
-        if (g_eye_runtime.state == EyeState::IdleSecondary) {
-            show_frame(g_idle1_dsc);
-        }
-        show_frame(g_blink2_dsc);
-        g_eye_runtime.state = EyeState::BlinkClosing;
-        g_eye_runtime.state_deadline_ms = now + 60;
-        return;
-    }
-
-    const int32_t time_until_blink = static_cast<int32_t>(g_eye_runtime.next_blink_ms - now);
-    if (g_eye_runtime.state == EyeState::IdlePrimary &&
-        deadline_reached(now, g_eye_runtime.next_idle_variation_ms) &&
-        time_until_blink > 2200) {
-        show_frame(g_idle2_dsc);
-        g_eye_runtime.state = EyeState::IdleSecondary;
-        g_eye_runtime.state_deadline_ms = now + random_between(700, 1500);
-    }
-}
-
-void initialise_head_touch_toggle()
-{
-    // The official Si12T task emits Press/Release/Swipe events. Keep its callback
-    // minimal and consume the flags from the normal 50 Hz runtime loop.
-    g_head_touch_connection = GetHAL().onHeadPetGesture.connect([](HeadPetGesture gesture) {
-        switch (gesture) {
-            case HeadPetGesture::Press:
-                g_head_touch_events.fetch_or(kTouchEventPress);
-                break;
-            case HeadPetGesture::Release:
-                g_head_touch_events.fetch_or(kTouchEventRelease);
-                break;
-            case HeadPetGesture::SwipeForward:
-            case HeadPetGesture::SwipeBackward:
-                g_head_touch_events.fetch_or(kTouchEventSwipe);
-                break;
-            case HeadPetGesture::None:
-            default:
-                break;
-        }
-    });
-
-    mclog::tagInfo(kLogTag,
-                   "head-touch idle-motion toggle connected (signal connection {})",
-                   g_head_touch_connection);
-}
-
-void process_head_touch_events(uint32_t now)
-{
-    const uint32_t events = g_head_touch_events.exchange(0);
-
-    if ((events & kTouchEventPress) != 0U) {
-        g_touch_active = true;
-        g_touch_swiped = false;
-    }
-
-    if ((events & kTouchEventSwipe) != 0U) {
-        g_touch_swiped = true;
-    }
-
-    if ((events & kTouchEventRelease) == 0U) {
-        return;
-    }
-
-    // A clean tap toggles idle movement. Swipes stay available for later voice,
-    // petting or UI features and never toggle motion accidentally.
-    if (g_touch_active && !g_touch_swiped) {
-        g_idle_motion.toggle();
-        show_idle_motion_confirmation(now);
-        mclog::tagInfo(kLogTag,
-                       "touch toggle: idle motion {}",
-                       g_idle_motion.enabled() ? "enabled" : "disabled");
-    }
-
-    g_touch_active = false;
-    g_touch_swiped = false;
-}
-
-uint16_t read_u16_le(const uint8_t* data)
-{
-    return static_cast<uint16_t>(data[0]) |
-           (static_cast<uint16_t>(data[1]) << 8);
-}
-
-uint32_t read_u32_le(const uint8_t* data)
-{
-    return static_cast<uint32_t>(data[0]) |
-           (static_cast<uint32_t>(data[1]) << 8) |
-           (static_cast<uint32_t>(data[2]) << 16) |
-           (static_cast<uint32_t>(data[3]) << 24);
-}
-
-int32_t read_pcm_sample(const uint8_t* data, uint16_t bits_per_sample)
-{
-    switch (bits_per_sample) {
-        case 8:
-            return (static_cast<int32_t>(data[0]) - 128) << 8;
-        case 16:
-            return static_cast<int16_t>(read_u16_le(data));
-        case 24: {
-            int32_t value = static_cast<int32_t>(data[0]) |
-                            (static_cast<int32_t>(data[1]) << 8) |
-                            (static_cast<int32_t>(data[2]) << 16);
-            if (value & 0x00800000) {
-                value |= 0xFF000000;
-            }
-            return value >> 8;
-        }
-        case 32:
-            return static_cast<int32_t>(read_u32_le(data)) >> 16;
+        case VoiceUiState::Idle:
         default:
-            return 0;
-    }
-}
-
-bool decode_wav_to_mono(const uint8_t* wav, std::size_t wav_size, uint32_t output_rate,
-                        std::vector<int16_t>& output)
-{
-    if (wav_size < 44 || std::memcmp(wav, "RIFF", 4) != 0 ||
-        std::memcmp(wav + 8, "WAVE", 4) != 0) {
-        mclog::tagError(kLogTag, "boot audio is not a RIFF/WAVE file");
-        return false;
-    }
-
-    uint16_t audio_format = 0;
-    uint16_t channels = 0;
-    uint16_t bits_per_sample = 0;
-    uint32_t source_rate = 0;
-    const uint8_t* pcm_data = nullptr;
-    std::size_t pcm_size = 0;
-
-    std::size_t offset = 12;
-    while (offset + 8 <= wav_size) {
-        const uint8_t* chunk = wav + offset;
-        const uint32_t chunk_size = read_u32_le(chunk + 4);
-        const std::size_t chunk_data_offset = offset + 8;
-        if (chunk_data_offset + chunk_size > wav_size) {
-            mclog::tagError(kLogTag, "boot WAV contains a truncated chunk");
-            return false;
-        }
-
-        if (std::memcmp(chunk, "fmt ", 4) == 0 && chunk_size >= 16) {
-            const uint8_t* format = wav + chunk_data_offset;
-            audio_format = read_u16_le(format);
-            channels = read_u16_le(format + 2);
-            source_rate = read_u32_le(format + 4);
-            bits_per_sample = read_u16_le(format + 14);
-        } else if (std::memcmp(chunk, "data", 4) == 0) {
-            pcm_data = wav + chunk_data_offset;
-            pcm_size = chunk_size;
-        }
-
-        offset = chunk_data_offset + chunk_size + (chunk_size & 1U);
-    }
-
-    if (audio_format != 1 || (channels != 1 && channels != 2) ||
-        (bits_per_sample != 8 && bits_per_sample != 16 &&
-         bits_per_sample != 24 && bits_per_sample != 32) ||
-        source_rate == 0 || output_rate == 0 || pcm_data == nullptr) {
-        mclog::tagError(kLogTag,
-                        "unsupported boot WAV: format={}, channels={}, bits={}, rate={}",
-                        audio_format, channels, bits_per_sample, source_rate);
-        return false;
-    }
-
-    const std::size_t bytes_per_sample = bits_per_sample / 8;
-    const std::size_t bytes_per_frame = bytes_per_sample * channels;
-    const std::size_t source_frames = pcm_size / bytes_per_frame;
-    if (source_frames == 0) {
-        mclog::tagError(kLogTag, "boot WAV contains no PCM frames");
-        return false;
-    }
-
-    const std::size_t output_frames = static_cast<std::size_t>(
-        (static_cast<uint64_t>(source_frames) * output_rate) / source_rate);
-    output.resize(std::max<std::size_t>(output_frames, 1));
-
-    for (std::size_t output_index = 0; output_index < output.size(); ++output_index) {
-        const std::size_t source_index = std::min<std::size_t>(
-            (static_cast<uint64_t>(output_index) * source_rate) / output_rate,
-            source_frames - 1);
-        const uint8_t* frame = pcm_data + source_index * bytes_per_frame;
-        int32_t sample = read_pcm_sample(frame, bits_per_sample);
-        if (channels == 2) {
-            sample += read_pcm_sample(frame + bytes_per_sample, bits_per_sample);
-            sample /= 2;
-        }
-        output[output_index] = static_cast<int16_t>(
-            std::clamp<int32_t>(sample, INT32_C(-32768), INT32_C(32767)));
-    }
-
-    mclog::tagInfo(kLogTag, "boot WAV decoded: {} Hz -> {} Hz, {} samples",
-                   source_rate, output_rate, output.size());
-    return true;
-}
-
-void boot_audio_task(void*)
-{
-    AudioCodec* codec = Board::GetInstance().GetAudioCodec();
-    if (codec == nullptr) {
-        mclog::tagError(kLogTag, "audio codec unavailable");
-        vTaskDelete(nullptr);
-        return;
-    }
-
-    codec->Start();
-    codec->EnableOutput(true);
-
-    std::vector<int16_t> pcm;
-    if (decode_wav_to_mono(kade_assets::boot_wav, kade_assets::boot_wav_size,
-                           codec->output_sample_rate(), pcm)) {
-        codec->OutputData(pcm);
-        mclog::tagInfo(kLogTag, "boot sound playback complete");
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(100));
-    codec->EnableOutput(false);
-    vTaskDelete(nullptr);
-}
-
-void start_boot_audio()
-{
-    const BaseType_t result = xTaskCreate(
-        boot_audio_task,
-        "kade_boot_audio",
-        6144,
-        nullptr,
-        4,
-        nullptr);
-    if (result != pdPASS) {
-        mclog::tagError(kLogTag, "failed to create boot audio task");
-    }
-}
-
-void project_kadence_startup_task(void*)
-{
-    kadence_startup::run();
-
-    // Startup completion is a stationary production state. Restore the official
-    // servicing policy, explicitly release both torques, and let the main runtime
-    // become the sole 50 Hz StackChan updater.
-    kadence_motion::restore_factory_idle_policy(GetStackChan().motion());
-    g_startup_complete.store(true);
-
-    mclog::tagInfo(kLogTag,
-                   "startup complete; idle motion is OFF and servo torque is released");
-    vTaskDelete(nullptr);
-}
-
-void start_project_kadence_startup()
-{
-    const BaseType_t result = xTaskCreate(
-        project_kadence_startup_task,
-        "kade_startup",
-        4096,
-        nullptr,
-        5,
-        nullptr);
-    if (result != pdPASS) {
-        mclog::tagError(kLogTag, "failed to create Project Kadence startup task");
+            return;
     }
 }
 
@@ -469,43 +189,61 @@ extern "C" void app_main(void)
 {
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
-    mclog::tagInfo(kLogTag, "starting Project Kadence production idle-motion runtime");
+    mclog::tagInfo(kLogTag,
+                   "starting Project Kadence Alpha 1 final voice candidate");
+    log_reset_reason();
 
-    // Retain the official factory HAL initialisation path, including the Si12T
-    // head-touch task and its HeadPetGesture signal.
     GetHAL().init();
 
-    // Safe production default: no movement request means both torques are off.
-    // The physically signed-off movement checkpoint remains in source as a
-    // recovery diagnostic but is no longer executed automatically on boot.
     kadence_motion::restore_factory_idle_policy(GetStackChan().motion());
     g_idle_motion.initialise();
+    (void)initialise_kadence_wake_word();
+    install_alpha_audio_callbacks();
 
     initialise_eye_surface();
     initialise_head_touch_toggle();
     start_boot_audio();
     start_project_kadence_startup();
 
-    mclog::tagInfo(kLogTag,
-                   "runtime ready; tap head sensor to toggle persistent idle movement");
+    mclog::tagInfo(
+        kLogTag,
+        "runtime ready; AFE speech cutoff active; tap toggles idle motion; either swipe cancels voice");
 
     while (true) {
         const uint32_t now = GetHAL().millis();
 
         if (g_startup_complete.load()) {
-            // Match the official firmware lifecycle. This is the sole permanent
-            // StackChan update path after the startup task hands control over.
             GetStackChan().update();
             process_head_touch_events(now);
-            g_idle_motion.update();
+
+            if (!g_boot_audio_active.load() && !g_network_start_requested) {
+                g_network_start_requested = true;
+                g_voice_transport.start_network();
+            }
+
+            if (g_kadence_wake_detected.exchange(false)) {
+                begin_listening_sequence(now);
+            }
+
+            if (!g_boot_audio_active.load() &&
+                !g_listening_cue_active.load() &&
+                g_voice_ui_runtime.state == VoiceUiState::Idle &&
+                !g_voice_transport.busy() &&
+                g_wake_word_service_ready &&
+                !g_wake_word_detection_enabled) {
+                set_wake_word_detection(true);
+            }
+
+            if (g_voice_ui_runtime.state == VoiceUiState::Idle) {
+                g_idle_motion.update();
+            }
         } else {
-            // Ignore accidental startup touches and keep the boot sequence
-            // stationary. The startup task services StackChan while it runs.
             g_head_touch_events.exchange(0);
             g_touch_active = false;
             g_touch_swiped = false;
         }
 
+        update_voice_ui_alpha(now);
         update_eye_state(now);
         GetHAL().feedTheDog();
         GetHAL().updateHeapStatusLog();
