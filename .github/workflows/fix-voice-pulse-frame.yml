@@ -1,9 +1,9 @@
 name: Fix Voice Pulse Frame
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/voice-checkpoint-1
+      - feature/alpha1-startup-foundation
 
 permissions:
   contents: write
