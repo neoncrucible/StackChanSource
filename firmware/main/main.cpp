@@ -10,6 +10,9 @@
 #include <lvgl.h>
 #include <board.h>
 #include <audio_codec.h>
+#include <application.h>
+#include <assets.h>
+#include <audio_service.h>
 #include <esp_random.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -19,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "kade_assets_generated.h"
@@ -34,6 +38,7 @@ constexpr const char* kLogTag = "KADE-EYE";
 constexpr uint32_t kIdleMotionConfirmationMs = 1000;
 constexpr uint32_t kListeningPulseMs = 550;
 constexpr uint32_t kListeningCueGuardMs = 100;
+constexpr uint32_t kListeningWakeTestTimeoutMs = 10000;
 constexpr bool kEnableVoiceUiDiagnosticSwipes = true;
 
 constexpr uint32_t kTouchEventPress = 1U << 0;
@@ -76,6 +81,7 @@ enum class VoiceUiState : uint8_t {
 struct VoiceUiRuntime {
     VoiceUiState state = VoiceUiState::Idle;
     uint32_t next_pulse_ms = 0;
+    uint32_t listening_deadline_ms = 0;
     bool green_frame_visible = true;
 };
 
@@ -87,6 +93,11 @@ std::atomic<bool> g_startup_complete{false};
 std::atomic<bool> g_listening_cue_active{false};
 std::atomic<bool> g_listening_cue_complete{false};
 std::atomic<bool> g_voice_capture_allowed{false};
+std::atomic<bool> g_kadence_wake_detected{false};
+std::atomic<bool> g_boot_audio_active{false};
+AudioService* g_audio_service = nullptr;
+bool g_wake_word_service_ready = false;
+bool g_wake_word_detection_enabled = false;
 
 bool g_touch_active = false;
 bool g_touch_swiped = false;
@@ -94,6 +105,8 @@ int g_touch_swipe_direction = 0;
 int g_head_touch_connection = -1;
 
 bool start_listening_cue_audio();
+bool initialise_kadence_wake_word();
+void set_wake_word_detection(bool enable);
 void begin_listening_sequence(uint32_t now);
 void stop_listening_sequence(uint32_t now);
 
@@ -185,6 +198,8 @@ void update_voice_ui(uint32_t now)
                 g_voice_ui_runtime.state = VoiceUiState::Listening;
                 g_voice_ui_runtime.green_frame_visible = true;
                 g_voice_ui_runtime.next_pulse_ms = now + kListeningPulseMs;
+                g_voice_ui_runtime.listening_deadline_ms =
+                    now + kListeningWakeTestTimeoutMs;
                 g_voice_capture_allowed.store(true);
                 show_frame(g_listening2_dsc);
                 mclog::tagInfo(kLogTag,
@@ -193,6 +208,11 @@ void update_voice_ui(uint32_t now)
             return;
 
         case VoiceUiState::Listening:
+            if (deadline_reached(now, g_voice_ui_runtime.listening_deadline_ms)) {
+                mclog::tagInfo(kLogTag, "wake-word test listening timeout reached");
+                stop_listening_sequence(now);
+                return;
+            }
             if (deadline_reached(now, g_voice_ui_runtime.next_pulse_ms)) {
                 g_voice_ui_runtime.green_frame_visible =
                     !g_voice_ui_runtime.green_frame_visible;
@@ -507,6 +527,7 @@ void boot_audio_task(void*)
 {
     (void)play_embedded_wav(
         kade_assets::boot_wav, kade_assets::boot_wav_size, "boot sound");
+    g_boot_audio_active.store(false);
     vTaskDelete(nullptr);
 }
 
@@ -549,6 +570,8 @@ void begin_listening_sequence(uint32_t now)
         return;
     }
 
+    set_wake_word_detection(false);
+
     // Voice owns the interaction. Fail to the stationary torque-off state.
     g_idle_motion.set_enabled(false);
     g_eye_runtime.confirmation_active = false;
@@ -562,6 +585,7 @@ void begin_listening_sequence(uint32_t now)
         show_frame(g_error_dsc);
         g_eye_runtime.confirmation_active = true;
         g_eye_runtime.confirmation_deadline_ms = now + kIdleMotionConfirmationMs;
+        set_wake_word_detection(true);
         return;
     }
 
@@ -579,13 +603,65 @@ void stop_listening_sequence(uint32_t now)
     g_listening_cue_complete.store(false);
     g_voice_ui_runtime.state = VoiceUiState::Idle;
     g_voice_ui_runtime.next_pulse_ms = 0;
+    g_voice_ui_runtime.listening_deadline_ms = 0;
     reset_eye_runtime(now);
     mclog::tagInfo(kLogTag,
                    "listening stopped; microphone gate closed and idle eye restored");
+    set_wake_word_detection(true);
+}
+
+void set_wake_word_detection(bool enable)
+{
+    if (g_audio_service == nullptr || !g_wake_word_service_ready) {
+        return;
+    }
+    if (enable == g_wake_word_detection_enabled) {
+        return;
+    }
+
+    g_audio_service->EnableWakeWordDetection(enable);
+    g_wake_word_detection_enabled =
+        enable && g_audio_service->IsWakeWordRunning();
+    mclog::tagInfo(kLogTag, "Kadence wake-word detection {}",
+                   g_wake_word_detection_enabled ? "armed" : "disarmed");
+}
+
+bool initialise_kadence_wake_word()
+{
+    AudioCodec* codec = Board::GetInstance().GetAudioCodec();
+    if (codec == nullptr) {
+        mclog::tagError(kLogTag, "cannot initialise Kadence wake word: audio codec unavailable");
+        return false;
+    }
+
+    auto& audio_service = Application::GetInstance().GetAudioService();
+    g_audio_service = &audio_service;
+
+    AudioServiceCallbacks callbacks{};
+    callbacks.on_wake_word_detected = [](const std::string& wake_word) {
+        mclog::tagInfo(kLogTag, "wake-word callback: {}", wake_word);
+        if (wake_word == "Kadence") {
+            g_kadence_wake_detected.store(true);
+        }
+    };
+    audio_service.SetCallbacks(callbacks);
+    audio_service.Initialize(codec);
+    audio_service.Start();
+
+    if (!Assets::GetInstance().Apply()) {
+        mclog::tagError(kLogTag, "failed to apply speech-model assets for Kadence wake word");
+        return false;
+    }
+
+    g_wake_word_service_ready = true;
+    mclog::tagInfo(kLogTag,
+                   "Kadence wake-word service initialised; arming after startup audio");
+    return true;
 }
 
 void start_boot_audio()
 {
+    g_boot_audio_active.store(true);
     const BaseType_t result = xTaskCreate(
         boot_audio_task,
         "kade_boot_audio",
@@ -594,6 +670,7 @@ void start_boot_audio()
         4,
         nullptr);
     if (result != pdPASS) {
+        g_boot_audio_active.store(false);
         mclog::tagError(kLogTag, "failed to create boot audio task");
     }
 }
@@ -644,6 +721,7 @@ extern "C" void app_main(void)
     // recovery diagnostic but is no longer executed automatically on boot.
     kadence_motion::restore_factory_idle_policy(GetStackChan().motion());
     g_idle_motion.initialise();
+    (void)initialise_kadence_wake_word();
 
     initialise_eye_surface();
     initialise_head_touch_toggle();
@@ -661,6 +739,18 @@ extern "C" void app_main(void)
             // StackChan update path after the startup task hands control over.
             GetStackChan().update();
             process_head_touch_events(now);
+
+            if (g_kadence_wake_detected.exchange(false)) {
+                begin_listening_sequence(now);
+            }
+
+            if (!g_boot_audio_active.load() &&
+                g_voice_ui_runtime.state == VoiceUiState::Idle &&
+                g_wake_word_service_ready &&
+                !g_wake_word_detection_enabled) {
+                set_wake_word_detection(true);
+            }
+
             if (g_voice_ui_runtime.state == VoiceUiState::Idle) {
                 g_idle_motion.update();
             }
