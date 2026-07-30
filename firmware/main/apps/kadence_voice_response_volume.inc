@@ -6,6 +6,7 @@
  * warm WebSocket, decoder queue and optic-eye state behaviour.
  */
 
+#include <algorithm>
 #include <audio_codec.h>
 #include <board.h>
 
@@ -24,7 +25,7 @@
 namespace kadence_voice_response {
 namespace {
 
-constexpr int kKadenceReplyVolume = 85;
+constexpr int kKadenceMinimumReplyVolume = 85;
 std::atomic<bool> g_reply_volume_active{false};
 std::atomic<int> g_reply_previous_volume{70};
 
@@ -32,20 +33,32 @@ void enable_reply_volume()
 {
     AudioCodec* codec = Board::GetInstance().GetAudioCodec();
     if (codec == nullptr) {
-        mclog::tagError(kLogTag, "cannot raise Kadence reply volume: audio codec unavailable");
+        mclog::tagError(kLogTag, "cannot manage Kadence reply volume: audio codec unavailable");
         return;
     }
 
-    bool expected = false;
-    if (g_reply_volume_active.compare_exchange_strong(expected, true)) {
-        g_reply_previous_volume.store(codec->output_volume());
+    const int previous = codec->output_volume();
+    const int target = std::max(previous, kKadenceMinimumReplyVolume);
+    g_reply_previous_volume.store(previous);
+
+    // Never reduce a board or user volume that is already above the Alpha
+    // minimum. The first hardware test revealed this StackChan was already at
+    // 95, so the previous fixed value of 85 unintentionally made replies quieter.
+    if (target == previous) {
+        g_reply_volume_active.store(false);
+        mclog::tagInfo(kLogTag,
+                       "Kadence reply volume kept at {} (minimum {})",
+                       previous,
+                       kKadenceMinimumReplyVolume);
+        return;
     }
 
-    codec->SetOutputVolume(kKadenceReplyVolume);
+    g_reply_volume_active.store(true);
+    codec->SetOutputVolume(target);
     mclog::tagInfo(kLogTag,
-                   "Kadence reply volume set to {} (previous {})",
-                   kKadenceReplyVolume,
-                   g_reply_previous_volume.load());
+                   "Kadence reply volume raised to {} (previous {})",
+                   target,
+                   previous);
 }
 
 void restore_reply_volume()
