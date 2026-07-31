@@ -157,7 +157,7 @@ void CoreS3AudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gp
             .slot_mask = i2s_tdm_slot_mask_t(I2S_TDM_SLOT0 | I2S_TDM_SLOT1 | I2S_TDM_SLOT2 | I2S_TDM_SLOT3),
             .ws_width = I2S_TDM_AUTO_WS_WIDTH,
             .ws_pol = false,
-            .bit_shift = false,
+            .bit_shift = true,
             .left_align = false,
             .big_endian = false,
             .bit_order_lsb = false,
