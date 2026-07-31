@@ -1,9 +1,11 @@
 /*
- * Project Kadence Alpha 1 final runtime wrapper.
+ * Project Kadence Beta stability runtime.
  *
- * The physically proven runtime remains intact in main_base.inc. This wrapper
- * replaces only the fixed microphone timer with AFE end-of-speech detection
- * and keeps the original ten-second limit as a safety cap.
+ * The physically proven Alpha voice loop remains intact in main_base.inc. This
+ * wrapper keeps AFE/VAD active only for an actual capture window, rather than
+ * leaving the processor running while Kadence is idle, thinking or speaking.
+ * The ten-second limit remains a safety cap behind the 850 ms end-of-speech
+ * cutoff.
  */
 
 #define app_main kadence_base_app_main
@@ -14,6 +16,7 @@ namespace {
 
 constexpr uint32_t kAlphaVadArmDelayMs = 200;
 constexpr uint32_t kAlphaEndOfSpeechSilenceMs = 850;
+constexpr uint32_t kBetaFinalProcessorDrainMs = 320;
 
 std::atomic<bool> g_alpha_vad_speaking{false};
 bool g_alpha_speech_seen = false;
@@ -21,10 +24,60 @@ uint32_t g_alpha_capture_started_ms = 0;
 uint32_t g_alpha_vad_armed_ms = 0;
 uint32_t g_alpha_last_speech_ms = 0;
 
+bool g_beta_voice_processor_enabled = false;
+bool g_beta_processor_stop_scheduled = false;
+uint32_t g_beta_processor_stop_deadline_ms = 0;
+
+void set_beta_voice_processor(bool enable, const char* reason)
+{
+    if (g_audio_service == nullptr || enable == g_beta_voice_processor_enabled) {
+        return;
+    }
+
+    g_audio_service->EnableVoiceProcessing(enable);
+    g_beta_voice_processor_enabled = enable;
+    if (!enable) {
+        g_alpha_vad_speaking.store(false);
+    }
+
+    mclog::tagInfo(
+        kLogTag,
+        "Beta AFE processor {}: {}",
+        enable ? "armed" : "parked",
+        reason);
+}
+
+void cancel_beta_processor_stop()
+{
+    g_beta_processor_stop_scheduled = false;
+    g_beta_processor_stop_deadline_ms = 0;
+}
+
+void schedule_beta_processor_stop(uint32_t now)
+{
+    g_beta_processor_stop_scheduled = true;
+    g_beta_processor_stop_deadline_ms = now + kBetaFinalProcessorDrainMs;
+    mclog::tagInfo(
+        kLogTag,
+        "Beta AFE processor stop scheduled after {} ms final-Opus drain",
+        kBetaFinalProcessorDrainMs);
+}
+
+void service_beta_processor_stop(uint32_t now)
+{
+    if (!g_beta_processor_stop_scheduled ||
+        !deadline_reached(now, g_beta_processor_stop_deadline_ms)) {
+        return;
+    }
+
+    cancel_beta_processor_stop();
+    set_beta_voice_processor(false, "final Opus frames flushed");
+}
+
 void install_alpha_audio_callbacks()
 {
     if (g_audio_service == nullptr) {
-        mclog::tagError(kLogTag, "cannot install Alpha VAD callbacks: audio service unavailable");
+        mclog::tagError(kLogTag, "cannot install Beta VAD callbacks: audio service unavailable");
         return;
     }
 
@@ -43,14 +96,16 @@ void install_alpha_audio_callbacks()
     };
     g_audio_service->SetCallbacks(callbacks);
 
-    mclog::tagInfo(kLogTag,
-                   "AFE end-of-speech callback installed ({} ms silence, {} ms hard cap)",
-                   kAlphaEndOfSpeechSilenceMs,
-                   kCaptureDurationMs);
+    mclog::tagInfo(
+        kLogTag,
+        "Beta AFE end-of-speech callback installed ({} ms silence, {} ms hard cap)",
+        kAlphaEndOfSpeechSilenceMs,
+        kCaptureDurationMs);
 }
 
 void reset_alpha_capture_tracking(uint32_t now)
 {
+    g_alpha_vad_speaking.store(false);
     g_alpha_speech_seen = false;
     g_alpha_capture_started_ms = now;
     g_alpha_vad_armed_ms = now + kAlphaVadArmDelayMs;
@@ -62,23 +117,28 @@ void submit_alpha_voice_sample(uint32_t now, const char* reason)
     const uint32_t capture_ms = now - g_alpha_capture_started_ms;
     g_voice_capture_allowed.store(false);
     g_voice_transport.request_transcript();
+    schedule_beta_processor_stop(now);
     g_voice_ui_runtime.state = VoiceUiState::Transcribing;
     g_voice_ui_runtime.state_deadline_ms = now + kTranscriptTimeoutMs;
     show_frame(g_listening2_dsc);
-    mclog::tagInfo(kLogTag,
-                   "voice sample submitted after {} ms ({}); waiting for Faster Whisper",
-                   capture_ms,
-                   reason);
+    mclog::tagInfo(
+        kLogTag,
+        "voice sample submitted after {} ms ({}); waiting for Faster Whisper",
+        capture_ms,
+        reason);
 }
 
 void update_voice_ui_alpha(uint32_t now)
 {
     g_voice_transport.update();
+    service_beta_processor_stop(now);
 
     std::string transport_error;
     if (g_voice_ui_runtime.state != VoiceUiState::Idle &&
         g_voice_ui_runtime.state != VoiceUiState::Error &&
         g_voice_transport.take_error(transport_error)) {
+        cancel_beta_processor_stop();
+        set_beta_voice_processor(false, "voice transport error");
         fail_voice_sequence(now, transport_error);
         return;
     }
@@ -94,12 +154,14 @@ void update_voice_ui_alpha(uint32_t now)
                 show_frame(g_listening2_dsc);
 
                 if (!g_voice_transport.begin_capture()) {
+                    set_beta_voice_processor(false, "capture start rejected");
                     fail_voice_sequence(now, "voice transport was already busy");
                     return;
                 }
 
-                mclog::tagInfo(kLogTag,
-                               "listening cue complete; using warm Windows transcript channel");
+                mclog::tagInfo(
+                    kLogTag,
+                    "listening cue complete; using warm Windows transcript channel");
             }
             return;
 
@@ -118,6 +180,7 @@ void update_voice_ui_alpha(uint32_t now)
                 return;
             }
             if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                set_beta_voice_processor(false, "Windows transcript connection timeout");
                 fail_voice_sequence(now, "Windows transcript connection timed out");
                 return;
             }
@@ -157,14 +220,19 @@ void update_voice_ui_alpha(uint32_t now)
         case VoiceUiState::Transcribing: {
             std::string transcript;
             if (g_voice_transport.take_transcript(transcript)) {
-                mclog::tagInfo(kLogTag,
-                               "WINDOWS TRANSCRIPT: {}",
-                               transcript.empty() ? "<no speech recognised>" : transcript);
+                cancel_beta_processor_stop();
+                set_beta_voice_processor(false, "transcript complete");
+                mclog::tagInfo(
+                    kLogTag,
+                    "WINDOWS TRANSCRIPT: {}",
+                    transcript.empty() ? "<no speech recognised>" : transcript);
                 g_voice_transport.complete_session();
                 restore_idle_voice_state(now);
                 return;
             }
             if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
+                cancel_beta_processor_stop();
+                set_beta_voice_processor(false, "Windows transcript response timeout");
                 fail_voice_sequence(now, "Windows transcript response timed out");
                 return;
             }
@@ -172,6 +240,7 @@ void update_voice_ui_alpha(uint32_t now)
         }
 
         case VoiceUiState::Error:
+            set_beta_voice_processor(false, "voice error state");
             if (deadline_reached(now, g_voice_ui_runtime.state_deadline_ms)) {
                 restore_idle_voice_state(now);
             }
@@ -179,7 +248,32 @@ void update_voice_ui_alpha(uint32_t now)
 
         case VoiceUiState::Idle:
         default:
+            set_beta_voice_processor(false, "idle");
             return;
+    }
+}
+
+bool beta_voice_sequence_ready()
+{
+    return g_voice_ui_runtime.state == VoiceUiState::Idle &&
+           !g_listening_cue_active.load() &&
+           !g_voice_transport.busy();
+}
+
+void begin_beta_listening_sequence(uint32_t now)
+{
+    if (!beta_voice_sequence_ready()) {
+        return;
+    }
+
+    cancel_beta_processor_stop();
+    set_wake_word_detection(false);
+    set_beta_voice_processor(true, "listening cue warm-up");
+    begin_listening_sequence(now);
+
+    if (g_voice_ui_runtime.state == VoiceUiState::Idle) {
+        set_beta_voice_processor(false, "listening sequence did not start");
+        set_wake_word_detection(true);
     }
 }
 
@@ -189,8 +283,9 @@ extern "C" void app_main(void)
 {
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
-    mclog::tagInfo(kLogTag,
-                   "starting Project Kadence Alpha 1 final voice candidate");
+    mclog::tagInfo(
+        kLogTag,
+        "starting Project Kadence Beta AFE stability candidate");
     log_reset_reason();
 
     GetHAL().init();
@@ -207,22 +302,35 @@ extern "C" void app_main(void)
 
     mclog::tagInfo(
         kLogTag,
-        "runtime ready; AFE speech cutoff active; tap toggles idle motion; either swipe cancels voice");
+        "runtime ready; Beta capture-scoped AFE active; tap toggles idle motion; either swipe cancels voice");
 
     while (true) {
         const uint32_t now = GetHAL().millis();
 
         if (g_startup_complete.load()) {
             GetStackChan().update();
+
+            // A swipe can restore idle and rearm wake detection inside the base
+            // touch handler. Park AFE first so the two input modes never overlap.
+            if (g_voice_ui_runtime.state != VoiceUiState::Idle &&
+                (g_head_touch_events.load() & kTouchEventAnySwipe) != 0U) {
+                cancel_beta_processor_stop();
+                set_beta_voice_processor(false, "head-swipe cancellation");
+            }
             process_head_touch_events(now);
 
             if (!g_boot_audio_active.load() && !g_network_start_requested) {
                 g_network_start_requested = true;
                 g_voice_transport.start_network();
+
+                // start_network() initialises and starts the processor once. Keep
+                // the transport primed, but stop AFE immediately while idle.
+                g_beta_voice_processor_enabled = true;
+                set_beta_voice_processor(false, "idle after transport warm-up");
             }
 
             if (g_kadence_wake_detected.exchange(false)) {
-                begin_listening_sequence(now);
+                begin_beta_listening_sequence(now);
             }
 
             if (!g_boot_audio_active.load() &&
@@ -231,6 +339,7 @@ extern "C" void app_main(void)
                 !g_voice_transport.busy() &&
                 g_wake_word_service_ready &&
                 !g_wake_word_detection_enabled) {
+                set_beta_voice_processor(false, "before wake-word rearm");
                 set_wake_word_detection(true);
             }
 
