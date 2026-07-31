@@ -253,28 +253,32 @@ void update_voice_ui_alpha(uint32_t now)
     }
 }
 
-bool beta_voice_sequence_ready()
+bool beta_voice_ui_available()
 {
     return g_voice_ui_runtime.state == VoiceUiState::Idle &&
-           !g_listening_cue_active.load() &&
-           !g_voice_transport.busy();
+           !g_listening_cue_active.load();
+}
+
+void rearm_early_beta_wake()
+{
+    // Custom wake-word detection stops itself when it fires. Cycle the
+    // AudioService mode explicitly so a wake during transport warm-up does not
+    // leave detection logically armed but physically stopped.
+    set_wake_word_detection(false);
+    set_wake_word_detection(true);
+    mclog::tagInfo(
+        kLogTag,
+        "Kadence wake ignored until warm transcript transport is ready");
 }
 
 void begin_beta_listening_sequence(uint32_t now)
 {
-    if (!beta_voice_sequence_ready()) {
+    if (!beta_voice_ui_available()) {
         return;
     }
 
-    if (!g_voice_transport.ready()) {
-        // Custom wake-word detection stops itself when it fires. Cycle the
-        // AudioService mode explicitly so an early boot wake is rearmed without
-        // starting the chirp or producing a false transport error.
-        set_wake_word_detection(false);
-        set_wake_word_detection(true);
-        mclog::tagInfo(
-            kLogTag,
-            "Kadence wake ignored until warm transcript transport is ready");
+    if (g_voice_transport.busy() || !g_voice_transport.ready()) {
+        rearm_early_beta_wake();
         return;
     }
 
