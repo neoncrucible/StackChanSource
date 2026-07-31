@@ -266,6 +266,18 @@ void begin_beta_listening_sequence(uint32_t now)
         return;
     }
 
+    if (!g_voice_transport.ready()) {
+        // Custom wake-word detection stops itself when it fires. Cycle the
+        // AudioService mode explicitly so an early boot wake is rearmed without
+        // starting the chirp or producing a false transport error.
+        set_wake_word_detection(false);
+        set_wake_word_detection(true);
+        mclog::tagInfo(
+            kLogTag,
+            "Kadence wake ignored until warm transcript transport is ready");
+        return;
+    }
+
     cancel_beta_processor_stop();
     set_wake_word_detection(false);
     set_beta_voice_processor(true, "listening cue warm-up");
