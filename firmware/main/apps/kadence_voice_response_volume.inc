@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <audio_codec.h>
 #include <board.h>
+#include <esp_netif.h>
 
 #define handle_voice_state kadence_base_handle_voice_state
 #define configure_callbacks kadence_base_configure_callbacks
@@ -28,6 +29,18 @@ namespace {
 constexpr int kKadenceMinimumReplyVolume = 85;
 std::atomic<bool> g_reply_volume_active{false};
 std::atomic<int> g_reply_previous_volume{70};
+
+bool station_has_ipv4_address()
+{
+    esp_netif_t* station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (station == nullptr) {
+        return false;
+    }
+
+    esp_netif_ip_info_t ip_info{};
+    return esp_netif_get_ip_info(station, &ip_info) == ESP_OK &&
+           ip_info.ip.addr != 0;
+}
 
 void enable_reply_volume()
 {
@@ -228,7 +241,7 @@ void response_task(void*)
     vTaskDelay(pdMS_TO_TICKS(kInitialDelayMs));
     mclog::tagInfo(
         kLogTag,
-        "response service started; waiting for the signed-off transcript URL");
+        "response service started; waiting for DHCP and the signed-off transcript URL");
 
     while (true) {
         if (g_close_requested.exchange(false)) {
@@ -238,7 +251,8 @@ void response_task(void*)
 
         const int64_t now_us = esp_timer_get_time();
         if (!g_connected.load() && !g_opening.load() &&
-            now_us >= g_retry_not_before_us.load()) {
+            now_us >= g_retry_not_before_us.load() &&
+            station_has_ipv4_address()) {
             (void)open_response_channel();
         }
 
