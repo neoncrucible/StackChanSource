@@ -1,8 +1,11 @@
 #include "cores3_audio_codec.h"
 
+#include <esp_err.h>
 #include <esp_log.h>
 #include <driver/i2c_master.h>
 #include <driver/i2s_tdm.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #define TAG "CoreS3AudioCodec"
 
@@ -154,7 +157,7 @@ void CoreS3AudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gp
             .slot_mask = i2s_tdm_slot_mask_t(I2S_TDM_SLOT0 | I2S_TDM_SLOT1 | I2S_TDM_SLOT2 | I2S_TDM_SLOT3),
             .ws_width = I2S_TDM_AUTO_WS_WIDTH,
             .ws_pol = false,
-            .bit_shift = true,
+            .bit_shift = false,
             .left_align = false,
             .big_endian = false,
             .bit_order_lsb = false,
@@ -183,7 +186,11 @@ void CoreS3AudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gp
 }
 
 void CoreS3AudioCodec::SetOutputVolume(int volume) {
-    ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(output_dev_, volume));
+    const esp_err_t err = esp_codec_dev_set_out_vol(output_dev_, volume);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Set output volume failed (%s); retaining previous volume", esp_err_to_name(err));
+        return;
+    }
     AudioCodec::SetOutputVolume(volume);
 }
 
@@ -215,7 +222,8 @@ void CoreS3AudioCodec::EnableOutput(bool enable) {
         return;
     }
     if (enable) {
-        // Play 16bit 1 channel
+        // Play 16bit 1 channel. The codec shares the board I2C bus with the
+        // touch controller, so a transient bus timeout must not reboot Kadence.
         esp_codec_dev_sample_info_t fs = {
             .bits_per_sample = 16,
             .channel = 1,
@@ -223,10 +231,34 @@ void CoreS3AudioCodec::EnableOutput(bool enable) {
             .sample_rate = (uint32_t)output_sample_rate_,
             .mclk_multiple = 0,
         };
-        ESP_ERROR_CHECK(esp_codec_dev_open(output_dev_, &fs));
-        ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(output_dev_, output_volume_));
+
+        esp_err_t open_err = ESP_FAIL;
+        for (int attempt = 1; attempt <= 3; ++attempt) {
+            open_err = esp_codec_dev_open(output_dev_, &fs);
+            if (open_err == ESP_OK) {
+                break;
+            }
+            ESP_LOGW(TAG, "Speaker codec open failed (%s), attempt %d/3", esp_err_to_name(open_err), attempt);
+            if (attempt < 3) {
+                vTaskDelay(pdMS_TO_TICKS(25));
+            }
+        }
+        if (open_err != ESP_OK) {
+            ESP_LOGE(TAG, "Speaker codec unavailable after retries; skipping this playback instead of rebooting");
+            return;
+        }
+
+        const esp_err_t volume_err = esp_codec_dev_set_out_vol(output_dev_, output_volume_);
+        if (volume_err != ESP_OK) {
+            ESP_LOGE(TAG, "Speaker volume setup failed (%s); skipping this playback", esp_err_to_name(volume_err));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_close(output_dev_));
+            return;
+        }
     } else {
-        ESP_ERROR_CHECK(esp_codec_dev_close(output_dev_));
+        const esp_err_t close_err = esp_codec_dev_close(output_dev_);
+        if (close_err != ESP_OK) {
+            ESP_LOGW(TAG, "Speaker codec close failed (%s); continuing without abort", esp_err_to_name(close_err));
+        }
     }
     AudioCodec::EnableOutput(enable);
 }
