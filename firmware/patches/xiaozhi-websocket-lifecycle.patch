@@ -1,0 +1,65 @@
+diff --git a/main/protocols/websocket_protocol.h b/main/protocols/websocket_protocol.h
+--- a/main/protocols/websocket_protocol.h
++++ b/main/protocols/websocket_protocol.h
+@@ -8,4 +8,5 @@
+ #include <freertos/FreeRTOS.h>
+ #include <freertos/event_groups.h>
++#include <atomic>
+ 
+ #define WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT (1 << 0)
+@@ -26,4 +27,6 @@ private:
+     std::unique_ptr<WebSocket> websocket_;
+     int version_ = 1;
++    std::atomic<bool> closing_{false};
++    std::atomic<bool> closed_notified_{false};
+ 
+     void ParseServerHello(const cJSON* root);
+diff --git a/main/protocols/websocket_protocol.cc b/main/protocols/websocket_protocol.cc
+--- a/main/protocols/websocket_protocol.cc
++++ b/main/protocols/websocket_protocol.cc
+@@ -18,5 +18,14 @@ WebsocketProtocol::WebsocketProtocol() {
+ 
+ WebsocketProtocol::~WebsocketProtocol() {
+-    vEventGroupDelete(event_group_handle_);
++    // WebSocket callbacks capture this protocol object. Tear the socket down
++    // before deleting the hello event group so any final callback still sees a
++    // valid handle. The original order deleted the handle first and could race
++    // a late server-hello callback during WebSocket destruction.
++    closing_.store(true);
++    websocket_.reset();
++    if (event_group_handle_ != nullptr) {
++        vEventGroupDelete(event_group_handle_);
++        event_group_handle_ = nullptr;
++    }
+ }
+ 
+@@ -28,4 +37,5 @@ bool WebsocketProtocol::Start() {
+ void WebsocketProtocol::CloseAudioChannel(bool send_goodbye) {
+     (void)send_goodbye;  // Websocket doesn't need to send goodbye message
++    closing_.store(true);
+     websocket_.reset();
+ }
+@@ -41,4 +51,6 @@ bool WebsocketProtocol::OpenAudioChannel() {
+ 
+     error_occurred_ = false;
++    closing_.store(false);
++    closed_notified_.store(false);
+ 
+     auto network = Board::GetInstance().GetNetwork();
+@@ -164,4 +176,8 @@ bool WebsocketProtocol::OpenAudioChannel() {
+ 
+     websocket_->OnDisconnected([this]() {
++        if (closing_.load() || closed_notified_.exchange(true)) {
++            return;
++        }
++
+         ESP_LOGI(TAG, "Websocket disconnected");
+         if (on_audio_channel_closed_ != nullptr) {
+@@ -239,5 +255,7 @@ void WebsocketProtocol::ParseServerHello(const cJSON* root) {
+     }
+ 
+-    xEventGroupSetBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT);
++    if (!closing_.load() && event_group_handle_ != nullptr) {
++        xEventGroupSetBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT);
++    }
+ }
