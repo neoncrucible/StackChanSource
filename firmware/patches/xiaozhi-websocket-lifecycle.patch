@@ -55,7 +55,7 @@ diff --git a/main/protocols/websocket_protocol.cc b/main/protocols/websocket_pro
 +
          ESP_LOGI(TAG, "Websocket disconnected");
          if (on_audio_channel_closed_ != nullptr) {
-@@ -239,5 +255,7 @@ void WebsocketProtocol::ParseServerHello(const cJSON* root) {
+@@ -239,4 +255,6 @@ void WebsocketProtocol::ParseServerHello(const cJSON* root) {
      }
  
 -    xEventGroupSetBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT);
