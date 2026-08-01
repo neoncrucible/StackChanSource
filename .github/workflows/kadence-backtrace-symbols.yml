@@ -6,6 +6,9 @@ on:
       - beta/project-kadence
     paths:
       - ".github/workflows/kadence-backtrace-symbols.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/kadence-backtrace-symbols.yml"
   workflow_dispatch:
 
 permissions:
