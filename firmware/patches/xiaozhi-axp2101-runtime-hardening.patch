@@ -1,0 +1,144 @@
+diff --git a/main/boards/common/i2c_device.h b/main/boards/common/i2c_device.h
+--- a/main/boards/common/i2c_device.h
++++ b/main/boards/common/i2c_device.h
+@@ -13,6 +13,8 @@
+     void WriteReg(uint8_t reg, uint8_t value);
+     uint8_t ReadReg(uint8_t reg);
+     void ReadRegs(uint8_t reg, uint8_t* buffer, size_t length);
++    esp_err_t TryReadReg(uint8_t reg, uint8_t* value, int timeout_ms = 100);
++    esp_err_t TryWriteReg(uint8_t reg, uint8_t value, int timeout_ms = 100);
+     esp_err_t TryReadRegs(uint8_t reg, uint8_t* buffer, size_t length, int timeout_ms = 100);
+ };
+ 
+ diff --git a/main/boards/common/i2c_device.cc b/main/boards/common/i2c_device.cc
+--- a/main/boards/common/i2c_device.cc
++++ b/main/boards/common/i2c_device.cc
+@@ -1,6 +1,8 @@
+ #include "i2c_device.h"
+ 
+ #include <esp_log.h>
++#include <freertos/FreeRTOS.h>
++#include <freertos/task.h>
+ 
+ #define TAG "I2cDevice"
+ 
+@@ -30,6 +32,39 @@
+     return buffer[0];
+ }
+ 
++esp_err_t I2cDevice::TryReadReg(uint8_t reg, uint8_t* value, int timeout_ms) {
++    esp_err_t last_error = ESP_FAIL;
++    for (int attempt = 1; attempt <= 3; ++attempt) {
++        last_error = i2c_master_transmit_receive(i2c_device_, &reg, 1, value, 1, timeout_ms);
++        if (last_error == ESP_OK) {
++            return ESP_OK;
++        }
++        ESP_LOGW(TAG, "Read reg 0x%02X failed (%s), attempt %d/3",
++                 reg, esp_err_to_name(last_error), attempt);
++        if (attempt < 3) {
++            vTaskDelay(pdMS_TO_TICKS(20));
++        }
++    }
++    return last_error;
++}
++
++esp_err_t I2cDevice::TryWriteReg(uint8_t reg, uint8_t value, int timeout_ms) {
++    uint8_t buffer[2] = {reg, value};
++    esp_err_t last_error = ESP_FAIL;
++    for (int attempt = 1; attempt <= 3; ++attempt) {
++        last_error = i2c_master_transmit(i2c_device_, buffer, 2, timeout_ms);
++        if (last_error == ESP_OK) {
++            return ESP_OK;
++        }
++        ESP_LOGW(TAG, "Write reg 0x%02X failed (%s), attempt %d/3",
++                 reg, esp_err_to_name(last_error), attempt);
++        if (attempt < 3) {
++            vTaskDelay(pdMS_TO_TICKS(20));
++        }
++    }
++    return last_error;
++}
++
+ void I2cDevice::ReadRegs(uint8_t reg, uint8_t* buffer, size_t length) {
+     ESP_ERROR_CHECK(i2c_master_transmit_receive(i2c_device_, &reg, 1, buffer, length, 100));
+ }
+ diff --git a/main/boards/common/axp2101.cc b/main/boards/common/axp2101.cc
+--- a/main/boards/common/axp2101.cc
++++ b/main/boards/common/axp2101.cc
+@@ -10,7 +10,14 @@
+ }
+ 
+ int Axp2101::GetBatteryCurrentDirection() {
+-    return (ReadReg(0x01) & 0b01100000) >> 5;
++    uint8_t value = 0;
++    const esp_err_t err = TryReadReg(0x01, &value);
++    if (err != ESP_OK) {
++        ESP_LOGW(TAG, "Battery-current direction unavailable (%s); reporting idle",
++                 esp_err_to_name(err));
++        return 0;
++    }
++    return (value & 0b01100000) >> 5;
+ }
+ 
+ bool Axp2101::IsCharging() {
+@@ -22,20 +29,54 @@
+ }
+ 
+ bool Axp2101::IsChargingDone() {
+-    uint8_t value = ReadReg(0x01);
++    uint8_t value = 0;
++    const esp_err_t err = TryReadReg(0x01, &value);
++    if (err != ESP_OK) {
++        ESP_LOGW(TAG, "Charge-complete state unavailable (%s); reporting incomplete",
++                 esp_err_to_name(err));
++        return false;
++    }
+     return (value & 0b00000111) == 0b00000100;
+ }
+ 
+ int Axp2101::GetBatteryLevel() {
+-    return ReadReg(0xA4);
++    static int last_level = 0;
++    uint8_t value = 0;
++    const esp_err_t err = TryReadReg(0xA4, &value);
++    if (err != ESP_OK) {
++        ESP_LOGW(TAG, "Battery level unavailable (%s); retaining %d%%",
++                 esp_err_to_name(err), last_level);
++        return last_level;
++    }
++    last_level = value;
++    return last_level;
+ }
+ 
+ float Axp2101::GetTemperature() {
+-    return ReadReg(0xA5);
++    static float last_temperature = 0;
++    uint8_t value = 0;
++    const esp_err_t err = TryReadReg(0xA5, &value);
++    if (err != ESP_OK) {
++        ESP_LOGW(TAG, "Temperature unavailable (%s); retaining %.0f",
++                 esp_err_to_name(err), last_temperature);
++        return last_temperature;
++    }
++    last_temperature = value;
++    return last_temperature;
+ }
+ 
+ void Axp2101::PowerOff() {
+-    uint8_t value = ReadReg(0x10);
+-    value = value | 0x01;
+-    WriteReg(0x10, value);
++    uint8_t value = 0;
++    esp_err_t err = TryReadReg(0x10, &value);
++    if (err != ESP_OK) {
++        ESP_LOGE(TAG, "Power-off register read failed (%s); refusing fatal reboot",
++                 esp_err_to_name(err));
++        return;
++    }
++
++    err = TryWriteReg(0x10, value | 0x01);
++    if (err != ESP_OK) {
++        ESP_LOGE(TAG, "Power-off register write failed (%s); device remains on",
++                 esp_err_to_name(err));
++    }
+ }
