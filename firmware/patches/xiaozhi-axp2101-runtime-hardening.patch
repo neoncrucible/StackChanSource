@@ -10,7 +10,7 @@ diff --git a/main/boards/common/i2c_device.h b/main/boards/common/i2c_device.h
      esp_err_t TryReadRegs(uint8_t reg, uint8_t* buffer, size_t length, int timeout_ms = 100);
  };
  
- diff --git a/main/boards/common/i2c_device.cc b/main/boards/common/i2c_device.cc
+diff --git a/main/boards/common/i2c_device.cc b/main/boards/common/i2c_device.cc
 --- a/main/boards/common/i2c_device.cc
 +++ b/main/boards/common/i2c_device.cc
 @@ -1,6 +1,8 @@
@@ -62,7 +62,8 @@ diff --git a/main/boards/common/i2c_device.h b/main/boards/common/i2c_device.h
  void I2cDevice::ReadRegs(uint8_t reg, uint8_t* buffer, size_t length) {
      ESP_ERROR_CHECK(i2c_master_transmit_receive(i2c_device_, &reg, 1, buffer, length, 100));
  }
- diff --git a/main/boards/common/axp2101.cc b/main/boards/common/axp2101.cc
+
+diff --git a/main/boards/common/axp2101.cc b/main/boards/common/axp2101.cc
 --- a/main/boards/common/axp2101.cc
 +++ b/main/boards/common/axp2101.cc
 @@ -10,7 +10,14 @@
