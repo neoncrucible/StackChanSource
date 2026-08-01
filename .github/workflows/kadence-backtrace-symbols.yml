@@ -1,0 +1,55 @@
+name: Kadence captured backtrace symbols
+
+on:
+  push:
+    branches:
+      - beta/project-kadence
+    paths:
+      - ".github/workflows/kadence-backtrace-symbols.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.4
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch and patch dependencies
+        shell: bash
+        run: |
+          set -o pipefail
+          git config --global core.autocrlf false
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cd firmware
+          python fetch_repos.py
+
+      - name: Build exact Beta firmware
+        shell: bash
+        run: |
+          set -o pipefail
+          source "$IDF_PATH/export.sh"
+          cd firmware
+          idf.py build
+
+      - name: Resolve captured reboot backtrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          elf="$(find firmware/build -maxdepth 1 -type f -name '*.elf' -print -quit)"
+          test -n "$elf"
+          echo "ELF=$elf"
+          xtensa-esp32s3-elf-addr2line -pfiaC -e "$elf" \
+            0x4201624e \
+            0x42024ce9 \
+            0x42024e1b \
+            0x42120706
