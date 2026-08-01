@@ -26,6 +26,10 @@
             {
                 "path": "patches/xiaozhi-websocket-lifecycle.patch",
                 "required": true
+            },
+            {
+                "path": "patches/xiaozhi-axp2101-runtime-hardening.patch",
+                "required": true
             }
         ]
     },
