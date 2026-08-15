@@ -18,7 +18,20 @@
         "url": "https://github.com/78/xiaozhi-esp32.git",
         "path": "xiaozhi-esp32",
         "branch": "v2.2.4",
-        "patch": "patches/xiaozhi-esp32.patch"
+        "patches": [
+            {
+                "path": "patches/xiaozhi-esp32.patch",
+                "required": true
+            },
+            {
+                "path": "patches/xiaozhi-websocket-lifecycle.patch",
+                "required": true
+            },
+            {
+                "path": "patches/xiaozhi-axp2101-runtime-hardening.patch",
+                "required": true
+            }
+        ]
     },
     {
         "url": "https://github.com/bblanchon/ArduinoJson.git",

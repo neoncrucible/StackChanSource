@@ -4,8 +4,39 @@ import subprocess
 import sys
 
 
+def apply_repo_patch(path, patch_path, required=False):
+    patch_full_path = (
+        patch_path
+        if os.path.isabs(patch_path)
+        else os.path.join(os.getcwd(), patch_path)
+    )
+
+    check_result = subprocess.run(
+        ["git", "-C", path, "apply", "--check", patch_full_path]
+    )
+    if check_result.returncode == 0:
+        subprocess.run(
+            ["git", "-C", path, "apply", patch_full_path],
+            check=True,
+        )
+        print(f"Applied patch {patch_path} to {path}")
+        return
+
+    reverse_check = subprocess.run(
+        ["git", "-C", path, "apply", "--reverse", "--check", patch_full_path]
+    )
+    if reverse_check.returncode == 0:
+        print(f"Patch {patch_path} is already applied to {path}")
+        return
+
+    message = f"Patch {patch_path} cannot be applied cleanly to {path}"
+    if required:
+        raise RuntimeError(message)
+    print(f"{message}, skipped.")
+
+
 def clone_or_update_repo(
-    repo_url, path, ref=None, with_submodules=False, patch_path=None
+    repo_url, path, ref=None, with_submodules=False, patches=None
 ):
     if not os.path.exists(path):
         subprocess.run(["git", "clone", repo_url, path], check=True)
@@ -21,21 +52,14 @@ def clone_or_update_repo(
             check=True,
         )
 
-    # Apply the factory dependency patch only when it still applies cleanly.
-    if patch_path:
-        patch_full_path = (
-            patch_path
-            if os.path.isabs(patch_path)
-            else os.path.join(os.getcwd(), patch_path)
-        )
-        check_result = subprocess.run(
-            ["git", "-C", path, "apply", "--check", patch_full_path]
-        )
-        if check_result.returncode == 0:
-            subprocess.run(["git", "-C", path, "apply", patch_full_path], check=True)
-            print(f"Applied patch {patch_path} to {path}")
+    for patch in patches or []:
+        if isinstance(patch, str):
+            patch_path = patch
+            required = False
         else:
-            print(f"Patch {patch_path} cannot be applied cleanly to {path}, skipped.")
+            patch_path = patch["path"]
+            required = patch.get("required", False)
+        apply_repo_patch(path, patch_path, required)
 
 
 def generate_kade_assets(script_dir):
@@ -66,10 +90,33 @@ def fetch_dependencies():
         repo_path = os.path.join(script_dir, repo["path"])
         branch = repo.get("branch")
         with_submodules = repo.get("with_submodules", False)
-        patch = repo.get("patch")
-        if patch and not os.path.isabs(patch):
-            patch = os.path.join(script_dir, patch)
-        clone_or_update_repo(repo["url"], repo_path, branch, with_submodules, patch)
+        patches = repo.get("patches")
+        if patches is None and repo.get("patch"):
+            patches = [repo["patch"]]
+
+        resolved_patches = []
+        for patch in patches or []:
+            if isinstance(patch, str):
+                resolved_patches.append(
+                    patch if os.path.isabs(patch) else os.path.join(script_dir, patch)
+                )
+            else:
+                resolved_patch = dict(patch)
+                patch_path = resolved_patch["path"]
+                resolved_patch["path"] = (
+                    patch_path
+                    if os.path.isabs(patch_path)
+                    else os.path.join(script_dir, patch_path)
+                )
+                resolved_patches.append(resolved_patch)
+
+        clone_or_update_repo(
+            repo["url"],
+            repo_path,
+            branch,
+            with_submodules,
+            resolved_patches,
+        )
 
     generate_kade_assets(script_dir)
 
