@@ -52,7 +52,7 @@ jobs:
           test -n "$elf"
           echo "ELF=$elf"
           xtensa-esp32s3-elf-addr2line -pfiaC -e "$elf" \
-            0x4201624e \
-            0x42024ce9 \
-            0x42024e1b \
-            0x42120706
+            0x4201633a \
+            0x42024e91 \
+            0x42024fc3 \
+            0x421208ae
