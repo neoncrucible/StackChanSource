@@ -61,9 +61,7 @@ $ConfigText = Get-Content -Raw $ConfigPath
 $ConfigChanged = $false
 
 if ($ConfigText.Contains("REPLACE_WITH_OPENAI_API_KEY")) {
-    $OpenAiKey = Read-SecretValue \
-        -EnvironmentName "KADENCE_OPENAI_API_KEY" \
-        -Prompt "OpenAI API key for Alpha 1 speech recognition"
+    $OpenAiKey = Read-SecretValue -EnvironmentName "KADENCE_OPENAI_API_KEY" -Prompt "OpenAI API key for Alpha 1 speech recognition"
     if ([string]::IsNullOrWhiteSpace($OpenAiKey)) {
         throw "OpenAI API key was empty."
     }
@@ -72,9 +70,7 @@ if ($ConfigText.Contains("REPLACE_WITH_OPENAI_API_KEY")) {
 }
 
 if ($ConfigText.Contains("REPLACE_WITH_GEMINI_API_KEY")) {
-    $GeminiKey = Read-SecretValue \
-        -EnvironmentName "KADENCE_GEMINI_API_KEY" \
-        -Prompt "Gemini API key for Alpha 1 LLM"
+    $GeminiKey = Read-SecretValue -EnvironmentName "KADENCE_GEMINI_API_KEY" -Prompt "Gemini API key for Alpha 1 LLM"
     if ([string]::IsNullOrWhiteSpace($GeminiKey)) {
         throw "Gemini API key was empty."
     }
