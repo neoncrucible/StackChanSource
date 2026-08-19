@@ -1,14 +1,15 @@
 # Kadence 2.0 Alpha 1 — minimal Xiaozhi server override
 #
-# Copy this file to the pinned upstream server as:
+# Copied by bootstrap_windows.ps1 to:
 #   main/xiaozhi-server/data/.config.yaml
 #
 # NEVER commit real API keys.
 # This is a smoke-test configuration, not the final Kadence personality/memory config.
 
 server:
-  # Replace with the Windows host LAN address before testing from CoreS3.
-  websocket: ws://YOUR_WINDOWS_LAN_IP:8000/xiaozhi/v1/
+  # Kadence does not use Xiaozhi OTA discovery in Alpha 1. The launcher provides
+  # our existing UDP discovery bridge, so this advertised address can remain local.
+  websocket: ws://127.0.0.1:8000/xiaozhi/v1/
   timezone_offset: +1  # BST during the initial Aug 2026 test; use +0 in GMT.
 
 enable_greeting: false
