@@ -11,6 +11,10 @@ on:
       - ".github/workflows/firmware-build.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  statuses: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,6 +22,19 @@ jobs:
       image: espressif/idf:v5.5.4
 
     steps:
+      - name: Mark firmware build pending
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl --fail-with-body -sS \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d '{"state":"pending","context":"kadence-alpha/firmware-build","description":"ESP-IDF 5.5.4 build running"}'
+
       - name: Check out source
         uses: actions/checkout@v4
         with:
@@ -76,3 +93,25 @@ jobs:
           name: stackchan-factory-firmware
           path: firmware-artifacts/
           if-no-files-found: error
+
+      - name: Report firmware build status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE="success"
+            DESCRIPTION="ESP-IDF 5.5.4 build passed"
+          else
+            STATE="failure"
+            DESCRIPTION="ESP-IDF 5.5.4 build failed"
+          fi
+          curl --fail-with-body -sS \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "{\"state\":\"${STATE}\",\"context\":\"kadence-alpha/firmware-build\",\"description\":\"${DESCRIPTION}\"}"
