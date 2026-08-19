@@ -37,44 +37,43 @@ It also creates the local config at:
 
 `.runtime\xiaozhi-esp32-server\main\xiaozhi-server\data\.config.yaml`
 
-## 3. Edit the local config
-
-Open that `.config.yaml` and replace:
-
-- `YOUR_WINDOWS_LAN_IP`
-- `REPLACE_WITH_OPENAI_API_KEY`
-- `REPLACE_WITH_GEMINI_API_KEY`
-
-The real config is inside `.runtime` and is ignored by Git. Never copy credentials into `kadence.config.example.yaml`.
-
-Alpha 1 deliberately starts with:
-
-- OpenAI `gpt-4o-mini-transcribe` ASR;
-- Gemini test LLM;
-- `en-GB-SoniaNeural` Edge TTS;
-- no memory;
-- no intent LLM;
-- no MCP robot actions.
-
-That is a smoke-test stack. Provider tuning comes after a complete robot round trip works.
-
-## 4. Start the backend
+## 3. Start the backend
 
 ```powershell
 .\start_windows.ps1
 ```
 
-Expected behaviour:
+On the first run the launcher securely prompts for the two smoke-test credentials if they are not already available as environment variables:
+
+- `KADENCE_OPENAI_API_KEY` — speech recognition;
+- `KADENCE_GEMINI_API_KEY` — test LLM.
+
+The typed values are written only into the ignored `.runtime` config. They are never written into the tracked example file or printed to the console.
+
+No LAN-IP edit is required. Kadence retains her existing UDP discovery behaviour; the launcher answers the discovery request and points the robot at this PC's Xiaozhi endpoint automatically.
+
+Alpha 1 deliberately starts with:
+
+- OpenAI `gpt-4o-mini-transcribe` ASR;
+- Gemini `gemini-2.0-flash` test LLM;
+- `en-GB-SoniaNeural` Edge TTS;
+- no memory;
+- no intent LLM;
+- no MCP robot actions.
+
+That is a smoke-test stack. Provider/streaming-ASR tuning comes after a complete robot round trip works.
+
+Expected launcher behaviour:
 
 - pinned revision is verified;
 - UDP `45872` discovery bridge starts;
 - Xiaozhi listens on TCP `8000`;
 - the bridge tells Kadence to use `/xiaozhi/v1/`;
-- the console prints the Xiaozhi WebSocket endpoint.
+- the console prints the Xiaozhi service startup logs.
 
 Leave this window running.
 
-## 5. Flash only the Alpha build
+## 4. Flash only the Alpha build
 
 Use the firmware artifact produced for draft PR #8 once CI is green. Keep the known-good Beta image available for immediate rollback.
 
@@ -88,7 +87,7 @@ The Alpha firmware changes only the voice transport behaviour:
 - MCP and model-directed motion are ignored;
 - the old UI state machine is released only after STT exists, TTS has stopped, and playback queues have drained.
 
-## 6. First physical test
+## 5. First physical test
 
 Do **one** simple turn first:
 
@@ -106,7 +105,7 @@ Useful firmware markers:
 
 If she hears, answers and returns to idle cleanly, move to `LATENCY_TEST.md`.
 
-## 7. Stop immediately if
+## 6. Stop immediately if
 
 - the CoreS3 repeatedly reboots;
 - AFE/audio fails to recover after a turn;
