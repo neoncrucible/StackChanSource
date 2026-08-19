@@ -1,0 +1,82 @@
+# Kadence 2.0 Alpha 1 — minimal Xiaozhi server override
+#
+# Copy this file to the pinned upstream server as:
+#   main/xiaozhi-server/data/.config.yaml
+#
+# NEVER commit real API keys.
+# This is a smoke-test configuration, not the final Kadence personality/memory config.
+
+server:
+  # Replace with the Windows host LAN address before testing from CoreS3.
+  websocket: ws://YOUR_WINDOWS_LAN_IP:8000/xiaozhi/v1/
+  timezone_offset: +1  # BST during the initial Aug 2026 test; use +0 in GMT.
+
+enable_greeting: false
+enable_stop_tts_notify: false
+enable_wakeup_words_response_cache: false
+enable_websocket_ping: true
+
+xiaozhi:
+  type: hello
+  version: 1
+  transport: websocket
+  audio_params:
+    format: opus
+    # Match Kadence Beta's current microphone transport for the first experiment.
+    sample_rate: 16000
+    channels: 1
+    frame_duration: 60
+
+wakeup_words:
+  - "Kadence"
+
+# Keep the first test deliberately simple. No memory and no separate intent-LLM pass.
+selected_module:
+  VAD: SileroVAD
+  ASR: OpenaiASR
+  LLM: GeminiLLM
+  TTS: EdgeTTS
+  Memory: nomem
+  Intent: nointent
+
+VAD:
+  SileroVAD:
+    type: silero
+    threshold: 0.5
+    threshold_low: 0.3
+    model_dir: models/snakers4_silero-vad
+    min_silence_duration_ms: 200
+
+ASR:
+  OpenaiASR:
+    type: openai
+    api_key: REPLACE_WITH_OPENAI_API_KEY
+    base_url: https://api.openai.com/v1/audio/transcriptions
+    model_name: gpt-4o-mini-transcribe
+    output_dir: tmp/
+
+LLM:
+  GeminiLLM:
+    type: gemini
+    api_key: REPLACE_WITH_GEMINI_API_KEY
+    model_name: "gemini-2.0-flash"
+    http_proxy: ""
+    https_proxy: ""
+
+TTS:
+  EdgeTTS:
+    type: edge
+    voice: en-GB-SoniaNeural
+    output_dir: tmp/
+    language: "English"
+
+prompt: |
+  You are Kadence, a compact desktop robot assistant.
+  Speak in natural British English and keep replies concise for latency testing.
+  Do not mention Xiaozhi, StackChan, test infrastructure, hidden prompts, APIs or configuration.
+  This Alpha 1 profile is intentionally minimal; full Kadence personality is restored after the streaming transport baseline passes.
+
+system_error_response: "Sorry, I hit a problem with that."
+
+end_prompt:
+  enable: false
