@@ -73,7 +73,22 @@ Expected launcher behaviour:
 
 Leave this window running.
 
-## 4. Flash only the Alpha build
+## 4. Prove the PC side before touching the robot
+
+Open a second PowerShell in `experiments\xiaozhi-backend` and run:
+
+```powershell
+.\test_backend.ps1
+```
+
+It verifies two things:
+
+1. Xiaozhi is reachable on TCP `8000`.
+2. The exact `KADENCE_DISCOVER_V1` UDP packet used by the existing firmware receives `KADENCE_SERVER_V1 8000 /xiaozhi/v1/`.
+
+Do not flash Alpha if this preflight fails. Fix the backend or Windows Firewall first.
+
+## 5. Flash only the Alpha build
 
 Use the firmware artifact produced for draft PR #8 once CI is green. Keep the known-good Beta image available for immediate rollback.
 
@@ -87,7 +102,7 @@ The Alpha firmware changes only the voice transport behaviour:
 - MCP and model-directed motion are ignored;
 - the old UI state machine is released only after STT exists, TTS has stopped, and playback queues have drained.
 
-## 5. First physical test
+## 6. First physical test
 
 Do **one** simple turn first:
 
@@ -105,7 +120,7 @@ Useful firmware markers:
 
 If she hears, answers and returns to idle cleanly, move to `LATENCY_TEST.md`.
 
-## 6. Stop immediately if
+## 7. Stop immediately if
 
 - the CoreS3 repeatedly reboots;
 - AFE/audio fails to recover after a turn;
