@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/kade-firmware-bootstrap
+      - kadence/2.0-alpha-1
   pull_request:
     paths:
       - "firmware/**"
