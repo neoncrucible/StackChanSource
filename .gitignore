@@ -1,2 +1,8 @@
 .DS_Store
 .idea/
+
+# Kadence 2.0 Alpha 1 local Xiaozhi runtime. Contains third-party checkout,
+# generated data and the real data/.config.yaml with API keys.
+experiments/xiaozhi-backend/.runtime/
+experiments/xiaozhi-backend/*.local.yaml
+experiments/xiaozhi-backend/*.secret.yaml
