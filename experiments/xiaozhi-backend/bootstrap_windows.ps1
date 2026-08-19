@@ -12,12 +12,26 @@ $PinnedCommit = "e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5"
 $RepoDir = Join-Path $RuntimeRoot "xiaozhi-esp32-server"
 $ServerDir = Join-Path $RepoDir "main\xiaozhi-server"
 $DataDir = Join-Path $ServerDir "data"
+$Requirements = Join-Path $ServerDir "requirements.txt"
 $ConfigSource = Join-Path $PSScriptRoot "kadence.config.example.yaml"
 $ConfigTarget = Join-Path $DataDir ".config.yaml"
 
 function Require-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
         throw "Required command '$Name' was not found in PATH."
+    }
+}
+
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$FailureMessage
+    )
+
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$FailureMessage (exit code $LASTEXITCODE)"
     }
 }
 
@@ -36,21 +50,35 @@ New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
 
 if (-not (Test-Path (Join-Path $RepoDir ".git"))) {
     Write-Host "Cloning Xiaozhi backend..."
-    git clone --filter=blob:none $Upstream $RepoDir
+    Invoke-Checked -FilePath "git" -Arguments @(
+        "clone", "--filter=blob:none", $Upstream, $RepoDir
+    ) -FailureMessage "Failed to clone the pinned Xiaozhi backend repository"
 }
 
 Write-Host "Fetching pinned revision..."
-git -C $RepoDir fetch origin $PinnedCommit --depth 1
-git -C $RepoDir checkout --detach $PinnedCommit
+Invoke-Checked -FilePath "git" -Arguments @(
+    "-C", $RepoDir, "fetch", "--depth", "1", "origin", $PinnedCommit
+) -FailureMessage "Failed to fetch the pinned Xiaozhi backend revision"
 
-$ActualCommit = (git -C $RepoDir rev-parse HEAD).Trim()
+Invoke-Checked -FilePath "git" -Arguments @(
+    "-C", $RepoDir, "checkout", "--detach", $PinnedCommit
+) -FailureMessage "Failed to check out the pinned Xiaozhi backend revision"
+
+$ActualCommit = (& git -C $RepoDir rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to read the Xiaozhi runtime revision."
+}
 if ($ActualCommit -ne $PinnedCommit) {
     throw "Pinned revision check failed. Expected $PinnedCommit, got $ActualCommit"
 }
 
 Write-Host "Pinned revision verified."
 
-$Envs = (conda env list --json | ConvertFrom-Json).envs
+$CondaEnvJson = & conda env list --json
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to list conda environments."
+}
+$Envs = ($CondaEnvJson | ConvertFrom-Json).envs
 $EnvExists = $false
 foreach ($EnvPath in $Envs) {
     if ((Split-Path $EnvPath -Leaf) -eq $CondaEnv) {
@@ -61,22 +89,31 @@ foreach ($EnvPath in $Envs) {
 
 if (-not $EnvExists) {
     Write-Host "Creating Python 3.10 conda environment '$CondaEnv'..."
-    conda create -n $CondaEnv python=3.10 -y
+    Invoke-Checked -FilePath "conda" -Arguments @(
+        "create", "-n", $CondaEnv, "python=3.10", "-y"
+    ) -FailureMessage "Failed to create the Kadence 2.0 conda environment"
 }
 
 Write-Host "Installing native audio dependencies..."
-conda install -n $CondaEnv -c conda-forge libopus ffmpeg -y
+Invoke-Checked -FilePath "conda" -Arguments @(
+    "install", "-n", $CondaEnv, "-c", "conda-forge", "libopus", "ffmpeg", "-y"
+) -FailureMessage "Failed to install libopus/ffmpeg"
 
 Write-Host "Installing Xiaozhi Python dependencies..."
-conda run -n $CondaEnv python -m pip install --upgrade pip
-conda run -n $CondaEnv python -m pip install -r (Join-Path $ServerDir "requirements.txt")
+Invoke-Checked -FilePath "conda" -Arguments @(
+    "run", "-n", $CondaEnv, "python", "-m", "pip", "install", "--upgrade", "pip"
+) -FailureMessage "Failed to upgrade pip in the Kadence 2.0 environment"
+
+Invoke-Checked -FilePath "conda" -Arguments @(
+    "run", "-n", $CondaEnv, "python", "-m", "pip", "install", "-r", $Requirements
+) -FailureMessage "Failed to install Xiaozhi Python requirements"
 
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 if (-not (Test-Path $ConfigTarget)) {
     Copy-Item $ConfigSource $ConfigTarget
-    Write-Host "Created $ConfigTarget"
-    Write-Host "Edit YOUR_WINDOWS_LAN_IP and API-key placeholders before starting the server."
+    Write-Host "Created local Alpha config: $ConfigTarget"
+    Write-Host "API keys will be requested securely by start_windows.ps1 on first launch."
 } else {
     Write-Host "Existing .config.yaml preserved: $ConfigTarget"
 }
@@ -87,4 +124,4 @@ Write-Host "Runtime: $RepoDir"
 Write-Host "Server:  $ServerDir"
 Write-Host "Config:  $ConfigTarget"
 Write-Host ""
-Write-Host "Next: edit .config.yaml, then run start_windows.ps1."
+Write-Host "Next: run start_windows.ps1."
