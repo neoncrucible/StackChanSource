@@ -23,6 +23,16 @@
 
 namespace kadence_voice_transport {
 
+// Kadence 2.0 Alpha 1 transport.
+//
+// The Beta transport already used Xiaozhi's WebsocketProtocol for a warm,
+// version-1 Opus uplink to the Windows transcript service. Alpha 1 keeps that
+// proven network/microphone path but now consumes Xiaozhi's native downstream
+// TTS audio as well. The existing UI state machine still waits for a
+// "transcript" result; we deliberately publish that result only after the
+// server has sent TTS stop and the AudioService playback queues have drained.
+// This gives us a full conversational round trip without changing the motion,
+// touch, wake-word or UI safety code in the first experiment.
 class Service {
 public:
     void initialise(AudioService* audio_service)
@@ -36,10 +46,9 @@ public:
             return;
         }
 
-        // Prime the microphone processor once, after boot audio has completed but
-        // before the first wake. The processor stays live between sessions while
-        // its idle Opus packets are discarded. This moves the AudioService 120 ms
-        // input warm-up and first AFE fetch entirely out of the speaking window.
+        // Prime the microphone processor once after boot so its first-use cost is
+        // outside the speaking window. Beta's main loop may park AFE afterwards;
+        // the initialisation remains warm.
         ensure_processor_primed();
 
         Board::GetInstance().SetNetworkEventCallback(
@@ -65,7 +74,7 @@ public:
                         close_requested_.store(true);
                         mclog::tagError(kLogTag, "Wi-Fi disconnected");
                         if (session_active()) {
-                            set_error("Wi-Fi disconnected during voice transport");
+                            set_error("Wi-Fi disconnected during Kadence 2.0 voice turn");
                         }
                         break;
                     case NetworkEvent::WifiConfigModeEnter:
@@ -85,7 +94,7 @@ public:
             });
 
         mclog::tagInfo(kLogTag,
-                       "starting stored Wi-Fi connection and warm transcript transport");
+                       "starting stored Wi-Fi connection and warm Kadence 2.0 transport");
         Board::GetInstance().StartNetwork();
     }
 
@@ -103,10 +112,9 @@ public:
             return false;
         }
 
-        clear_result_state();
+        clear_turn_state();
         discard_send_queue();
         finish_pending_.store(false);
-        awaiting_transcript_.store(false);
         send_queue_pending_.store(false);
         capture_started_event_.store(false);
 
@@ -126,23 +134,21 @@ public:
             return false;
         }
 
-        // Voice processing is already running and warm. Everything produced
-        // before this point was discarded, so the next Opus frame belongs to the
-        // user's post-chirp speech and can be forwarded immediately.
+        // Everything in the send queue before this point belongs to idle/chirp.
         discard_send_queue();
         capture_active_.store(true);
         capture_started_event_.store(true);
         mclog::tagInfo(kLogTag,
-                       "preconnected transcript channel accepted capture start");
+                       "Kadence 2.0 warm channel accepted capture start");
         mclog::tagInfo(kLogTag,
-                       "primed robot microphone is streaming 16 kHz mono Opus to Windows");
+                       "primed microphone streaming 16 kHz mono Opus to Xiaozhi backend");
         return true;
     }
 
     void request_transcript()
     {
         if (audio_service_ == nullptr || !capture_active_.load()) {
-            set_error("voice capture was not active at timeout");
+            set_error("voice capture was not active at end of speech");
             return;
         }
 
@@ -150,39 +156,43 @@ public:
         finish_not_before_us_.store(esp_timer_get_time() + kFinalOpusFlushUs);
         finish_pending_.store(true);
         send_queue_pending_.store(true);
-        mclog::tagInfo(
-            kLogTag,
-            "microphone capture stopped; flushing final Opus frames before transcript request");
+        response_pending_.store(true);
+        mclog::tagInfo(kLogTag,
+                       "K2 LATENCY T2 end-of-speech at {} us; flushing final Opus",
+                       esp_timer_get_time());
     }
 
     void cancel()
     {
-        const bool server_session_started = capture_active_.load() ||
-                                            finish_pending_.load() ||
-                                            awaiting_transcript_.load();
+        const bool server_session_started = session_active();
 
         finish_pending_.store(false);
         awaiting_transcript_.store(false);
         capture_active_.store(false);
+        response_pending_.store(false);
         capture_started_event_.store(false);
         send_queue_pending_.store(false);
         discard_send_queue();
-        clear_result_state();
+
+        if (audio_service_ != nullptr) {
+            // A head swipe during a spoken reply must stop queued TTS immediately.
+            audio_service_->ResetDecoder();
+        }
+
+        clear_turn_state();
 
         if (server_session_started) {
-            // Closing discards the partial sample server-side without asking
-            // Faster Whisper to transcribe it. The processor itself remains warm.
+            // Closing the protocol cleanly abandons the server-side turn. A warm
+            // reconnect is prepared as soon as the robot returns to idle.
             protocol_open_.store(false);
             close_requested_.store(true);
             prepare_requested_.store(network_connected_.load());
             retry_not_before_us_.store(0);
-            mclog::tagInfo(
-                kLogTag,
-                "voice capture cancelled; partial sample discarded and warm reconnect scheduled");
+            mclog::tagInfo(kLogTag,
+                           "Kadence 2.0 voice turn cancelled; warm reconnect scheduled");
         } else {
-            mclog::tagInfo(
-                kLogTag,
-                "voice cue cancelled before server capture; primed microphone remains ready");
+            mclog::tagInfo(kLogTag,
+                           "voice cue cancelled before server turn; microphone remains primed");
         }
     }
 
@@ -191,13 +201,15 @@ public:
         finish_pending_.store(false);
         awaiting_transcript_.store(false);
         capture_active_.store(false);
+        response_pending_.store(false);
         discard_send_queue();
+        reset_response_flags();
 
         if (!protocol_open_.load()) {
             prepare_requested_.store(network_connected_.load());
         } else {
             mclog::tagInfo(kLogTag,
-                           "transcript session complete; warm WebSocket and microphone remain ready");
+                           "Kadence 2.0 turn complete; warm WebSocket remains ready");
         }
     }
 
@@ -213,8 +225,7 @@ public:
                 drain_send_queue(true);
             }
         } else if (processor_primed_.load()) {
-            // Continuous voice processing keeps the AFE and resampler hot. Never
-            // allow idle/chirp audio to accumulate or leak onto the wire.
+            // Never leak idle/chirp frames onto the wire.
             send_queue_pending_.store(false);
             discard_send_queue();
         }
@@ -235,15 +246,18 @@ public:
             finish_pending_.store(false);
             if (sent) {
                 awaiting_transcript_.store(true);
+                response_pending_.store(true);
                 mclog::tagInfo(kLogTag,
-                               "Opus upload complete; waiting for Windows transcript");
+                               "final Opus uploaded; Xiaozhi turn processing continues on warm socket");
             } else {
                 protocol_open_.store(false);
                 close_requested_.store(true);
                 prepare_requested_.store(network_connected_.load());
-                set_error("voice transport closed before transcript request");
+                set_error("voice transport closed before stop-listening request");
             }
         }
+
+        publish_turn_complete_when_playback_drained();
 
         const int64_t now_us = esp_timer_get_time();
         if (network_connected_.load() && prepare_requested_.load() &&
@@ -258,6 +272,8 @@ public:
         return capture_started_event_.exchange(false);
     }
 
+    // Compatibility contract with the proven Beta UI state machine. In 2.0
+    // Alpha 1 this becomes ready only after STT + TTS + playback drain are done.
     bool take_transcript(std::string& transcript)
     {
         if (!transcript_ready_.exchange(false)) {
@@ -294,12 +310,13 @@ public:
     }
 
 private:
-    static constexpr const char* kLogTag = "KADENCE-VOICE-NET";
+    static constexpr const char* kLogTag = "KADENCE-2-VOICE";
     static constexpr uint16_t kDiscoveryPort = 45872;
     static constexpr const char* kDiscoveryRequest = "KADENCE_DISCOVER_V1";
     static constexpr const char* kDiscoveryReplyPrefix = "KADENCE_SERVER_V1 ";
     static constexpr int64_t kReconnectDelayUs = 3000000;
     static constexpr int64_t kFinalOpusFlushUs = 180000;
+    static constexpr int64_t kTtsDrainGuardUs = 150000;
 
     AudioService* audio_service_ = nullptr;
     std::unique_ptr<WebsocketProtocol> protocol_;
@@ -316,20 +333,29 @@ private:
     std::atomic<bool> capture_active_{false};
     std::atomic<bool> finish_pending_{false};
     std::atomic<bool> awaiting_transcript_{false};
+    std::atomic<bool> response_pending_{false};
     std::atomic<bool> send_queue_pending_{false};
     std::atomic<bool> capture_started_event_{false};
     std::atomic<bool> transcript_ready_{false};
     std::atomic<bool> error_ready_{false};
+    std::atomic<bool> stt_received_{false};
+    std::atomic<bool> tts_started_{false};
+    std::atomic<bool> tts_stopped_{false};
+    std::atomic<bool> first_uplink_seen_{false};
+    std::atomic<bool> first_tts_audio_seen_{false};
+    std::atomic<bool> turn_complete_published_{false};
     std::atomic<int64_t> finish_not_before_us_{0};
     std::atomic<int64_t> retry_not_before_us_{0};
+    std::atomic<int64_t> tts_drain_not_before_us_{0};
 
+    std::string pending_transcript_;
     std::string transcript_;
     std::string error_;
 
     bool session_active() const
     {
         return capture_active_.load() || finish_pending_.load() ||
-               awaiting_transcript_.load();
+               awaiting_transcript_.load() || response_pending_.load();
     }
 
     void ensure_processor_primed()
@@ -340,16 +366,30 @@ private:
 
         audio_service_->EnableVoiceProcessing(true);
         discard_send_queue();
-        mclog::tagInfo(
-            kLogTag,
-            "microphone processor primed while idle; pre-wake audio will be discarded");
+        mclog::tagInfo(kLogTag,
+                       "microphone processor primed; pre-wake audio will be discarded");
     }
 
-    void clear_result_state()
+    void reset_response_flags()
+    {
+        stt_received_.store(false);
+        tts_started_.store(false);
+        tts_stopped_.store(false);
+        first_uplink_seen_.store(false);
+        first_tts_audio_seen_.store(false);
+        turn_complete_published_.store(false);
+        tts_drain_not_before_us_.store(0);
+    }
+
+    void clear_turn_state()
     {
         transcript_ready_.store(false);
         error_ready_.store(false);
+        awaiting_transcript_.store(false);
+        response_pending_.store(false);
+        reset_response_flags();
         std::lock_guard<std::mutex> lock(result_mutex_);
+        pending_transcript_.clear();
         transcript_.clear();
         error_.clear();
     }
@@ -364,23 +404,46 @@ private:
         mclog::tagError(kLogTag, "{}", message);
     }
 
-    void set_transcript(const std::string& text)
+    void store_stt(const std::string& text)
     {
         {
             std::lock_guard<std::mutex> lock(result_mutex_);
-            transcript_ = text;
+            pending_transcript_ = text;
         }
-        transcript_ready_.store(true);
+        stt_received_.store(true);
+        awaiting_transcript_.store(false);
+        response_pending_.store(true);
+        mclog::tagInfo(kLogTag,
+                       "K2 LATENCY T3 STT ready at {} us: {}",
+                       esp_timer_get_time(),
+                       text.empty() ? "<no speech recognised>" : text);
     }
 
-    void schedule_prepare_retry(const char* message)
+    void publish_turn_complete_when_playback_drained()
     {
-        protocol_open_.store(false);
-        prepare_requested_.store(true);
-        retry_not_before_us_.store(esp_timer_get_time() + kReconnectDelayUs);
-        mclog::tagError(kLogTag,
-                        "{}; retrying warm connection in 3 seconds",
-                        message);
+        if (!response_pending_.load() || !stt_received_.load() ||
+            !tts_stopped_.load() || turn_complete_published_.load() ||
+            audio_service_ == nullptr) {
+            return;
+        }
+
+        const int64_t guard = tts_drain_not_before_us_.load();
+        if (guard != 0 && esp_timer_get_time() < guard) {
+            return;
+        }
+
+        if (!audio_service_->IsIdle()) {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            transcript_ = pending_transcript_;
+        }
+        turn_complete_published_.store(true);
+        transcript_ready_.store(true);
+        mclog::tagInfo(kLogTag,
+                       "TTS playback drained; releasing completed turn to Kadence UI");
     }
 
     void discard_send_queue()
@@ -412,9 +475,15 @@ private:
                 close_requested_.store(true);
                 prepare_requested_.store(network_connected_.load());
                 if (fail_on_send_error) {
-                    set_error("failed to send microphone Opus frame to Windows");
+                    set_error("failed to send microphone Opus frame to Xiaozhi backend");
                 }
                 return false;
+            }
+
+            if (!first_uplink_seen_.exchange(true)) {
+                mclog::tagInfo(kLogTag,
+                               "K2 LATENCY T1 first microphone Opus sent at {} us",
+                               esp_timer_get_time());
             }
         }
         return true;
@@ -449,20 +518,13 @@ private:
         }
 
         int allow_broadcast = 1;
-        setsockopt(sock,
-                   SOL_SOCKET,
-                   SO_BROADCAST,
-                   &allow_broadcast,
+        setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &allow_broadcast,
                    sizeof(allow_broadcast));
 
         timeval timeout{};
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
-        setsockopt(sock,
-                   SOL_SOCKET,
-                   SO_RCVTIMEO,
-                   &timeout,
-                   sizeof(timeout));
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
         sockaddr_in destination{};
         destination.sin_family = AF_INET;
@@ -476,25 +538,16 @@ private:
             }
 
             mclog::tagInfo(kLogTag,
-                           "searching LAN for Kadence transcript server ({}/5)",
-                           attempt);
-            sendto(sock,
-                   kDiscoveryRequest,
-                   std::strlen(kDiscoveryRequest),
-                   0,
-                   reinterpret_cast<sockaddr*>(&destination),
-                   sizeof(destination));
+                           "searching LAN for Kadence 2.0 backend ({}/5)", attempt);
+            sendto(sock, kDiscoveryRequest, std::strlen(kDiscoveryRequest), 0,
+                   reinterpret_cast<sockaddr*>(&destination), sizeof(destination));
 
             char response[160]{};
             sockaddr_in source{};
             socklen_t source_length = sizeof(source);
-            const int received = recvfrom(
-                sock,
-                response,
-                sizeof(response) - 1,
-                0,
-                reinterpret_cast<sockaddr*>(&source),
-                &source_length);
+            const int received = recvfrom(sock, response, sizeof(response) - 1, 0,
+                                          reinterpret_cast<sockaddr*>(&source),
+                                          &source_length);
             if (received <= 0) {
                 continue;
             }
@@ -507,18 +560,14 @@ private:
 
             unsigned int port = 0;
             char path[96]{};
-            if (std::sscanf(reply.c_str(),
-                            "KADENCE_SERVER_V1 %u %95s",
-                            &port,
-                            path) != 2 ||
+            if (std::sscanf(reply.c_str(), "KADENCE_SERVER_V1 %u %95s",
+                            &port, path) != 2 ||
                 port == 0 || port > 65535 || path[0] != '/') {
                 continue;
             }
 
             char address[INET_ADDRSTRLEN]{};
-            if (inet_ntop(AF_INET,
-                          &source.sin_addr,
-                          address,
+            if (inet_ntop(AF_INET, &source.sin_addr, address,
                           sizeof(address)) == nullptr) {
                 continue;
             }
@@ -539,18 +588,18 @@ private:
             mclog::tagInfo(kLogTag, "WebSocket connected");
         });
         protocol.OnAudioChannelOpened([]() {
-            mclog::tagInfo(kLogTag, "version-1 Opus audio channel opened");
+            mclog::tagInfo(kLogTag,
+                           "Xiaozhi version-1 bidirectional Opus channel opened");
         });
         protocol.OnAudioChannelClosed([this]() {
             protocol_open_.store(false);
             close_requested_.store(true);
             prepare_requested_.store(network_connected_.load());
             if (session_active()) {
-                set_error("Windows transcript WebSocket disconnected unexpectedly");
+                set_error("Kadence 2.0 WebSocket disconnected unexpectedly");
             } else {
-                mclog::tagError(
-                    kLogTag,
-                    "warm transcript WebSocket disconnected; reconnect scheduled");
+                mclog::tagError(kLogTag,
+                                "warm WebSocket disconnected; reconnect scheduled");
             }
         });
         protocol.OnNetworkError([this](const std::string& message) {
@@ -565,6 +614,7 @@ private:
                                 message);
             }
         });
+
         protocol.OnIncomingJson([this](const cJSON* root) {
             const cJSON* type = cJSON_GetObjectItem(root, "type");
             if (!cJSON_IsString(type)) {
@@ -574,21 +624,79 @@ private:
             if (std::strcmp(type->valuestring, "stt") == 0) {
                 const cJSON* text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
-                    awaiting_transcript_.store(false);
-                    set_transcript(text->valuestring);
+                    store_stt(text->valuestring);
                 }
-            } else if (std::strcmp(type->valuestring, "error") == 0) {
+                return;
+            }
+
+            if (std::strcmp(type->valuestring, "tts") == 0) {
+                const cJSON* state = cJSON_GetObjectItem(root, "state");
+                if (!cJSON_IsString(state)) {
+                    return;
+                }
+
+                if (std::strcmp(state->valuestring, "start") == 0) {
+                    tts_started_.store(true);
+                    response_pending_.store(true);
+                    mclog::tagInfo(kLogTag,
+                                   "Xiaozhi TTS stream started at {} us",
+                                   esp_timer_get_time());
+                } else if (std::strcmp(state->valuestring, "sentence_start") == 0) {
+                    const cJSON* text = cJSON_GetObjectItem(root, "text");
+                    if (cJSON_IsString(text)) {
+                        mclog::tagInfo(kLogTag, "KADENCE RESPONSE: {}", text->valuestring);
+                    }
+                } else if (std::strcmp(state->valuestring, "stop") == 0) {
+                    tts_stopped_.store(true);
+                    tts_drain_not_before_us_.store(
+                        esp_timer_get_time() + kTtsDrainGuardUs);
+                    mclog::tagInfo(kLogTag,
+                                   "Xiaozhi TTS stream stopped; waiting for device playback drain");
+                }
+                return;
+            }
+
+            if (std::strcmp(type->valuestring, "error") == 0) {
                 const cJSON* message = cJSON_GetObjectItem(root, "message");
                 set_error(cJSON_IsString(message)
-                              ? std::string("Windows transcript error: ") +
-                                    message->valuestring
-                              : "Windows transcript server returned an error");
-            } else if (std::strcmp(type->valuestring, "keepalive") == 0) {
-                // Receipt updates protocol activity. No visible UI action.
+                              ? std::string("Xiaozhi backend error: ") + message->valuestring
+                              : "Xiaozhi backend returned an error");
+                return;
+            }
+
+            if (std::strcmp(type->valuestring, "llm") == 0) {
+                // Emotion mapping arrives in a later 2.0 gate. Do not let model
+                // output directly control robot movement in Alpha 1.
+                return;
+            }
+
+            if (std::strcmp(type->valuestring, "mcp") == 0) {
+                // MCP is intentionally ignored until safe Kadence tool schemas
+                // are defined. Raw model-directed motion is never accepted.
+                return;
+            }
+
+            if (std::strcmp(type->valuestring, "keepalive") == 0) {
+                return;
             }
         });
-        protocol.OnIncomingAudio([](std::unique_ptr<AudioStreamPacket>) {
-            // Transcript checkpoint is intentionally one-way audio.
+
+        protocol.OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
+            if (audio_service_ == nullptr || packet == nullptr) {
+                return;
+            }
+
+            response_pending_.store(true);
+            if (!audio_service_->PushPacketToDecodeQueue(std::move(packet))) {
+                set_error("Kadence TTS decode queue overflow");
+                return;
+            }
+
+            if (!first_tts_audio_seen_.exchange(true)) {
+                mclog::tagInfo(kLogTag,
+                               "K2 LATENCY T7 first TTS Opus queued at {} us",
+                               esp_timer_get_time());
+            }
         });
     }
 
@@ -605,7 +713,7 @@ private:
                 service->prepare_connection_task();
                 vTaskDelete(nullptr);
             },
-            "kade_voice_warm",
+            "kade2_voice_warm",
             8192,
             this,
             4,
@@ -615,6 +723,15 @@ private:
             open_task_running_.store(false);
             schedule_prepare_retry("failed to create warm voice transport task");
         }
+    }
+
+    void schedule_prepare_retry(const char* message)
+    {
+        protocol_open_.store(false);
+        prepare_requested_.store(true);
+        retry_not_before_us_.store(esp_timer_get_time() + kReconnectDelayUs);
+        mclog::tagError(kLogTag,
+                        "{}; retrying warm connection in 3 seconds", message);
     }
 
     void prepare_connection_task()
@@ -630,12 +747,12 @@ private:
         if (!discover_server(websocket_url)) {
             open_task_running_.store(false);
             schedule_prepare_retry(
-                "Kadence transcript server was not found on the local network");
+                "Kadence 2.0 backend was not found on the local network");
             return;
         }
 
         mclog::tagInfo(kLogTag,
-                       "discovered transcript server at {} during idle warm-up",
+                       "discovered Kadence 2.0 backend at {} during idle warm-up",
                        websocket_url);
         {
             Settings settings("websocket", true);
@@ -651,7 +768,7 @@ private:
         if (!protocol->OpenAudioChannel()) {
             open_task_running_.store(false);
             schedule_prepare_retry(
-                "failed to open the warm Windows transcript WebSocket");
+                "failed to open warm Xiaozhi WebSocket");
             return;
         }
 
@@ -659,7 +776,7 @@ private:
             protocol->CloseAudioChannel(false);
             open_task_running_.store(false);
             schedule_prepare_retry(
-                "Wi-Fi disconnected while warming transcript transport");
+                "Wi-Fi disconnected while warming Kadence 2.0 transport");
             return;
         }
 
@@ -674,9 +791,8 @@ private:
         protocol_open_.store(true);
         retry_not_before_us_.store(0);
         open_task_running_.store(false);
-        mclog::tagInfo(
-            kLogTag,
-            "transcript transport standing by; warm microphone capture will start without AFE delay");
+        mclog::tagInfo(kLogTag,
+                       "Kadence 2.0 bidirectional transport standing by");
     }
 };
 
