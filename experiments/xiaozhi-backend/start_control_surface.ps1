@@ -7,6 +7,11 @@ if ($env:OS -ne "Windows_NT") {
     throw "Kadence Control Surface is currently a Windows-only Alpha 2 operator UI."
 }
 
+$CleanupScript = Join-Path $PSScriptRoot "cleanup_stale_kadence_windows.ps1"
+if (Test-Path $CleanupScript) {
+    & $CleanupScript
+}
+
 $UiScript = Join-Path $PSScriptRoot "control_surface\KadenceControlV3.ps1"
 if (-not (Test-Path $UiScript)) {
     throw "Kadence Control Surface script not found: $UiScript"
@@ -27,8 +32,7 @@ $UiText = [System.IO.File]::ReadAllText($UiScript, [System.Text.Encoding]::UTF8)
 # PowerShell automatic variables are case-insensitive, so a parameter named
 # $Pid collides with the read-only built-in $PID. V3 used that name only in the
 # port-conflict diagnostic helper. Patch the execution copy narrowly while the
-# UI remains under active Alpha 2 iteration; the tracked source can be folded
-# cleanly into the next consolidated Control Surface revision.
+# UI remains under active Alpha 2 iteration.
 $UiText = $UiText.Replace('param([int]$Pid)', 'param([int]$ProcessId)')
 $UiText = $UiText.Replace('("ProcessId={0}" -f $Pid)', '("ProcessId={0}" -f $ProcessId)')
 $UiText = $UiText.Replace('("PID {0} / {1} / {2}" -f $Pid,$p.Name,$cmd)', '("PID {0} / {1} / {2}" -f $ProcessId,$p.Name,$cmd)')
