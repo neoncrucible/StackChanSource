@@ -9,6 +9,8 @@ Set-StrictMode -Version Latest
 # guarded compatibility edits to the ignored local runtime.
 $GeminiProvider = Join-Path $RepoDir "main\xiaozhi-server\core\providers\llm\gemini\gemini.py"
 $RuntimeConfig = Join-Path $RepoDir "main\xiaozhi-server\data\.config.yaml"
+$TemplateConfig = Join-Path $PSScriptRoot "kadence.config.example.yaml"
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 if (-not (Test-Path $GeminiProvider)) {
     throw "Pinned Xiaozhi Gemini provider was not found: $GeminiProvider"
@@ -16,8 +18,14 @@ if (-not (Test-Path $GeminiProvider)) {
 if (-not (Test-Path $RuntimeConfig)) {
     throw "Pinned Xiaozhi runtime config was not found: $RuntimeConfig"
 }
+if (-not (Test-Path $TemplateConfig)) {
+    throw "Kadence Alpha config template was not found: $TemplateConfig"
+}
 
-$ProviderText = Get-Content -Raw $GeminiProvider
+# Always read/write these files as UTF-8 explicitly. Windows PowerShell 5.1
+# otherwise uses its legacy default text encoding and can corrupt non-ASCII
+# punctuation in YAML comments during an in-place migration.
+$ProviderText = [System.IO.File]::ReadAllText($GeminiProvider, $Utf8NoBom)
 $ProviderChanged = $false
 
 # google-generativeai==0.8.5 does not accept a top-level `timeout=` argument on
@@ -66,17 +74,41 @@ else {
 }
 
 if ($ProviderChanged) {
-    [System.IO.File]::WriteAllText(
-        $GeminiProvider,
-        $ProviderText,
-        [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($GeminiProvider, $ProviderText, $Utf8NoBom)
+}
+
+$ConfigText = [System.IO.File]::ReadAllText($RuntimeConfig, $Utf8NoBom)
+
+# Repair the specific Windows encoding failure seen during Alpha 1 migration.
+# Preserve the two already-entered credentials locally, rebuild from the clean
+# checked-in template, and never print either secret.
+$IllegalYamlControls = '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]'
+if ([regex]::IsMatch($ConfigText, $IllegalYamlControls)) {
+    $ApiKeys = [regex]::Matches(
+        $ConfigText,
+        '(?m)^[ \t]+api_key:[ \t]*(.+?)[ \t]*$'
     )
+    if ($ApiKeys.Count -ne 2) {
+        throw "Runtime YAML is encoding-corrupted and its two API keys could not be recovered safely. Refusing to overwrite it."
+    }
+
+    $OpenAiKey = $ApiKeys[0].Groups[1].Value.Trim()
+    $GeminiKey = $ApiKeys[1].Groups[1].Value.Trim()
+    if ([string]::IsNullOrWhiteSpace($OpenAiKey) -or
+        [string]::IsNullOrWhiteSpace($GeminiKey)) {
+        throw "Runtime YAML is encoding-corrupted and one recovered API key was empty. Refusing to overwrite it."
+    }
+
+    $TemplateText = [System.IO.File]::ReadAllText($TemplateConfig, $Utf8NoBom)
+    $ConfigText = $TemplateText.Replace("REPLACE_WITH_OPENAI_API_KEY", $OpenAiKey)
+    $ConfigText = $ConfigText.Replace("REPLACE_WITH_GEMINI_API_KEY", $GeminiKey)
+    [System.IO.File]::WriteAllText($RuntimeConfig, $ConfigText, $Utf8NoBom)
+    Write-Host "Repaired Alpha runtime YAML encoding from clean template; existing API keys preserved locally."
 }
 
 # Alpha 1 is a latency baseline. Gemini 3.6 Flash defaults to medium thinking,
 # which can exceed the robot's 30-second response watchdog. Flash-Lite defaults
 # to minimal thinking and is the better baseline for spoken turn latency.
-$ConfigText = Get-Content -Raw $RuntimeConfig
 $RetiredModel = '    model_name: "gemini-2.0-flash"'
 $SlowModel = '    model_name: "gemini-3.6-flash"'
 $TargetModel = '    model_name: "gemini-3.5-flash-lite"'
@@ -86,20 +118,12 @@ if ($ConfigText.Contains($TargetModel)) {
 }
 elseif ($ConfigText.Contains($SlowModel)) {
     $ConfigText = $ConfigText.Replace($SlowModel, $TargetModel)
-    [System.IO.File]::WriteAllText(
-        $RuntimeConfig,
-        $ConfigText,
-        [System.Text.UTF8Encoding]::new($false)
-    )
+    [System.IO.File]::WriteAllText($RuntimeConfig, $ConfigText, $Utf8NoBom)
     Write-Host "Migrated Kadence Gemini model: gemini-3.6-flash -> gemini-3.5-flash-lite"
 }
 elseif ($ConfigText.Contains($RetiredModel)) {
     $ConfigText = $ConfigText.Replace($RetiredModel, $TargetModel)
-    [System.IO.File]::WriteAllText(
-        $RuntimeConfig,
-        $ConfigText,
-        [System.Text.UTF8Encoding]::new($false)
-    )
+    [System.IO.File]::WriteAllText($RuntimeConfig, $ConfigText, $Utf8NoBom)
     Write-Host "Migrated Kadence Gemini model: gemini-2.0-flash -> gemini-3.5-flash-lite"
 }
 else {
