@@ -173,6 +173,15 @@ $VadReturnReplacement = @'
         except Exception as e:
 '@
 
+# The main repo and the pinned runtime are separate Git checkouts. On Windows
+# one may be CRLF while the other remains LF, so normalise all comparison text
+# before applying the guarded replacements.
+$VadText = $VadText.Replace("`r`n", "`n")
+$VadManualOriginal = $VadManualOriginal.Replace("`r`n", "`n")
+$VadManualReplacement = $VadManualReplacement.Replace("`r`n", "`n")
+$VadReturnOriginal = $VadReturnOriginal.Replace("`r`n", "`n")
+$VadReturnReplacement = $VadReturnReplacement.Replace("`r`n", "`n")
+
 $VadChanged = $false
 if ($VadText.Contains($VadManualReplacement)) {
     Write-Host "Kadence manual-mode Silero diagnostics: already applied."
