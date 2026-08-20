@@ -1,0 +1,32 @@
+name: Kadence Control Surface EXE
+
+on:
+  push:
+    branches:
+      - kadence/2.0-alpha-2
+    paths:
+      - experiments/xiaozhi-backend/control_surface/KadenceControlLauncher.cs
+      - experiments/xiaozhi-backend/build_control_surface_exe.ps1
+      - .github/workflows/kadence-control-surface-exe.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Alpha 2
+        uses: actions/checkout@v4
+
+      - name: Build Kadence Control Surface
+        shell: powershell
+        run: |
+          .\experiments\xiaozhi-backend\build_control_surface_exe.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE\dist"
+
+      - name: Upload Windows launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kadence-Control-Surface-Windows
+          path: |
+            dist/Kadence Control Surface.exe
+          if-no-files-found: error
+          retention-days: 30
