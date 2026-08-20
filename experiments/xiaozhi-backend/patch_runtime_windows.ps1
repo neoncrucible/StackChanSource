@@ -8,12 +8,16 @@ Set-StrictMode -Version Latest
 # Keep the pinned Xiaozhi checkout immutable in Git and make only narrowly
 # guarded compatibility edits to the ignored local runtime.
 $GeminiProvider = Join-Path $RepoDir "main\xiaozhi-server\core\providers\llm\gemini\gemini.py"
+$SileroProvider = Join-Path $RepoDir "main\xiaozhi-server\core\providers\vad\silero.py"
 $RuntimeConfig = Join-Path $RepoDir "main\xiaozhi-server\data\.config.yaml"
 $TemplateConfig = Join-Path $PSScriptRoot "kadence.config.example.yaml"
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 if (-not (Test-Path $GeminiProvider)) {
     throw "Pinned Xiaozhi Gemini provider was not found: $GeminiProvider"
+}
+if (-not (Test-Path $SileroProvider)) {
+    throw "Pinned Xiaozhi Silero provider was not found: $SileroProvider"
 }
 if (-not (Test-Path $RuntimeConfig)) {
     throw "Pinned Xiaozhi runtime config was not found: $RuntimeConfig"
@@ -128,4 +132,69 @@ elseif ($ConfigText.Contains($RetiredModel)) {
 }
 else {
     throw "Gemini model migration guard failed. Expected an Alpha model line was not found; refusing to modify runtime config."
+}
+
+# Xiaozhi intentionally bypasses Silero VAD in manual-listen mode by returning
+# True for every PCM frame. Kadence Alpha currently uses manual mode because the
+# robot owns end-of-speech. For diagnosis only, still run the pinned Silero model
+# and log its SPEECH/SILENCE edges, but continue returning True so ASR buffering
+# and the robot-controlled stop message behave exactly as before.
+$VadText = [System.IO.File]::ReadAllText($SileroProvider, $Utf8NoBom)
+$VadManualOriginal = @'
+    def is_vad(self, conn, pcm_frame):
+        # 手动模式：直接返回True，不进行实时VAD检测，所有音频都缓存
+        if conn.client_listen_mode == "manual":
+            return True
+
+        try:
+'@
+$VadManualReplacement = @'
+    def is_vad(self, conn, pcm_frame):
+        # Kadence Alpha diagnostic mode: manual capture still buffers every frame,
+        # but Silero also runs so we can compare its endpoint with the ESP32 VAD.
+        kadence_manual_diagnostics = conn.client_listen_mode == "manual"
+
+        try:
+'@
+$VadReturnOriginal = @'
+            return client_have_voice
+        except Exception as e:
+'@
+$VadReturnReplacement = @'
+            if kadence_manual_diagnostics:
+                previous = getattr(conn, "_kadence_diag_vad_state", None)
+                if previous is None or previous != client_have_voice:
+                    logger.bind(tag=TAG).info(
+                        f"KADENCE SERVER VAD: {'SPEECH' if client_have_voice else 'SILENCE'}"
+                    )
+                    conn._kadence_diag_vad_state = client_have_voice
+                return True
+            return client_have_voice
+        except Exception as e:
+'@
+
+$VadChanged = $false
+if ($VadText.Contains($VadManualReplacement)) {
+    Write-Host "Kadence manual-mode Silero diagnostics: already applied."
+}
+elseif ($VadText.Contains($VadManualOriginal)) {
+    $VadText = $VadText.Replace($VadManualOriginal, $VadManualReplacement)
+    $VadChanged = $true
+} else {
+    throw "Silero diagnostic patch guard failed at manual-mode bypass; refusing to modify runtime."
+}
+
+if ($VadText.Contains($VadReturnReplacement)) {
+    Write-Host "Kadence server VAD edge logger: already applied."
+}
+elseif ($VadText.Contains($VadReturnOriginal)) {
+    $VadText = $VadText.Replace($VadReturnOriginal, $VadReturnReplacement)
+    $VadChanged = $true
+} else {
+    throw "Silero diagnostic patch guard failed at VAD return; refusing to modify runtime."
+}
+
+if ($VadChanged) {
+    [System.IO.File]::WriteAllText($SileroProvider, $VadText, $Utf8NoBom)
+    Write-Host "Applied Kadence manual-mode Silero endpoint diagnostics (buffering semantics unchanged)."
 }
