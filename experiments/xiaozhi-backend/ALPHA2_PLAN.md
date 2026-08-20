@@ -77,18 +77,11 @@ No model-selected facial expression, LED expression, servo motion or arbitrary p
 
 LLM selection is server-side and occurs **before server boot**.
 
-Expected operator flow:
+Gemini Flash-Lite is the Alpha 1 reference candidate. OpenAI will be added as a competing Alpha 2 candidate. Both are benchmarked using the same canonical Kadence personality, ASR, endpointing and TTS. The benchmark winner becomes the default; both remain available as pre-boot fallback profiles.
 
-1. Open Kadence Control Surface.
-2. Select provider/model profile.
-3. Optionally choose a temporary session behaviour modifier.
-4. Start the server.
-5. Validate server health.
-6. Boot/connect Kadence.
+The Control Surface does **not** need an LLM selector for its Milestone 2 foundation. During early Alpha 2 development, provider/profile selection may remain configuration-driven. A pre-boot LLM selector is a later quality-of-life enhancement and must not block the server boot/monitor UI or early testing.
 
-The selected LLM remains fixed for that server run. Changing LLM requires server shutdown and restart. There is no Alpha 2 live hot-swap requirement.
-
-Gemini Flash-Lite is the Alpha 1 reference candidate. OpenAI will be added as a competing Alpha 2 candidate. Both are benchmarked using the same canonical Kadence personality, ASR, endpointing and TTS. The benchmark winner becomes the default; both remain selectable as fallback profiles.
+When the UI selector is added later, the selected LLM remains fixed for that server run. Changing LLM requires server shutdown and restart. There is no Alpha 2 live hot-swap requirement.
 
 ## Conversation continuity
 
@@ -146,25 +139,17 @@ Out of scope for Alpha 2 utilities:
 
 Rebuild the Windows server monitor as an EYE-themed Kadence boot console and live monitor.
 
-Pre-boot controls/status should support:
+For the Milestone 2 foundation, keep the UI deliberately narrow:
 
-- selected LLM provider/model;
-- canonical identity status;
-- optional temporary session modifier;
-- Sonia voice status;
-- configured utility status;
-- server configuration/API-key-presence health without displaying secrets;
-- Start Server / Stop Server.
-
-Once the server is running, boot configuration controls lock and the UI becomes a live monitor showing useful operational state such as:
-
-- Kadence/server connection state;
-- current provider/model;
-- live turn transcript where available;
-- pipeline timings where available;
-- utility/tool activity;
+- Start Server;
+- Stop Server;
+- server process state;
+- Kadence/server connection state where available;
+- current backend health/status;
 - warnings/errors;
-- access to detailed logs.
+- useful live log/monitor output.
+
+The existing configured LLM/profile is used when the server starts. LLM selection, session modifiers, utility toggles, benchmark controls and other configuration controls are **not required to clear Milestone 2** and can be layered onto the Control Surface later.
 
 The EYE avatar is the visual centrepiece and may reflect **monitor/system state**, but this does not add or alter robot-side expression behaviour.
 
@@ -233,4 +218,4 @@ Run a mixed-use physical acceptance session covering normal conversation, person
 
 ## Immediate implementation priority
 
-The first implementation target is to complete **Milestone 1 (Canonical Kadence identity)** and **Milestone 2 (Kadence Control Surface foundation)** while leaving the frozen transport untouched.
+The first implementation target is to complete **Milestone 1 (Canonical Kadence identity)** and a deliberately minimal **Milestone 2 (Kadence Control Surface foundation)**: server boot, stop and monitor first; configuration convenience features later.
