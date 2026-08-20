@@ -7,11 +7,6 @@ if ($env:OS -ne "Windows_NT") {
     throw "Kadence Control Surface is currently a Windows-only Alpha 2 operator UI."
 }
 
-$CleanupScript = Join-Path $PSScriptRoot "cleanup_stale_kadence_windows.ps1"
-if (Test-Path $CleanupScript) {
-    & $CleanupScript
-}
-
 $UiScript = Join-Path $PSScriptRoot "control_surface\KadenceControlV3.ps1"
 if (-not (Test-Path $UiScript)) {
     throw "Kadence Control Surface script not found: $UiScript"
@@ -38,6 +33,31 @@ $UiText = $UiText.Replace('("ProcessId={0}" -f $Pid)', '("ProcessId={0}" -f $Pro
 $UiText = $UiText.Replace('("PID {0} / {1} / {2}" -f $Pid,$p.Name,$cmd)', '("PID {0} / {1} / {2}" -f $ProcessId,$p.Name,$cmd)')
 $UiText = $UiText.Replace('("PID {0}" -f $Pid)', '("PID {0}" -f $ProcessId)')
 $UiText = $UiText.Replace('(Describe-Process -Pid $c.Pid)', '(Describe-Process -ProcessId $c.Pid)')
+
+# When START SERVER is explicitly requested, reclaim only the exact stale
+# Kadence backend signature (dedicated conda python + app.py owning BOTH 8000
+# and 8003), then run the normal port preflight. Merely opening the UI never
+# kills an existing process.
+$UiText = $UiText.Replace(
+    '$StartScript = Join-Path $BackendRoot "start_alpha2_windows.ps1"',
+    '$StartScript = Join-Path $BackendRoot "start_alpha2_windows.ps1"' + [Environment]::NewLine + '$CleanupScript = Join-Path $BackendRoot "cleanup_stale_kadence_windows.ps1"'
+)
+$CleanupInjection = @'
+    if (Test-Path $CleanupScript) {
+        try {
+            $cleaned = @(& $CleanupScript -PassThru)
+            foreach ($item in $cleaned) {
+                Append-Log ("[KADENCE UI] Reclaimed stale Kadence backend PID {0} (TCP {1})." -f $item.ProcessId,$item.Ports)
+            }
+        }
+        catch {
+            Append-Log ("[KADENCE UI] STALE CLEANUP WARNING: " + $_.Exception.Message)
+        }
+    }
+
+    $conflicts = @(Get-PortConflicts)
+'@
+$UiText = $UiText.Replace('    $conflicts = @(Get-PortConflicts)', $CleanupInjection.TrimEnd())
 
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
