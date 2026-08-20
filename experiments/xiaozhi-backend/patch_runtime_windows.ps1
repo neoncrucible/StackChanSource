@@ -28,7 +28,7 @@ $TimeoutReplacement = '            request_options={"timeout": self.timeout},'
 if ($ProviderText.Contains($TimeoutReplacement)) {
     Write-Host "Xiaozhi Gemini timeout compatibility patch: already applied."
 }
-elif ($ProviderText.Contains($TimeoutOriginal)) {
+elseif ($ProviderText.Contains($TimeoutOriginal)) {
     $ProviderText = $ProviderText.Replace($TimeoutOriginal, $TimeoutReplacement)
     $ProviderChanged = $true
     Write-Host "Applied Xiaozhi Gemini compatibility patch: timeout -> request_options.timeout"
@@ -56,7 +56,7 @@ $SamplingReplacement = @"
 if ($ProviderText.Contains($SamplingReplacement)) {
     Write-Host "Xiaozhi Gemini 3.x generation-config patch: already applied."
 }
-elif ($ProviderText.Contains($SamplingOriginal)) {
+elseif ($ProviderText.Contains($SamplingOriginal)) {
     $ProviderText = $ProviderText.Replace($SamplingOriginal, $SamplingReplacement)
     $ProviderChanged = $true
     Write-Host "Applied Xiaozhi Gemini 3.x generation-config patch: removed deprecated sampling parameters."
@@ -82,7 +82,7 @@ $NewModel = '    model_name: "gemini-3.6-flash"'
 if ($ConfigText.Contains($NewModel)) {
     Write-Host "Kadence Gemini model: gemini-3.6-flash already configured."
 }
-elif ($ConfigText.Contains($OldModel)) {
+elseif ($ConfigText.Contains($OldModel)) {
     $ConfigText = $ConfigText.Replace($OldModel, $NewModel)
     [System.IO.File]::WriteAllText(
         $RuntimeConfig,
