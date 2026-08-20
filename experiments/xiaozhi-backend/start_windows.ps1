@@ -92,6 +92,12 @@ if (-not (Test-Path $ConfigPath)) {
     throw "Missing $ConfigPath. Run bootstrap_windows.ps1 first."
 }
 
+$RuntimePatchScript = Join-Path $PSScriptRoot "patch_runtime_windows.ps1"
+if (-not (Test-Path $RuntimePatchScript)) {
+    throw "Missing runtime compatibility patch script: $RuntimePatchScript"
+}
+& $RuntimePatchScript -RepoDir $RepoDir
+
 # The upstream loader reads YAML literally; it does not expand environment
 # variables. Keep the example placeholders in Git, then inject secrets only into
 # the ignored .runtime copy. Environment variables avoid prompting on later runs:
