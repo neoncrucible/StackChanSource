@@ -17,7 +17,17 @@ if (-not (Test-Path $WindowsPowerShell)) {
     throw "Windows PowerShell was not found: $WindowsPowerShell"
 }
 
-$Arguments = "-STA -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$UiScript`""
-Start-Process -FilePath $WindowsPowerShell -ArgumentList $Arguments | Out-Null
+# Run the WinForms host as a dedicated STA Windows PowerShell process, but keep
+# it attached to this console. Alpha 2 intentionally favours visible diagnostics
+# over a fire-and-forget launcher: if the UI fails during development, the real
+# PowerShell exception must remain on screen instead of disappearing with a
+# short-lived child window.
+Write-Host "Starting Kadence Control Surface..."
+& $WindowsPowerShell -STA -NoLogo -NoProfile -ExecutionPolicy Bypass -File $UiScript
+$ExitCode = $LASTEXITCODE
 
-Write-Host "Kadence Control Surface launched."
+if ($ExitCode -ne 0) {
+    throw "Kadence Control Surface exited with code $ExitCode. See the error above."
+}
+
+Write-Host "Kadence Control Surface closed."
