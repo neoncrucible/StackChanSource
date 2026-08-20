@@ -60,7 +60,7 @@ LLM:
   GeminiLLM:
     type: gemini
     api_key: REPLACE_WITH_GEMINI_API_KEY
-    model_name: "gemini-2.0-flash"
+    model_name: "gemini-3.6-flash"
     http_proxy: ""
     https_proxy: ""
 
