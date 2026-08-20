@@ -60,7 +60,9 @@ LLM:
   GeminiLLM:
     type: gemini
     api_key: REPLACE_WITH_GEMINI_API_KEY
-    model_name: "gemini-3.6-flash"
+    # Alpha 1 prioritises spoken-turn latency. Flash-Lite defaults to minimal
+    # thinking, unlike Gemini 3.6 Flash's medium-thinking default.
+    model_name: "gemini-3.5-flash-lite"
     http_proxy: ""
     https_proxy: ""
 
