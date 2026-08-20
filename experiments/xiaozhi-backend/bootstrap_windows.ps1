@@ -15,6 +15,7 @@ $DataDir = Join-Path $ServerDir "data"
 $Requirements = Join-Path $ServerDir "requirements.txt"
 $ConfigSource = Join-Path $PSScriptRoot "kadence.config.example.yaml"
 $ConfigTarget = Join-Path $DataDir ".config.yaml"
+$CleanupScript = Join-Path $PSScriptRoot "cleanup_stale_kadence_windows.ps1"
 
 function Require-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -35,11 +36,18 @@ function Invoke-Checked {
     }
 }
 
-Write-Host "=== Kadence 2.0 Alpha 1 / Xiaozhi bootstrap ==="
+Write-Host "=== Kadence 2.0 Alpha 2 / Xiaozhi bootstrap ==="
 Write-Host "Pinned upstream: $PinnedCommit"
 
 Require-Command git
 Require-Command conda
+
+# A previous UI crash or interrupted shell can leave Xiaozhi's python app.py
+# listening on TCP 8000/8003. Clean only the exact dedicated Kadence backend
+# signature before touching the runtime. Unrelated processes are never killed.
+if (Test-Path $CleanupScript) {
+    & $CleanupScript
+}
 
 if ($ResetRuntime -and (Test-Path $RepoDir)) {
     Write-Host "Removing existing experimental runtime..."
@@ -124,4 +132,4 @@ Write-Host "Runtime: $RepoDir"
 Write-Host "Server:  $ServerDir"
 Write-Host "Config:  $ConfigTarget"
 Write-Host ""
-Write-Host "Next: run start_windows.ps1."
+Write-Host "Next: run start_control_surface.ps1 (or start_alpha2_windows.ps1 for console-only testing)."
