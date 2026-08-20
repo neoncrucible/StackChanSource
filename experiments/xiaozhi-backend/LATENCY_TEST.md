@@ -1,111 +1,106 @@
-# Kadence 2.0 Alpha 1 — Latency Benchmark
+# Kadence 2.0 Alpha 1 — Latency Benchmark / Close-out Record
 
-## Rule
+## Alpha 1 decision
 
-Compare the existing Kadence Beta path and the Xiaozhi-backed Alpha path using the **same room, microphone position, Wi-Fi, speaking distance and ten utterances**.
+Alpha 1 is **accepted and frozen** as the proven transport/latency architecture baseline.
 
-Do not add memory, MCP, new animations or personality changes until the baseline comparison is complete.
+The original benchmark design called for a formal Beta-vs-Alpha comparison using device-side T8 (first speaker sample). T8 was not instrumented during Alpha 1, so that comparison is **deferred** rather than claimed as completed.
+
+What Alpha 1 did measure repeatedly is strong enough to close the transport experiment:
+
+- server-side endpoint handoff removed multi-second robot dead air;
+- OpenAI Realtime transcription consistently finalized in well under one second after commit;
+- Kadence physically spoke correct responses and returned to idle;
+- the cleaned dedicated Kadence control message reproduced the proven timing without the temporary error sentinel.
 
 ## Frozen Alpha timing configuration
 
-The following values were frozen after the successful physical endpoint test on **20 Aug 2026**:
+- robot microphone uplink: 16 kHz mono Opus, 60 ms frames
+- server VAD: Silero (`threshold 0.5`, `threshold_low 0.3`, `min_silence_duration_ms 200`)
+- server endpoint sustained-silence hold: **700 ms**
+- robot AFE silence fallback: **850 ms after local speech clears**
+- robot final Opus flush: **180 ms**
+- robot capture hard cap: **10 s**
+- ASR: OpenAI Realtime `gpt-realtime-whisper`, 16 kHz -> 24 kHz PCM resampling
+- LLM: Gemini `gemini-3.5-flash-lite`
+- TTS: Edge `en-GB-SoniaNeural`
 
-- robot microphone uplink: 16 kHz mono Opus, 60 ms frames;
-- server VAD: Silero (`threshold 0.5`, `threshold_low 0.3`, `min_silence_duration_ms 200`);
-- server endpoint sustained-silence hold: **700 ms**;
-- robot on-device AFE silence fallback: **850 ms after its own speech state clears**;
-- robot final Opus flush after endpoint: **180 ms**;
-- robot capture hard cap: **10 seconds**;
-- ASR: OpenAI Realtime `gpt-realtime-whisper`, with 16 kHz -> 24 kHz PCM resampling;
-- LLM: Gemini `gemini-3.5-flash-lite`;
-- TTS: Edge `en-GB-SoniaNeural`.
+These values are frozen for Alpha 1.
 
-Do not tune these values during the ten-utterance A/B run. Change one variable at a time only after the baseline is recorded.
-
-## Validated endpoint proof turn — 20 Aug 2026
+## Pre-cleanup endpoint proof
 
 Fixed utterance: `What is twelve times seven?`
 
-The final pre-cleanup physical run produced:
-
-| Event | Server timestamp / measured interval |
+| Event | Result |
 |---|---:|
 | listen start | 19:25:40 |
-| first Realtime transcript delta | 19:25:42 (`1.563 s` after first streamed audio frame) |
-| final Silero silence state | 19:25:42 |
-| server endpoint request | **704 ms** confirmed Silero silence |
-| robot `listen/stop` received by server | 19:25:43, immediately after endpoint request |
-| Realtime final transcript | **0.515 s after commit** |
-| LLM received `What's twelve times seven?` | 19:25:44 |
-| first TTS sentence generated | 19:25:45 (`Twelve times seven is eighty-four`) |
+| first Realtime transcript delta | 1.563 s after first streamed audio frame |
+| server endpoint request | 704 ms confirmed Silero silence |
+| robot `listen/stop` | immediate next logged event |
+| Realtime final transcript | 0.515 s after commit |
+| LLM received transcript | 19:25:44 |
+| first TTS sentence | 19:25:45 |
 
-This run proves the endpoint handoff removed the major dead-air source seen immediately beforehand. In the 18:58 test, server Silero reached final silence at `18:58:33` but the robot did not send `listen/stop` until `18:58:37` — roughly four seconds later. With the 700 ms server endpoint handoff, the stop followed in the next timestamped second.
+Immediately before server endpoint handoff existed, another test showed final server silence at `18:58:33` and robot `listen/stop` only at `18:58:37`, demonstrating the multi-second local endpoint delay the new architecture removed.
 
-This is **not yet the full Gate C result** because the server log does not prove T8 (first physical speaker sample) and the complete ten-utterance Beta-vs-Alpha A/B set has not been recorded. It is the frozen Alpha tuning baseline used for that test.
+## Ten-completed-turn natural-language stress run
 
-## Fixed utterances
+The stress run included factual questions, identity, jokes, guard-rail discussion and pop-culture questions.
 
-1. `What time is it?`
-2. `Tell me a very short joke.`
-3. `What is twelve times seven?`
-4. `Explain what DNS does in one sentence.`
-5. `Who are you?`
-6. `Give me three colours.`
-7. `What does HTTP stand for?`
-8. `Tell me one fact about the Moon.`
-9. `Say hello to Katie.`
-10. `In one sentence, explain why leaves look green.`
+### Realtime ASR finalization after commit
 
-## Timing points
+Measured values (seconds):
 
-Record in milliseconds where instrumentation permits:
+`0.515, 0.672, 0.687, 0.609, 0.485, 0.656, 0.672, 0.485, 0.579, 0.625`
 
-- **T0** — wake detected
-- **T1** — first microphone frame sent
-- **T2** — endpoint/end-of-user-speech accepted by robot
-- **T3** — usable/final transcript available
-- **T4** — LLM request started
-- **T5** — first LLM token/text chunk
-- **T6** — first TTS request/text chunk
-- **T7** — first TTS audio received by robot
-- **T8** — first audio sample sent to speaker
+- minimum: **0.485 s**
+- maximum: **0.687 s**
+- median: **~0.617 s**
 
-Primary result: `T8 - T2`
+### Server endpoint request after confirmed Silero silence
 
-This measures the silence the user actually experiences after finishing a sentence.
+Measured values (milliseconds) for the ten completed turns:
 
-## Pass criteria
+`704, 719, 781, 703, 812, 750, 812, 1015, 703, 829`
 
-Alpha 1 is promising if:
+- minimum: **703 ms**
+- maximum: **1015 ms**
+- median: **~766 ms**
 
-- median `T8 - T2` improves materially over Beta;
-- no repeated clipping of the start/end of speech;
-- recognition remains usable for all ten English utterances;
-- no random reboot, AFE starvation or audio queue failure appears during three consecutive test runs;
-- the response begins playing before the whole answer has necessarily completed upstream when the selected providers support streaming.
+The distribution is consistent with a 700 ms sustained-silence hold plus frame/scheduling granularity.
 
-## Results table
+### Stress-run edge case
 
-| # | Utterance | Beta T8-T2 ms | Alpha T8-T2 ms | Delta ms | Transcript OK | Audio clean | Notes |
-|---|-----------|--------------:|----------------:|---------:|---------------|-------------|-------|
-| 1 | What time is it? | | | | | | |
-| 2 | Tell me a very short joke. | | | | | | |
-| 3 | What is twelve times seven? | | | | | | endpoint proof turn above; T8 still required |
-| 4 | Explain what DNS does in one sentence. | | | | | | |
-| 5 | Who are you? | | | | | | |
-| 6 | Give me three colours. | | | | | | |
-| 7 | What does HTTP stand for? | | | | | | |
-| 8 | Tell me one fact about the Moon. | | | | | | |
-| 9 | Say hello to Katie. | | | | | | |
-| 10 | In one sentence, explain why leaves look green. | | | | | | |
+One separate turn using the temporary fake-error endpoint sentinel disconnected at the endpoint rather than completing normally. Subsequent turns recovered, but the event reinforced the decision to replace the sentinel with a dedicated Kadence control envelope.
 
-## Stop conditions
+The final cleanup build no longer uses the fake error path.
 
-Stop the Alpha test and return to Beta if any of these occur repeatedly:
+## Final cleaned-protocol validation — 20 Aug 2026
 
-- uncontrolled servo movement;
-- persistent audio feedback loop;
-- repeated device reboot;
-- microphone pipeline fails to recover after a turn;
-- server attempts to write or execute arbitrary model-generated hardware coordinates;
-- keys or personal memory appear in logs intended for Git.
+Firmware revision:
+
+`b51bd762eb315b7bc330db0a5f9ecc1daa2183da`
+
+Fixed utterance: `What is twelve times seven?`
+
+| Event | Result |
+|---|---:|
+| listen start | 20:00:29 |
+| first Realtime transcript delta | 1.734 s after first audio frame |
+| dedicated Kadence endpoint request | **718 ms** confirmed Silero silence |
+| robot `listen/stop` | 20:00:32, immediately after endpoint request |
+| Realtime final transcript | **0.718 s after commit** |
+| LLM received transcript | 20:00:33 |
+| first TTS sentence | 20:00:34 — `Twelve times seven is eighty-four` |
+
+This is the final Alpha 1 validation run.
+
+## Deferred measurement
+
+The following remains useful future work but is not claimed as Alpha 1 data:
+
+- device-side **T8** first physical speaker sample instrumentation;
+- strict same-room ten-utterance Beta-vs-Alpha A/B timing;
+- end-to-end wake-to-audible-response median and percentile reporting.
+
+Those measurements can be added in a later performance phase without reopening the frozen Alpha 1 transport design.
