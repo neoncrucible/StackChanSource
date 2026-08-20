@@ -115,7 +115,7 @@ if ($null -ne $FfmpegBin) {
     Write-Host "Using standalone FFmpeg: $FfmpegExe"
     & $FfmpegExe -version *> $null
     if ($LASTEXITCODE -ne 0) {
-        throw "Standalone FFmpeg preflight failed with exit code $LASTEXITCODE: $FfmpegExe"
+        throw "Standalone FFmpeg preflight failed with exit code ${LASTEXITCODE}: $FfmpegExe"
     }
 }
 
