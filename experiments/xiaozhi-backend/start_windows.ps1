@@ -35,6 +35,28 @@ function Read-SecretValue {
     }
 }
 
+function Resolve-KadenceFfmpegBin {
+    $Configured = [Environment]::GetEnvironmentVariable("KADENCE_FFMPEG_BIN")
+    if (-not [string]::IsNullOrWhiteSpace($Configured)) {
+        $Candidate = Join-Path $Configured "ffmpeg.exe"
+        if (Test-Path $Candidate) {
+            return $Configured.Trim()
+        }
+        throw "KADENCE_FFMPEG_BIN is set, but ffmpeg.exe was not found at $Candidate"
+    }
+
+    $ToolsRoot = Join-Path $PSScriptRoot ".tools\ffmpeg"
+    if (Test-Path $ToolsRoot) {
+        $Standalone = Get-ChildItem $ToolsRoot -Recurse -Filter "ffmpeg.exe" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($null -ne $Standalone) {
+            return $Standalone.DirectoryName
+        }
+    }
+
+    return $null
+}
+
 if (-not (Get-Command conda -ErrorAction SilentlyContinue)) {
     throw "conda was not found in PATH. Run this from an Anaconda/Miniconda PowerShell or Prompt."
 }
@@ -85,6 +107,16 @@ if ($ConfigChanged) {
 
 if ($ConfigText -match "REPLACE_WITH_[A-Z0-9_]+") {
     throw "Alpha 1 config still contains an unresolved credential placeholder."
+}
+
+$FfmpegBin = Resolve-KadenceFfmpegBin
+if ($null -ne $FfmpegBin) {
+    $FfmpegExe = Join-Path $FfmpegBin "ffmpeg.exe"
+    Write-Host "Using standalone FFmpeg: $FfmpegExe"
+    & $FfmpegExe -version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Standalone FFmpeg preflight failed with exit code $LASTEXITCODE: $FfmpegExe"
+    }
 }
 
 # Kadence Beta already discovers its Windows voice service by UDP broadcast.
@@ -138,7 +170,15 @@ Write-Host ""
 
 Push-Location $ServerDir
 try {
-    conda run --no-capture-output -n $CondaEnv python app.py
+    if ($null -ne $FfmpegBin) {
+        # conda run prepends its own Library\bin to PATH. Put the known-good
+        # standalone FFmpeg back at the front inside the conda child process.
+        $LaunchCommand = 'set "PATH=' + $FfmpegBin + ';%PATH%" && python app.py'
+        conda run --no-capture-output -n $CondaEnv cmd.exe /d /s /c $LaunchCommand
+    }
+    else {
+        conda run --no-capture-output -n $CondaEnv python app.py
+    }
 }
 finally {
     Pop-Location
