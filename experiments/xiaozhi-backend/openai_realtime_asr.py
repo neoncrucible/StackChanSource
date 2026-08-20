@@ -7,6 +7,7 @@ import time
 import websockets
 
 from config.logger import setup_logging
+from core.handle.receiveAudioHandle import startToChat
 from core.providers.asr.base import ASRProviderBase
 from core.providers.asr.dto.dto import InterfaceType
 
@@ -45,7 +46,6 @@ class ASRProvider(ASRProviderBase):
         self.session_ready = asyncio.Event()
         self.conn = None
 
-        self.text = ""
         self.delta_text = ""
         self.resample_state = None
         self.turn_active = False
@@ -110,13 +110,12 @@ class ASRProvider(ASRProviderBase):
         )
 
     async def receive_audio(self, conn, pcm_frame, audio_have_voice):
-        # Preserve Xiaozhi's normal manual-mode audio snapshot for reporting and
-        # downstream compatibility, while also streaming the frame to OpenAI.
+        # Preserve Xiaozhi's manual-mode audio snapshot for optional reporting,
+        # while streaming the same PCM to OpenAI in real time.
         await super().receive_audio(conn, pcm_frame, audio_have_voice)
 
         if not self.turn_active:
             self.turn_active = True
-            self.text = ""
             self.delta_text = ""
             self.resample_state = None
             self.turn_started_at = time.monotonic()
@@ -195,7 +194,6 @@ class ASRProvider(ASRProviderBase):
                     transcript = (
                         event.get("transcript") or self.delta_text or ""
                     ).strip()
-                    self.text = transcript
 
                     since_commit = (
                         time.monotonic() - self.commit_sent_at
@@ -208,12 +206,20 @@ class ASRProvider(ASRProviderBase):
                     )
 
                     conn = self.conn
-                    audio_snapshot = conn.asr_audio.copy() if conn is not None else []
                     self.turn_active = False
                     self.resample_state = None
+                    self.delta_text = ""
 
+                    # Realtime already produced the final transcript. Do NOT call
+                    # ASRProviderBase.handle_voice_stop(): that path invokes the
+                    # batch speech_to_text_wrapper and would transcribe a second
+                    # time. Feed the completed text directly into Xiaozhi's
+                    # established STT -> LLM -> TTS conversation path.
                     if conn is not None and transcript:
-                        await self.handle_voice_stop(conn, audio_snapshot)
+                        logger.bind(tag=TAG).info(
+                            f"K2 ASR LIVE -> chat: {transcript}"
+                        )
+                        await startToChat(conn, transcript)
                     if conn is not None:
                         conn.reset_audio_states()
                     continue
@@ -237,10 +243,9 @@ class ASRProvider(ASRProviderBase):
             self.asr_ws = None
 
     async def speech_to_text(self, opus_data, session_id, artifacts=None):
-        result = self.text
-        self.text = ""
-        self.delta_text = ""
-        return result, None
+        # Required by the ASRProviderBase interface but intentionally unused for
+        # Realtime turns. Completed text is dispatched directly in _receive_events.
+        return "", None
 
     async def _cleanup_socket(self):
         ws = self.asr_ws
