@@ -57,6 +57,24 @@ function Resolve-KadenceFfmpegBin {
     return $null
 }
 
+function Resolve-CondaEnvPrefix {
+    param([Parameter(Mandatory = $true)][string]$EnvironmentName)
+
+    $JsonText = (& conda env list --json) -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to enumerate Conda environments."
+    }
+
+    $EnvList = $JsonText | ConvertFrom-Json
+    foreach ($EnvPath in $EnvList.envs) {
+        if ((Split-Path $EnvPath -Leaf) -eq $EnvironmentName) {
+            return $EnvPath
+        }
+    }
+
+    throw "Conda environment '$EnvironmentName' was not found. Run bootstrap_windows.ps1 first."
+}
+
 if (-not (Get-Command conda -ErrorAction SilentlyContinue)) {
     throw "conda was not found in PATH. Run this from an Anaconda/Miniconda PowerShell or Prompt."
 }
@@ -119,6 +137,12 @@ if ($null -ne $FfmpegBin) {
     }
 }
 
+$CondaPrefix = Resolve-CondaEnvPrefix -EnvironmentName $CondaEnv
+$PythonExe = Join-Path $CondaPrefix "python.exe"
+if (-not (Test-Path $PythonExe)) {
+    throw "Python was not found in Conda environment '$CondaEnv': $PythonExe"
+}
+
 # Kadence Beta already discovers its Windows voice service by UDP broadcast.
 # Preserve that proven firmware behaviour for Alpha 1: this tiny bridge answers
 # the existing discovery packet but points the robot at Xiaozhi's native
@@ -163,25 +187,51 @@ $DiscoveryJob = Start-Job -ArgumentList $DiscoveryPort, $XiaozhiPort, $XiaozhiPa
 
 Write-Host "=== Kadence 2.0 Alpha 1 / Xiaozhi server ==="
 Write-Host "Pinned upstream verified: $PinnedCommit"
+Write-Host "Conda environment: $CondaPrefix"
 Write-Host "Discovery bridge: UDP $DiscoveryPort -> ws://<this-PC>:$XiaozhiPort$XiaozhiPath"
 Write-Host "Working directory: $ServerDir"
 Write-Host "Stop with Ctrl+C."
 Write-Host ""
 
+$OriginalPath = $env:Path
+$OriginalCondaPrefix = $env:CONDA_PREFIX
+$OriginalCondaDefaultEnv = $env:CONDA_DEFAULT_ENV
+
+$EnvPathParts = @()
+if ($null -ne $FfmpegBin) {
+    $EnvPathParts += $FfmpegBin
+}
+$EnvPathParts += @(
+    $CondaPrefix,
+    (Join-Path $CondaPrefix "Scripts"),
+    (Join-Path $CondaPrefix "Library\bin")
+)
+$env:Path = (($EnvPathParts + $OriginalPath) -join ";")
+$env:CONDA_PREFIX = $CondaPrefix
+$env:CONDA_DEFAULT_ENV = $CondaEnv
+
 Push-Location $ServerDir
 try {
+    # Launch the environment's Python directly. On Windows, `conda run` can
+    # prepend Library\bin again and make Python resolve Conda's broken ffmpeg
+    # ahead of the standalone build even after PATH has been overridden.
     if ($null -ne $FfmpegBin) {
-        # conda run prepends its own Library\bin to PATH. Put the known-good
-        # standalone FFmpeg back at the front inside the conda child process.
-        $LaunchCommand = 'set "PATH=' + $FfmpegBin + ';%PATH%" && python app.py'
-        conda run --no-capture-output -n $CondaEnv cmd.exe /d /s /c $LaunchCommand
+        $ResolvedFfmpeg = (& $PythonExe -c "import shutil; print(shutil.which('ffmpeg') or '')").Trim()
+        if ($ResolvedFfmpeg -ne $FfmpegExe) {
+            throw "Python resolved the wrong FFmpeg. Expected '$FfmpegExe', got '$ResolvedFfmpeg'."
+        }
     }
-    else {
-        conda run --no-capture-output -n $CondaEnv python app.py
+
+    & $PythonExe app.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "Xiaozhi server exited with code $LASTEXITCODE."
     }
 }
 finally {
     Pop-Location
+    $env:Path = $OriginalPath
+    $env:CONDA_PREFIX = $OriginalCondaPrefix
+    $env:CONDA_DEFAULT_ENV = $OriginalCondaDefaultEnv
     if ($null -ne $DiscoveryJob) {
         Stop-Job $DiscoveryJob -ErrorAction SilentlyContinue
         Remove-Job $DiscoveryJob -Force -ErrorAction SilentlyContinue
