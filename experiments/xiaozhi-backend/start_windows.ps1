@@ -13,6 +13,7 @@ $ConfigPath = Join-Path $ServerDir "data\.config.yaml"
 $DiscoveryPort = 45872
 $XiaozhiPort = 8000
 $XiaozhiPath = "/xiaozhi/v1/"
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Read-SecretValue {
     param(
@@ -99,11 +100,10 @@ if (-not (Test-Path $RuntimePatchScript)) {
 & $RuntimePatchScript -RepoDir $RepoDir
 
 # The upstream loader reads YAML literally; it does not expand environment
-# variables. Keep the example placeholders in Git, then inject secrets only into
-# the ignored .runtime copy. Environment variables avoid prompting on later runs:
-#   KADENCE_OPENAI_API_KEY
-#   KADENCE_GEMINI_API_KEY
-$ConfigText = Get-Content -Raw $ConfigPath
+# variables. Keep placeholders only in Git and inject secrets into the ignored
+# runtime copy. Read/write explicitly as UTF-8 without BOM so Windows PowerShell
+# 5.1 cannot corrupt non-ASCII YAML while replacing placeholders.
+$ConfigText = [System.IO.File]::ReadAllText($ConfigPath, $Utf8NoBom)
 $ConfigChanged = $false
 
 if ($ConfigText.Contains("REPLACE_WITH_OPENAI_API_KEY")) {
@@ -125,13 +125,22 @@ if ($ConfigText.Contains("REPLACE_WITH_GEMINI_API_KEY")) {
 }
 
 if ($ConfigChanged) {
-    Set-Content -Path $ConfigPath -Value $ConfigText -Encoding UTF8
+    [System.IO.File]::WriteAllText($ConfigPath, $ConfigText, $Utf8NoBom)
     Write-Host "Stored Alpha 1 credentials only in the ignored local runtime config."
 }
 
 if ($ConfigText -match "REPLACE_WITH_[A-Z0-9_]+") {
     throw "Alpha 1 config still contains an unresolved credential placeholder."
 }
+
+# The proven Alpha baseline now uses the tracked Realtime ASR provider. Install
+# or refresh it automatically so a fresh bootstrap needs only start_windows.ps1;
+# the separate helper remains available for explicit migration/repair.
+$RealtimeInstaller = Join-Path $PSScriptRoot "enable_realtime_asr_windows.ps1"
+if (-not (Test-Path $RealtimeInstaller)) {
+    throw "Missing Realtime ASR installer: $RealtimeInstaller"
+}
+& $RealtimeInstaller -RuntimeRoot $RuntimeRoot
 
 $FfmpegBin = Resolve-KadenceFfmpegBin
 if ($null -ne $FfmpegBin) {

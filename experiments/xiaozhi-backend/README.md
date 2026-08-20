@@ -1,14 +1,27 @@
-# Kadence 2.0 Alpha 1 — Morning Runbook
+# Kadence 2.0 Alpha 1 — Windows Runbook
 
-This experiment keeps `beta/project-kadence` untouched. All firmware and server work here belongs to `kadence/2.0-alpha-1`.
+This experiment lives on `kadence/2.0-alpha-1`. The known-good `beta/project-kadence` branch remains untouched and is the rollback point.
 
-## 0. Before anything else
+Current Alpha baseline (20 Aug 2026):
 
-Stop the existing Kadence Windows voice server. Alpha 1 reuses UDP discovery port `45872`; the launcher deliberately fails rather than silently fighting the old service for that port.
+- pinned Xiaozhi backend `e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`;
+- 16 kHz / 60 ms Opus robot uplink over the retained warm Xiaozhi WebSocket;
+- Windows Silero endpoint observation with a frozen `700 ms` sustained-silence hold;
+- OpenAI Realtime `gpt-realtime-whisper` transcription (16 kHz -> 24 kHz PCM resampled in-flight);
+- Gemini `gemini-3.5-flash-lite`;
+- Edge TTS `en-GB-SoniaNeural`;
+- TTS Opus returned through the robot's existing `AudioService` decode/playback queues;
+- no memory, no intent LLM, no MCP robot actions.
 
-Do not flash the Alpha firmware until the GitHub firmware build for draft PR #8 is green.
+The endpoint control contract is documented in `KADENCE_CONTROL_PROTOCOL.md`.
 
-## 1. Get the Alpha branch
+## 0. Before starting
+
+Stop any older Kadence Windows voice server. Alpha 1 reuses UDP discovery port `45872`; the launcher deliberately fails instead of silently competing for the port.
+
+Do not flash an Alpha firmware image unless the corresponding PR #8 factory firmware build is green.
+
+## 1. Pull Alpha
 
 ```powershell
 git fetch origin
@@ -16,128 +29,132 @@ git switch kadence/2.0-alpha-1
 git pull
 ```
 
-## 2. Bootstrap the pinned Xiaozhi backend
-
-From the repository root:
+Then enter:
 
 ```powershell
 cd experiments\xiaozhi-backend
+```
+
+## 2. Bootstrap once
+
+```powershell
 .\bootstrap_windows.ps1
 ```
 
-The script creates a local, ignored runtime at:
+The bootstrap creates the ignored runtime at:
 
-`experiments\xiaozhi-backend\.runtime\xiaozhi-esp32-server`
+`.runtime\xiaozhi-esp32-server`
 
 and checks out exactly:
 
 `e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`
 
-It also creates the local config at:
+It also creates the Conda environment `kadence2-xiaozhi` and the local runtime config.
 
-`.runtime\xiaozhi-esp32-server\main\xiaozhi-server\data\.config.yaml`
-
-## 3. Start the backend
+## 3. Start the proven Alpha stack
 
 ```powershell
 .\start_windows.ps1
 ```
 
-On the first run the launcher securely prompts for the two smoke-test credentials if they are not already available as environment variables:
+`start_windows.ps1` now performs the full reproducible startup path:
 
-- `KADENCE_OPENAI_API_KEY` — speech recognition;
-- `KADENCE_GEMINI_API_KEY` — test LLM.
+1. verifies the pinned Xiaozhi revision;
+2. applies the narrowly guarded Gemini/Silero runtime compatibility patches;
+3. securely injects missing OpenAI/Gemini credentials into the ignored local config;
+4. installs/refreshes the tracked Kadence Realtime ASR provider automatically;
+5. preserves the frozen `700 ms` endpoint hold;
+6. locates the working standalone FFmpeg build when present;
+7. starts the UDP discovery bridge and Xiaozhi server.
 
-The typed values are written only into the ignored `.runtime` config. They are never written into the tracked example file or printed to the console.
+Real API keys are never committed or printed. The checked-in config contains placeholders only.
 
-No LAN-IP edit is required. Kadence retains her existing UDP discovery behaviour; the launcher answers the discovery request and points the robot at this PC's Xiaozhi endpoint automatically.
+If the ordinary PowerShell session cannot find `conda`, add the existing Miniconda paths to that shell first:
 
-Alpha 1 deliberately starts with:
+```powershell
+$env:Path = "$env:USERPROFILE\miniconda3;$env:USERPROFILE\miniconda3\Scripts;$env:USERPROFILE\miniconda3\condabin;$env:Path"
+```
 
-- OpenAI `gpt-4o-mini-transcribe` ASR;
-- Gemini `gemini-2.0-flash` test LLM;
-- `en-GB-SoniaNeural` Edge TTS;
-- no memory;
-- no intent LLM;
-- no MCP robot actions.
+No LAN-IP edit is required. Kadence discovers the PC through the retained `KADENCE_DISCOVER_V1` UDP bridge and connects to `/xiaozhi/v1/`.
 
-That is a smoke-test stack. Provider/streaming-ASR tuning comes after a complete robot round trip works.
+Expected ASR startup markers include:
 
-Expected launcher behaviour:
+```text
+初始化组件: asr成功 OpenaiRealtimeASR
+K2 ASR LIVE ready: model=gpt-realtime-whisper, 16k->24k PCM, endpoint=700ms
+```
 
-- pinned revision is verified;
-- UDP `45872` discovery bridge starts;
-- Xiaozhi listens on TCP `8000`;
-- the bridge tells Kadence to use `/xiaozhi/v1/`;
-- the console prints the Xiaozhi service startup logs.
+## 4. Optional PC-side preflight
 
-Leave this window running.
-
-## 4. Prove the PC side before touching the robot
-
-Open a second PowerShell in `experiments\xiaozhi-backend` and run:
+In a second PowerShell from this folder:
 
 ```powershell
 .\test_backend.ps1
 ```
 
-It verifies two things:
+It checks TCP `8000` plus the exact UDP discovery request/reply used by the robot.
 
-1. Xiaozhi is reachable on TCP `8000`.
-2. The exact `KADENCE_DISCOVER_V1` UDP packet used by the existing firmware receives `KADENCE_SERVER_V1 8000 /xiaozhi/v1/`.
+## 5. Firmware behaviour
 
-Do not flash Alpha if this preflight fails. Fix the backend or Windows Firewall first.
+Alpha firmware preserves:
 
-## 5. Flash only the Alpha build
+- local `Kadence` wake word;
+- chirp/listening UI;
+- touch and swipe cancellation;
+- motion/torque safety behaviour;
+- on-device AFE endpoint as fallback;
+- ten-second capture safety cap;
+- warm Xiaozhi WebSocket;
+- final 180 ms Opus flush before `listen/stop`;
+- downstream Xiaozhi TTS playback through the existing robot speaker path.
 
-Use the firmware artifact produced for draft PR #8 once CI is green. Keep the known-good Beta image available for immediate rollback.
+Server-side Silero now sends a proper versioned Kadence `endpoint` control message after sustained silence. The server never directly starts a reply while the robot is still recording; firmware remains authoritative for closing capture and sending Xiaozhi stop-listening.
 
-The Alpha firmware changes only the voice transport behaviour:
+## 6. Physical smoke test
 
-- existing local wake word remains;
-- existing chirp/VAD/capture cutoff remains;
-- existing motion/touch/torque code remains;
-- upstream Xiaozhi `WebsocketProtocol` remains the transport;
-- incoming Xiaozhi TTS Opus is now pushed into the existing `AudioService` decoder/playback queue;
-- MCP and model-directed motion are ignored;
-- the old UI state machine is released only after STT exists, TTS has stopped, and playback queues have drained.
-
-## 6. First physical test
-
-Do **one** simple turn first:
+Use:
 
 `Kadence, what is twelve times seven?`
 
-Watch both ESP-IDF serial output and Xiaozhi server output.
+Useful server markers:
+
+- `K2 ASR LIVE first audio frame`
+- `K2 ASR LIVE first transcript delta ...`
+- `K2 ENDPOINT requested after ...`
+- `K2 ASR LIVE audio buffer committed`
+- `K2 ASR LIVE completed ... after commit`
+- `K2 ASR LIVE -> chat: ...`
 
 Useful firmware markers:
 
-- `K2 LATENCY T1` — first microphone Opus sent
-- `K2 LATENCY T2` — end-of-speech submitted
-- `K2 LATENCY T3` — STT received
-- `K2 LATENCY T7` — first returned TTS Opus queued
-- `TTS playback drained` — device-side response completed
+- `K2 LATENCY T1` — first microphone Opus sent;
+- `Kadence control endpoint request received` — server endpoint reached device;
+- `K2 LATENCY T2` — robot ended capture and began final Opus flush;
+- `K2 LATENCY T3` — STT received by firmware;
+- `K2 LATENCY T7` — first returned TTS Opus queued;
+- `TTS playback drained` — completed turn released back to the UI.
 
-If she hears, answers and returns to idle cleanly, move to `LATENCY_TEST.md`.
+The validated 20 Aug baseline is recorded in `LATENCY_TEST.md`.
 
-## 7. Stop immediately if
+## 7. Stop conditions
 
-- the CoreS3 repeatedly reboots;
-- AFE/audio fails to recover after a turn;
-- TTS feeds back into a new wake/capture;
-- speech does not stop after a head-swipe cancellation;
-- motion changes unexpectedly.
+Return to the Beta image if any of these recur:
 
-Return to `beta/project-kadence` if a stop condition appears repeatedly.
+- uncontrolled servo movement;
+- repeated reboot;
+- microphone/AFE fails to recover after a turn;
+- persistent audio feedback;
+- cancellation no longer stops the turn;
+- model output attempts raw hardware control;
+- credentials or personal memory appear in tracked/logged material.
 
-## What Alpha 1 is NOT testing yet
+## Still out of scope
 
-Do not add these until the round-trip/latency gate passes:
+Until the transport baseline is formally signed off, do not mix in:
 
 - persistent memory;
 - SD-card identity storage;
 - MCP motion/actions;
 - emotion mapping;
 - vision;
-- new expressions;
-- new hardware.
+- new expressions/hardware.

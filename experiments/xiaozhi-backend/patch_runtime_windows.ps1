@@ -50,7 +50,7 @@ else {
 }
 
 # Gemini 3.x deprecates the legacy sampling parameters used by this pinned
-# provider. Keep only the output-token ceiling for the Alpha 1 smoke test.
+# provider. Keep only the output-token ceiling for the Alpha 1 latency baseline.
 $SamplingOriginal = @"
         self.gen_cfg = GenerationConfig(
             temperature=0.7,
@@ -112,7 +112,7 @@ if ([regex]::IsMatch($ConfigText, $IllegalYamlControls)) {
 
 # Alpha 1 is a latency baseline. Gemini 3.6 Flash defaults to medium thinking,
 # which can exceed the robot's 30-second response watchdog. Flash-Lite defaults
-# to minimal thinking and is the better baseline for spoken turn latency.
+# to minimal thinking and is the proven baseline for spoken turn latency.
 $RetiredModel = '    model_name: "gemini-2.0-flash"'
 $SlowModel = '    model_name: "gemini-3.6-flash"'
 $TargetModel = '    model_name: "gemini-3.5-flash-lite"'
@@ -134,21 +134,23 @@ else {
     throw "Gemini model migration guard failed. Expected an Alpha model line was not found; refusing to modify runtime config."
 }
 
-# Xiaozhi bypasses Silero in manual-listen mode. For Alpha diagnostics only,
-# keep returning True to the ASR pipeline but run Silero and log its state edges.
-# Match only executable Python lines here; comments/locale/line endings are not
-# part of the safety guard.
+# Pinned Xiaozhi deliberately bypasses Silero in manual-listen mode. Kadence
+# still needs the real Silero state for server-side endpoint detection, while
+# Xiaozhi must continue buffering every manual-mode frame. Patch the runtime so
+# Silero observes the frame, stores its state on the connection, then returns
+# True to preserve the original manual buffering contract.
 $VadText = [System.IO.File]::ReadAllText($SileroProvider, $Utf8NoBom).Replace("`r`n", "`n")
 
-$ManualBypass = "        if conn.client_listen_mode == `"manual`":`n            return True`n`n"
+$ManualOriginal = "        if conn.client_listen_mode == `"manual`":`n            return True`n`n"
 $ManualDiagnostic = "        kadence_manual_diagnostics = conn.client_listen_mode == `"manual`"`n`n"
+$ManualEndpoint = "        kadence_manual_endpoint_vad = conn.client_listen_mode == `"manual`"`n`n"
 
 $VadReturnOriginal = @'
             return client_have_voice
         except Exception as e:
 '@.Replace("`r`n", "`n")
 
-$VadReturnReplacement = @'
+$VadReturnDiagnostic = @'
             if kadence_manual_diagnostics:
                 previous = getattr(conn, "_kadence_diag_vad_state", None)
                 if previous is None or previous != client_have_voice:
@@ -161,35 +163,55 @@ $VadReturnReplacement = @'
         except Exception as e:
 '@.Replace("`r`n", "`n")
 
+$VadReturnEndpoint = @'
+            if kadence_manual_endpoint_vad:
+                conn._kadence_server_vad_state = client_have_voice
+                return True
+            return client_have_voice
+        except Exception as e:
+'@.Replace("`r`n", "`n")
+
 $VadChanged = $false
-if ($VadText.Contains($ManualDiagnostic)) {
-    Write-Host "Kadence manual-mode Silero diagnostics: already applied."
+if ($VadText.Contains($ManualEndpoint)) {
+    Write-Host "Kadence manual-mode Silero endpoint observer: already applied."
 }
-elseif ($VadText.Contains($ManualBypass)) {
-    $VadText = $VadText.Replace($ManualBypass, $ManualDiagnostic)
+elseif ($VadText.Contains($ManualDiagnostic)) {
+    $VadText = $VadText.Replace($ManualDiagnostic, $ManualEndpoint)
     $VadChanged = $true
+    Write-Host "Migrated Kadence manual-mode Silero diagnostic hook to endpoint observer."
+}
+elseif ($VadText.Contains($ManualOriginal)) {
+    $VadText = $VadText.Replace($ManualOriginal, $ManualEndpoint)
+    $VadChanged = $true
+    Write-Host "Applied Kadence manual-mode Silero endpoint observer."
 }
 else {
-    throw "Silero diagnostic patch guard failed: manual-mode executable bypass was not found."
+    throw "Silero endpoint patch guard failed: manual-mode executable bypass was not found."
 }
 
-if ($VadText.Contains($VadReturnReplacement)) {
-    Write-Host "Kadence server VAD edge logger: already applied."
+if ($VadText.Contains($VadReturnEndpoint)) {
+    Write-Host "Kadence Silero endpoint state export: already applied."
+}
+elseif ($VadText.Contains($VadReturnDiagnostic)) {
+    $VadText = $VadText.Replace($VadReturnDiagnostic, $VadReturnEndpoint)
+    $VadChanged = $true
+    Write-Host "Removed temporary Silero edge logger; retained endpoint state export."
 }
 elseif ($VadText.Contains($VadReturnOriginal)) {
-    $VadText = $VadText.Replace($VadReturnOriginal, $VadReturnReplacement)
+    $VadText = $VadText.Replace($VadReturnOriginal, $VadReturnEndpoint)
     $VadChanged = $true
+    Write-Host "Applied Kadence Silero endpoint state export."
 }
 else {
-    throw "Silero diagnostic patch guard failed: VAD return site was not found."
+    throw "Silero endpoint patch guard failed: VAD return site was not found."
 }
 
-if (-not $VadText.Contains($ManualDiagnostic) -or
-    -not $VadText.Contains('KADENCE SERVER VAD:')) {
-    throw "Silero diagnostic post-patch verification failed; refusing to write runtime."
+if (-not $VadText.Contains($ManualEndpoint) -or
+    -not $VadText.Contains('_kadence_server_vad_state')) {
+    throw "Silero endpoint post-patch verification failed; refusing to write runtime."
 }
 
 if ($VadChanged) {
     [System.IO.File]::WriteAllText($SileroProvider, $VadText, $Utf8NoBom)
-    Write-Host "Applied Kadence manual-mode Silero endpoint diagnostics (buffering semantics unchanged)."
+    Write-Host "Kadence manual-mode Silero endpoint observer installed (buffering semantics unchanged)."
 }

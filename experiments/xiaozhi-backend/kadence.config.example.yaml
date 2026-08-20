@@ -1,16 +1,16 @@
-# Kadence 2.0 Alpha 1 — minimal Xiaozhi server override
+# Kadence 2.0 Alpha 1 — proven low-latency Xiaozhi server override
 #
 # Copied by bootstrap_windows.ps1 to:
 #   main/xiaozhi-server/data/.config.yaml
 #
 # NEVER commit real API keys.
-# This is a smoke-test configuration, not the final Kadence personality/memory config.
+# This remains a minimal latency-baseline profile, not the final Kadence persona/memory config.
 
 server:
   # Kadence does not use Xiaozhi OTA discovery in Alpha 1. The launcher provides
   # our existing UDP discovery bridge, so this advertised address can remain local.
   websocket: ws://127.0.0.1:8000/xiaozhi/v1/
-  timezone_offset: +1  # BST during the initial Aug 2026 test; use +0 in GMT.
+  timezone_offset: +1  # BST during the Aug 2026 Alpha baseline; use +0 in GMT.
 
 enable_greeting: false
 enable_stop_tts_notify: false
@@ -23,7 +23,6 @@ xiaozhi:
   transport: websocket
   audio_params:
     format: opus
-    # Match Kadence Beta's current microphone transport for the first experiment.
     sample_rate: 16000
     channels: 1
     frame_duration: 60
@@ -31,7 +30,8 @@ xiaozhi:
 wakeup_words:
   - "Kadence"
 
-# Keep the first test deliberately simple. No memory and no separate intent-LLM pass.
+# Keep the latency baseline deliberately simple. No memory and no separate
+# intent-LLM pass until the transport baseline is signed off.
 selected_module:
   VAD: SileroVAD
   ASR: OpenaiRealtimeASR
@@ -58,6 +58,9 @@ ASR:
     model_name: gpt-realtime-whisper
     language: en
     noise_reduction: far_field
+    # Frozen after the successful 20 Aug 2026 physical endpoint test. Silero must
+    # remain continuously silent for this hold before requesting robot endpoint.
+    endpoint_silence_ms: 700
 
 LLM:
   GeminiLLM:

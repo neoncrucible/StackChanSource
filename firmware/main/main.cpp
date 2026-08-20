@@ -4,9 +4,8 @@
  * The physically proven Alpha voice loop remains intact in main_base.inc. This
  * wrapper keeps AFE/VAD active only for an actual capture window, rather than
  * leaving the processor running while Kadence is idle, thinking or speaking.
- * Alpha 1 keeps the ESP32 AFE endpoint and ten-second hard cap as fallbacks,
- * while allowing the Windows Silero detector to request the same clean
- * stop/flush path when it detects end-of-speech sooner.
+ * Alpha 1 prefers the Windows Silero endpoint control message, while retaining
+ * the ESP32 AFE endpoint and ten-second hard cap as independent fallbacks.
  */
 
 #define app_main kadence_base_app_main
@@ -18,8 +17,6 @@ namespace {
 constexpr uint32_t kAlphaVadArmDelayMs = 200;
 constexpr uint32_t kAlphaEndOfSpeechSilenceMs = 850;
 constexpr uint32_t kBetaFinalProcessorDrainMs = 320;
-constexpr const char* kServerEndpointSentinel =
-    "Xiaozhi backend error: KADENCE_ENDPOINT_V1";
 
 std::atomic<bool> g_alpha_vad_speaking{false};
 bool g_alpha_speech_seen = false;
@@ -136,23 +133,27 @@ void update_voice_ui_alpha(uint32_t now)
     g_voice_transport.update();
     service_beta_processor_stop(now);
 
-    std::string transport_error;
-    if (g_voice_ui_runtime.state != VoiceUiState::Idle &&
-        g_voice_ui_runtime.state != VoiceUiState::Error &&
-        g_voice_transport.take_error(transport_error)) {
-        // Alpha-only endpoint handoff. The server cannot directly stop the mic:
-        // it requests the endpoint, then the robot executes its already-proven
-        // final Opus flush + SendStopListening path. Keep the normal transport
-        // error path untouched for every other message.
-        if (g_voice_ui_runtime.state == VoiceUiState::Listening &&
-            transport_error == kServerEndpointSentinel) {
+    // The backend can request an endpoint, but the robot remains authoritative
+    // for closing its microphone gate, flushing final Opus and sending the
+    // normal Xiaozhi stop-listening message.
+    if (g_voice_transport.take_server_endpoint()) {
+        if (g_voice_ui_runtime.state == VoiceUiState::Listening) {
             mclog::tagInfo(
                 kLogTag,
-                "server Silero endpoint accepted; ending robot capture cleanly");
+                "server Silero endpoint control accepted; ending robot capture cleanly");
             submit_alpha_voice_sample(now, "server Silero end-of-speech");
             return;
         }
 
+        mclog::tagInfo(
+            kLogTag,
+            "ignored server endpoint control outside Listening state");
+    }
+
+    std::string transport_error;
+    if (g_voice_ui_runtime.state != VoiceUiState::Idle &&
+        g_voice_ui_runtime.state != VoiceUiState::Error &&
+        g_voice_transport.take_error(transport_error)) {
         cancel_beta_processor_stop();
         set_beta_voice_processor(false, "voice transport error");
         fail_voice_sequence(now, transport_error);
@@ -204,8 +205,8 @@ void update_voice_ui_alpha(uint32_t now)
 
         case VoiceUiState::Listening: {
             // Keep the physically proven on-device AFE endpoint as a fallback.
-            // The Windows Silero endpoint normally arrives first and is handled
-            // above through kServerEndpointSentinel.
+            // The Windows Silero endpoint normally arrives first through the
+            // dedicated Kadence control-message path handled above.
             if (deadline_reached(now, g_alpha_vad_armed_ms)) {
                 const bool speaking = g_alpha_vad_speaking.load();
                 if (speaking) {

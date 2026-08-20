@@ -28,11 +28,12 @@ namespace kadence_voice_transport {
 // The Beta transport already used Xiaozhi's WebsocketProtocol for a warm,
 // version-1 Opus uplink to the Windows transcript service. Alpha 1 keeps that
 // proven network/microphone path but now consumes Xiaozhi's native downstream
-// TTS audio as well. The existing UI state machine still waits for a
-// "transcript" result; we deliberately publish that result only after the
-// server has sent TTS stop and the AudioService playback queues have drained.
-// This gives us a full conversational round trip without changing the motion,
-// touch, wake-word or UI safety code in the first experiment.
+// TTS audio as well. Kadence-specific server control messages use a small,
+// versioned JSON namespace alongside Xiaozhi protocol messages; the endpoint
+// event only asks the robot to execute its existing clean stop/flush path.
+// The existing UI state machine still waits for a "transcript" result, which is
+// deliberately published only after STT exists, TTS has stopped and the
+// AudioService playback queues have drained.
 class Service {
 public:
     void initialise(AudioService* audio_service)
@@ -153,6 +154,7 @@ public:
         }
 
         capture_active_.store(false);
+        server_endpoint_requested_.store(false);
         finish_not_before_us_.store(esp_timer_get_time() + kFinalOpusFlushUs);
         finish_pending_.store(true);
         send_queue_pending_.store(true);
@@ -171,6 +173,7 @@ public:
         capture_active_.store(false);
         response_pending_.store(false);
         capture_started_event_.store(false);
+        server_endpoint_requested_.store(false);
         send_queue_pending_.store(false);
         discard_send_queue();
 
@@ -202,6 +205,7 @@ public:
         awaiting_transcript_.store(false);
         capture_active_.store(false);
         response_pending_.store(false);
+        server_endpoint_requested_.store(false);
         discard_send_queue();
         reset_response_flags();
 
@@ -272,6 +276,11 @@ public:
         return capture_started_event_.exchange(false);
     }
 
+    bool take_server_endpoint()
+    {
+        return server_endpoint_requested_.exchange(false);
+    }
+
     // Compatibility contract with the proven Beta UI state machine. In 2.0
     // Alpha 1 this becomes ready only after STT + TTS + playback drain are done.
     bool take_transcript(std::string& transcript)
@@ -336,6 +345,7 @@ private:
     std::atomic<bool> response_pending_{false};
     std::atomic<bool> send_queue_pending_{false};
     std::atomic<bool> capture_started_event_{false};
+    std::atomic<bool> server_endpoint_requested_{false};
     std::atomic<bool> transcript_ready_{false};
     std::atomic<bool> error_ready_{false};
     std::atomic<bool> stt_received_{false};
@@ -387,6 +397,7 @@ private:
         error_ready_.store(false);
         awaiting_transcript_.store(false);
         response_pending_.store(false);
+        server_endpoint_requested_.store(false);
         reset_response_flags();
         std::lock_guard<std::mutex> lock(result_mutex_);
         pending_transcript_.clear();
@@ -618,6 +629,31 @@ private:
         protocol.OnIncomingJson([this](const cJSON* root) {
             const cJSON* type = cJSON_GetObjectItem(root, "type");
             if (!cJSON_IsString(type)) {
+                return;
+            }
+
+            if (std::strcmp(type->valuestring, "kadence") == 0) {
+                const cJSON* version = cJSON_GetObjectItem(root, "version");
+                const cJSON* event = cJSON_GetObjectItem(root, "event");
+                if (!cJSON_IsNumber(version) || version->valueint != 1 ||
+                    !cJSON_IsString(event)) {
+                    mclog::tagInfo(kLogTag,
+                                   "ignored malformed/unsupported Kadence control message");
+                    return;
+                }
+
+                if (std::strcmp(event->valuestring, "endpoint") == 0) {
+                    if (capture_active_.load()) {
+                        server_endpoint_requested_.store(true);
+                        mclog::tagInfo(kLogTag,
+                                       "Kadence control endpoint request received");
+                    }
+                    return;
+                }
+
+                // Unknown version-1 Kadence controls are deliberately ignored so
+                // future server features cannot accidentally alter Alpha motion
+                // or device state.
                 return;
             }
 

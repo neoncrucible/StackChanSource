@@ -20,16 +20,14 @@ class ASRProvider(ASRProviderBase):
 
     Xiaozhi delivers decoded 16 kHz mono PCM frames. OpenAI Realtime
     transcription requires 24 kHz mono PCM16, so frames are resampled in-flight
-    and appended to a warm transcription WebSocket. Kadence still owns the
-    speech endpoint; listen-stop commits the already-uploaded OpenAI audio
-    buffer and the completed transcript enters Xiaozhi's normal chat pipeline.
+    and appended to a warm transcription WebSocket.
 
-    During the Alpha latency experiment, the pinned Xiaozhi Silero provider also
-    exposes its diagnostic speech state on the connection. After real speech has
-    been seen and that detector remains silent for a short hold, this provider
-    sends a temporary control sentinel to Kadence. The robot still performs its
-    normal final Opus flush and SendStopListening; the server never starts TTS
-    while the robot is recording.
+    Kadence owns turn boundaries. The pinned Xiaozhi Silero VAD is allowed to
+    observe manual-mode audio without changing Xiaozhi's buffering semantics.
+    After real speech has been seen and Silero remains silent for the configured
+    hold, the backend sends a versioned Kadence control message requesting an
+    endpoint. The robot then performs its existing final Opus flush and normal
+    SendStopListening flow before LLM/TTS processing continues.
     """
 
     def __init__(self, config: dict, delete_audio_file: bool):
@@ -48,6 +46,8 @@ class ASRProvider(ASRProviderBase):
 
         if not self.api_key:
             raise ValueError("OpenAI Realtime ASR requires api_key")
+        if self.endpoint_silence_ms < 300:
+            raise ValueError("endpoint_silence_ms must be at least 300 ms")
 
         self.asr_ws = None
         self.receiver_task = None
@@ -117,7 +117,8 @@ class ASRProvider(ASRProviderBase):
             )
 
         logger.bind(tag=TAG).info(
-            f"K2 ASR LIVE ready: model={self.model}, 16k->24k PCM"
+            "K2 ASR LIVE ready: "
+            f"model={self.model}, 16k->24k PCM, endpoint={self.endpoint_silence_ms}ms"
         )
 
     def _reset_endpoint_tracking(self):
@@ -126,23 +127,17 @@ class ASRProvider(ASRProviderBase):
         self.endpoint_sent = False
 
     async def _observe_server_endpoint(self, conn):
-        """Use diagnostic Silero state to ask the robot to end capture sooner.
-
-        Manual Xiaozhi mode still reports every frame to ASR as voice. The
-        diagnostic Silero patch separately stores the genuine state in
-        ``conn._kadence_diag_vad_state``. Require real speech first, then a
-        continuous silence hold, before sending the Alpha-only control sentinel.
-        """
-        diag_state = getattr(conn, "_kadence_diag_vad_state", None)
+        """Request a robot endpoint after sustained server-side Silero silence."""
+        vad_state = getattr(conn, "_kadence_server_vad_state", None)
         now = time.monotonic()
 
-        if diag_state is True:
+        if vad_state is True:
             self.endpoint_speech_seen = True
             self.endpoint_silence_started_at = 0.0
             return
 
         if (
-            diag_state is not False
+            vad_state is not False
             or not self.endpoint_speech_seen
             or self.endpoint_sent
         ):
@@ -156,20 +151,20 @@ class ASRProvider(ASRProviderBase):
         if silence_ms < self.endpoint_silence_ms:
             return
 
-        # Alpha-only control channel. main.cpp consumes this exact sentinel before
-        # generic transport-error handling and then executes the existing robot
-        # stop/flush path. Do not start LLM/TTS here.
-        await conn.websocket.send(
-            json.dumps(
-                {
-                    "type": "error",
-                    "message": "KADENCE_ENDPOINT_V1",
-                }
-            )
-        )
+        control_message = {
+            "type": "kadence",
+            "version": 1,
+            "event": "endpoint",
+            "source": "silero",
+            "silence_ms": int(round(silence_ms)),
+        }
+        if getattr(conn, "session_id", None):
+            control_message["session_id"] = conn.session_id
+
+        await conn.websocket.send(json.dumps(control_message))
         self.endpoint_sent = True
         logger.bind(tag=TAG).info(
-            "K2 SERVER ENDPOINT sent after "
+            "K2 ENDPOINT requested after "
             f"{silence_ms:.0f} ms confirmed Silero silence"
         )
 
