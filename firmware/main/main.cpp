@@ -4,8 +4,9 @@
  * The physically proven Alpha voice loop remains intact in main_base.inc. This
  * wrapper keeps AFE/VAD active only for an actual capture window, rather than
  * leaving the processor running while Kadence is idle, thinking or speaking.
- * The ten-second limit remains a safety cap behind the 850 ms end-of-speech
- * cutoff.
+ * Alpha 1 keeps the ESP32 AFE endpoint and ten-second hard cap as fallbacks,
+ * while allowing the Windows Silero detector to request the same clean
+ * stop/flush path when it detects end-of-speech sooner.
  */
 
 #define app_main kadence_base_app_main
@@ -17,6 +18,8 @@ namespace {
 constexpr uint32_t kAlphaVadArmDelayMs = 200;
 constexpr uint32_t kAlphaEndOfSpeechSilenceMs = 850;
 constexpr uint32_t kBetaFinalProcessorDrainMs = 320;
+constexpr const char* kServerEndpointSentinel =
+    "Xiaozhi backend error: KADENCE_ENDPOINT_V1";
 
 std::atomic<bool> g_alpha_vad_speaking{false};
 bool g_alpha_speech_seen = false;
@@ -123,7 +126,7 @@ void submit_alpha_voice_sample(uint32_t now, const char* reason)
     show_frame(g_listening2_dsc);
     mclog::tagInfo(
         kLogTag,
-        "voice sample submitted after {} ms ({}); waiting for Faster Whisper",
+        "voice sample submitted after {} ms ({}); waiting for streaming ASR",
         capture_ms,
         reason);
 }
@@ -137,6 +140,19 @@ void update_voice_ui_alpha(uint32_t now)
     if (g_voice_ui_runtime.state != VoiceUiState::Idle &&
         g_voice_ui_runtime.state != VoiceUiState::Error &&
         g_voice_transport.take_error(transport_error)) {
+        // Alpha-only endpoint handoff. The server cannot directly stop the mic:
+        // it requests the endpoint, then the robot executes its already-proven
+        // final Opus flush + SendStopListening path. Keep the normal transport
+        // error path untouched for every other message.
+        if (g_voice_ui_runtime.state == VoiceUiState::Listening &&
+            transport_error == kServerEndpointSentinel) {
+            mclog::tagInfo(
+                kLogTag,
+                "server Silero endpoint accepted; ending robot capture cleanly");
+            submit_alpha_voice_sample(now, "server Silero end-of-speech");
+            return;
+        }
+
         cancel_beta_processor_stop();
         set_beta_voice_processor(false, "voice transport error");
         fail_voice_sequence(now, transport_error);
@@ -173,8 +189,7 @@ void update_voice_ui_alpha(uint32_t now)
                 reset_alpha_capture_tracking(now);
                 mclog::tagInfo(
                     kLogTag,
-                    "robot microphone capture gate open; AFE cutoff armed after {} ms, {} ms silence ends speech, {} ms hard limit",
-                    kAlphaVadArmDelayMs,
+                    "robot microphone capture gate open; server endpoint preferred, AFE {} ms silence fallback, {} ms hard limit",
                     kAlphaEndOfSpeechSilenceMs,
                     kCaptureDurationMs);
                 return;
@@ -188,6 +203,9 @@ void update_voice_ui_alpha(uint32_t now)
             return;
 
         case VoiceUiState::Listening: {
+            // Keep the physically proven on-device AFE endpoint as a fallback.
+            // The Windows Silero endpoint normally arrives first and is handled
+            // above through kServerEndpointSentinel.
             if (deadline_reached(now, g_alpha_vad_armed_ms)) {
                 const bool speaking = g_alpha_vad_speaking.load();
                 if (speaking) {
@@ -200,7 +218,7 @@ void update_voice_ui_alpha(uint32_t now)
                            deadline_reached(
                                now,
                                g_alpha_last_speech_ms + kAlphaEndOfSpeechSilenceMs)) {
-                    submit_alpha_voice_sample(now, "AFE end-of-speech silence");
+                    submit_alpha_voice_sample(now, "AFE end-of-speech fallback");
                     return;
                 }
             }
@@ -318,7 +336,7 @@ extern "C" void app_main(void)
 
     mclog::tagInfo(
         kLogTag,
-        "runtime ready; Beta capture-scoped AFE active; tap toggles idle motion; either swipe cancels voice");
+        "runtime ready; server endpoint preferred with AFE fallback; tap toggles idle motion; either swipe cancels voice");
 
     while (true) {
         const uint32_t now = GetHAL().millis();
