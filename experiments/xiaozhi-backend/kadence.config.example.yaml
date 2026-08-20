@@ -34,7 +34,7 @@ wakeup_words:
 # Keep the first test deliberately simple. No memory and no separate intent-LLM pass.
 selected_module:
   VAD: SileroVAD
-  ASR: OpenaiASR
+  ASR: OpenaiRealtimeASR
   LLM: GeminiLLM
   TTS: EdgeTTS
   Memory: nomem
@@ -49,12 +49,15 @@ VAD:
     min_silence_duration_ms: 200
 
 ASR:
-  OpenaiASR:
-    type: openai
+  OpenaiRealtimeASR:
+    type: openai_realtime
     api_key: REPLACE_WITH_OPENAI_API_KEY
-    base_url: https://api.openai.com/v1/audio/transcriptions
-    model_name: gpt-4o-mini-transcribe
-    output_dir: tmp/
+    ws_url: "wss://api.openai.com/v1/realtime?intent=transcription"
+    # Dedicated low-latency streaming STT. The provider resamples Kadence's
+    # existing 16 kHz PCM to the Realtime API's required 24 kHz PCM in-flight.
+    model_name: gpt-realtime-whisper
+    language: en
+    noise_reduction: far_field
 
 LLM:
   GeminiLLM:
