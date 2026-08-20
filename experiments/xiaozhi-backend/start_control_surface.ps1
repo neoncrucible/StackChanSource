@@ -7,7 +7,7 @@ if ($env:OS -ne "Windows_NT") {
     throw "Kadence Control Surface is currently a Windows-only Alpha 2 operator UI."
 }
 
-$UiScript = Join-Path $PSScriptRoot "control_surface\KadenceControlV2.ps1"
+$UiScript = Join-Path $PSScriptRoot "control_surface\KadenceControlV3.ps1"
 if (-not (Test-Path $UiScript)) {
     throw "Kadence Control Surface script not found: $UiScript"
 }
