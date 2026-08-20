@@ -23,6 +23,18 @@ if (-not (Test-Path $WindowsPowerShell)) {
 $TempUi = Join-Path (Split-Path $UiScript -Parent) ("KadenceControl-run-{0}.ps1" -f [guid]::NewGuid().ToString("N"))
 $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $UiText = [System.IO.File]::ReadAllText($UiScript, [System.Text.Encoding]::UTF8)
+
+# PowerShell automatic variables are case-insensitive, so a parameter named
+# $Pid collides with the read-only built-in $PID. V3 used that name only in the
+# port-conflict diagnostic helper. Patch the execution copy narrowly while the
+# UI remains under active Alpha 2 iteration; the tracked source can be folded
+# cleanly into the next consolidated Control Surface revision.
+$UiText = $UiText.Replace('param([int]$Pid)', 'param([int]$ProcessId)')
+$UiText = $UiText.Replace('("ProcessId={0}" -f $Pid)', '("ProcessId={0}" -f $ProcessId)')
+$UiText = $UiText.Replace('("PID {0} / {1} / {2}" -f $Pid,$p.Name,$cmd)', '("PID {0} / {1} / {2}" -f $ProcessId,$p.Name,$cmd)')
+$UiText = $UiText.Replace('("PID {0}" -f $Pid)', '("PID {0}" -f $ProcessId)')
+$UiText = $UiText.Replace('(Describe-Process -Pid $c.Pid)', '(Describe-Process -ProcessId $c.Pid)')
+
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
 Write-Host "Starting Kadence Control Surface..."
