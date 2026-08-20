@@ -20,9 +20,13 @@ if (-not (Test-Path $WindowsPowerShell)) {
 # Windows PowerShell 5.1 treats UTF-8 text without a BOM as the active ANSI
 # code page. The tracked UI is UTF-8 and contains a few display-only Unicode
 # characters, so launching it directly can corrupt those bytes before parsing.
-# Make a temporary UTF-8-with-BOM execution copy. The tracked source remains
-# unchanged and the temporary file is deleted when the UI exits.
-$TempUi = Join-Path ([System.IO.Path]::GetTempPath()) ("KadenceControl-{0}.ps1" -f [guid]::NewGuid().ToString("N"))
+# Make a temporary UTF-8-with-BOM execution copy IN THE SAME DIRECTORY as the
+# tracked UI. This matters because KadenceControl.ps1 intentionally resolves
+# the backend root relative to $PSScriptRoot. A temp copy under %TEMP% changes
+# $PSScriptRoot and makes it look for start_alpha2_windows.ps1 in AppData.
+# The tracked source remains unchanged and the runtime copy is deleted on exit.
+$UiDir = Split-Path $UiScript -Parent
+$TempUi = Join-Path $UiDir (".KadenceControl.runtime-{0}.ps1" -f [guid]::NewGuid().ToString("N"))
 $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $UiText = [System.IO.File]::ReadAllText($UiScript, [System.Text.Encoding]::UTF8)
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
