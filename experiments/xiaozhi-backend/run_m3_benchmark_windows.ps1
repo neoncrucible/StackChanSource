@@ -141,8 +141,26 @@ if (-not (Test-Path $PythonExe)) {
 
 $SavedProfile = Get-SavedProfile
 $BenchmarkExitCode = 1
+$OriginalPath = $env:Path
+$OriginalCondaPrefix = $env:CONDA_PREFIX
+$OriginalCondaDefaultEnv = $env:CONDA_DEFAULT_ENV
 
 try {
+    # Directly invoking an environment's python.exe does not activate Conda's
+    # native DLL search path. The real server deliberately prepends these same
+    # directories before starting Python; mirror that process environment here
+    # so importing the genuine Xiaozhi providers can resolve libopus and other
+    # native dependencies. This changes benchmark process setup only, not voice
+    # transport, firmware, endpointing, or the provider implementations.
+    $EnvPathParts = @(
+        $CondaPrefix,
+        (Join-Path $CondaPrefix "Scripts"),
+        (Join-Path $CondaPrefix "Library\bin")
+    )
+    $env:Path = (($EnvPathParts + $OriginalPath) -join ";")
+    $env:CONDA_PREFIX = $CondaPrefix
+    $env:CONDA_DEFAULT_ENV = $CondaEnv
+
     # Repair/verify the local runtime and canonical identity first. This invokes
     # only the existing guarded Alpha 2/Alpha 1 runtime patches; it does not
     # start the server or touch firmware/transport configuration.
@@ -157,6 +175,7 @@ try {
     $env:PYTHONUTF8 = "1"
     $env:PYTHONIOENCODING = "utf-8"
 
+    Write-Host "Conda native DLL path active: $CondaPrefix\Library\bin"
     Write-Host ""
     Write-Host "Running $Repeats measured repeat(s) per prompt with $Warmup warm-up request(s) per provider..."
     Write-Host ""
@@ -175,6 +194,10 @@ try {
     }
 }
 finally {
+    $env:Path = $OriginalPath
+    $env:CONDA_PREFIX = $OriginalCondaPrefix
+    $env:CONDA_DEFAULT_ENV = $OriginalCondaDefaultEnv
+
     try {
         & $ProfileApplier -Profile $SavedProfile -RuntimeRoot $RuntimeRoot
         Write-Host "Restored saved pre-boot LLM profile: $SavedProfile"
