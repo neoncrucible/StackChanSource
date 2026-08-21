@@ -1,10 +1,17 @@
 # Kadence 2.0 Alpha 2 — Milestone 3 Benchmark Plan
 
-Status: **DESIGN LOCKED / PRE-SMOKE IMPLEMENTATION**
+Status: **STAGE A PASS / STAGE B HARNESS READY**
 
 Date: **21 Aug 2026**
 
 Branch: `kadence/2.0-alpha-2`
+
+## Progress
+
+- Stage A compatibility smoke: **PASS** — see `MILESTONE3_STAGEA_VALIDATION.md`.
+- Stage B controlled benchmark: **READY TO RUN** — local-only harness under `benchmark/` plus `run_m3_benchmark_windows.ps1`.
+- Stage C physical voice benchmark: **PENDING**.
+- Default-provider decision: **PENDING**.
 
 ## Decision under test
 
@@ -75,16 +82,24 @@ Before benchmarking:
 
 If compatibility fails, stop. Fix only the Alpha 2 LLM-provider/profile boundary and repeat the smoke before adding benchmark instrumentation.
 
+**Result: PASS on 21 Aug 2026.**
+
 ### Stage B — server-side controlled benchmark
 
 Instrument both LLM providers with equivalent timestamps and use the same prompt pack.
+
+The Stage B harness directly instantiates the actual pinned/runtime Gemini and OpenAI provider adapters with the same canonical Kadence persona and prompt. It does not start the robot/server transport. Provider call order is shuffled per repeat, each provider receives an equal discarded warm-up, and outputs are saved only below ignored `.runtime/benchmarks/`.
 
 Measure where available:
 
 - request sent → first model text;
 - request sent → first sentence / TTS-ready text;
 - full LLM completion duration;
+- deterministic-answer checks;
+- response length;
 - token usage and estimated cost where available.
+
+`first_tts_ready_ms` in Stage B is a provider-level speech-readiness proxy: the first streamed chunk that completes a punctuation boundary. Full Xiaozhi sentence handling and audible latency are measured separately in Stage C.
 
 Prompt categories:
 
@@ -96,6 +111,8 @@ Prompt categories:
 - practical advice;
 - natural Kadence wit;
 - concise multi-part response.
+
+The harness also generates a blind A/B quality-review document so subjective scoring can be completed without seeing provider identity or latency first.
 
 ### Stage C — physical voice benchmark
 
