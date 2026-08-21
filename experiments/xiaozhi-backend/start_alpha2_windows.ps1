@@ -88,7 +88,8 @@ function Resolve-KadenceLlmProfile {
         $Candidate = ([System.IO.File]::ReadAllText($LocalProfilePath)).Trim().ToLowerInvariant()
     }
     else {
-        $Candidate = "gemini"
+        # Milestone 3 winner. Gemini remains selectable as a pre-boot fallback.
+        $Candidate = "luna"
     }
 
     if ($Candidate -notin @("gemini", "luna")) {
