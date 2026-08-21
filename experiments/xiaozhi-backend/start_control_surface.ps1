@@ -9,12 +9,16 @@ if ($env:OS -ne "Windows_NT") {
 
 $UiScript = Join-Path $PSScriptRoot "control_surface\KadenceControlV3.ps1"
 $PatchScript = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV4.ps1"
+$PatchScriptV41 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV41.ps1"
 
 if (-not (Test-Path $UiScript)) {
     throw "Kadence Control Surface script not found: $UiScript"
 }
 if (-not (Test-Path $PatchScript)) {
     throw "Kadence Control Surface V4 patch not found: $PatchScript"
+}
+if (-not (Test-Path $PatchScriptV41)) {
+    throw "Kadence Control Surface V4.1 patch not found: $PatchScriptV41"
 }
 
 $WindowsPowerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -29,9 +33,10 @@ $TempUi = Join-Path (Split-Path $UiScript -Parent) ("KadenceControl-run-{0}.ps1"
 $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $UiText = [System.IO.File]::ReadAllText($UiScript, [System.Text.Encoding]::UTF8)
 $UiText = & $PatchScript -UiText $UiText
+$UiText = & $PatchScriptV41 -UiText $UiText
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
-Write-Host "Starting Kadence Control Surface V4..."
+Write-Host "Starting Kadence Control Surface V4.1..."
 try {
     & $WindowsPowerShell -STA -NoLogo -NoProfile -ExecutionPolicy Bypass -File $TempUi
     $ExitCode = $LASTEXITCODE
