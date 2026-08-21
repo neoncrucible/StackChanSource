@@ -1,13 +1,16 @@
 param(
     [string]$RuntimeRoot = (Join-Path $PSScriptRoot ".runtime"),
-    [string]$CondaEnv = "kadence2-xiaozhi"
+    [string]$CondaEnv = "kadence2-xiaozhi",
+    [string]$LlmProfile = ""
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
+$LlmProfileApplier = Join-Path $PSScriptRoot "apply_llm_profile_windows.ps1"
 $FrozenLauncher = Join-Path $PSScriptRoot "start_windows.ps1"
+$LocalProfilePath = Join-Path $RuntimeRoot "kadence-llm-profile.txt"
 
 function Enable-KadenceCondaPath {
     # The packaged Control Surface starts from a clean Windows process and may
@@ -74,8 +77,32 @@ function Enable-KadenceCondaPath {
     throw "Conda was not found. Install Miniconda/Anaconda or set CONDA_EXE/KADENCE_HOME before starting Kadence."
 }
 
+function Resolve-KadenceLlmProfile {
+    if (-not [string]::IsNullOrWhiteSpace($LlmProfile)) {
+        $Candidate = $LlmProfile.Trim().ToLowerInvariant()
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:KADENCE_LLM_PROFILE)) {
+        $Candidate = $env:KADENCE_LLM_PROFILE.Trim().ToLowerInvariant()
+    }
+    elseif (Test-Path $LocalProfilePath) {
+        $Candidate = ([System.IO.File]::ReadAllText($LocalProfilePath)).Trim().ToLowerInvariant()
+    }
+    else {
+        $Candidate = "gemini"
+    }
+
+    if ($Candidate -notin @("gemini", "luna")) {
+        throw "Unsupported Kadence LLM profile '$Candidate'. Expected gemini or luna."
+    }
+
+    return $Candidate
+}
+
 if (-not (Test-Path $PersonaInjector)) {
     throw "Missing Alpha 2 persona injector: $PersonaInjector"
+}
+if (-not (Test-Path $LlmProfileApplier)) {
+    throw "Missing Alpha 2 LLM profile applier: $LlmProfileApplier"
 }
 if (-not (Test-Path $FrozenLauncher)) {
     throw "Missing frozen Alpha 1 launcher: $FrozenLauncher"
@@ -87,6 +114,11 @@ Write-Host ""
 
 & $PersonaInjector -RuntimeRoot $RuntimeRoot
 
+$ResolvedLlmProfile = Resolve-KadenceLlmProfile
+Write-Host ""
+Write-Host "Applying pre-boot LLM profile: $ResolvedLlmProfile"
+& $LlmProfileApplier -Profile $ResolvedLlmProfile -RuntimeRoot $RuntimeRoot
+
 Write-Host ""
 Write-Host "Canonical identity ready. Preparing local runtime..."
 Enable-KadenceCondaPath
@@ -94,6 +126,7 @@ Write-Host "Starting frozen Alpha 1 transport stack..."
 Write-Host ""
 
 # Deliberately delegate transport startup to the proven Alpha 1 launcher.
-# Alpha 2 owns identity/runtime discovery around it; it does not fork or retune
-# the frozen transport.
+# Alpha 2 owns identity/runtime/LLM-profile selection around it; it does not fork
+# or retune the frozen transport. LLM selection is fixed for the server run and
+# changing it requires shutdown/restart.
 & $FrozenLauncher -RuntimeRoot $RuntimeRoot -CondaEnv $CondaEnv
