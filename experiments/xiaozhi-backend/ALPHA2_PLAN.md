@@ -79,6 +79,8 @@ LLM selection is server-side and occurs **before server boot**.
 
 Gemini Flash-Lite is the Alpha 1 reference candidate. OpenAI will be added as a competing Alpha 2 candidate. Both are benchmarked using the same canonical Kadence personality, ASR, endpointing and TTS. The benchmark winner becomes the default; both remain available as pre-boot fallback profiles.
 
+**Milestone 3 result:** GPT-5.6 Luna is the Alpha 2 default. Gemini 3.5 Flash-Lite remains available as the pre-boot fallback profile. See `MILESTONE3_VALIDATION.md`.
+
 The Control Surface does **not** need an LLM selector for its Milestone 2 foundation. During early Alpha 2 development, provider/profile selection may remain configuration-driven. A pre-boot LLM selector is a later quality-of-life enhancement and must not block the server boot/monitor UI or early testing.
 
 When the UI selector is added later, the selected LLM remains fixed for that server run. Changing LLM requires server shutdown and restart. There is no Alpha 2 live hot-swap requirement.
@@ -172,6 +174,8 @@ Measure at minimum:
 
 **Gate:** choose the Alpha 2 default from recorded benchmark evidence while retaining both pre-boot profiles.
 
+**Status: PASS / CLOSED.** GPT-5.6 Luna selected as default; Gemini 3.5 Flash-Lite retained as fallback. No Alpha 1 transport invariant changed.
+
 ### Milestone 4 — Session continuity
 
 Add non-persistent conversational context across separate wake-word turns.
@@ -218,4 +222,4 @@ Run a mixed-use physical acceptance session covering normal conversation, person
 
 ## Immediate implementation priority
 
-The first implementation target is to complete **Milestone 1 (Canonical Kadence identity)** and a deliberately minimal **Milestone 2 (Kadence Control Surface foundation)**: server boot, stop and monitor first; configuration convenience features later.
+Proceed to **Milestone 4 — Session continuity**: retain short conversational context across separate wake-word turns within the current backend session, while ensuring a backend restart clears that context and no durable personal memory is introduced.
