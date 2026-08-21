@@ -43,12 +43,21 @@ function Ensure-LunaProviderCompatibility {
     $Text = [System.IO.File]::ReadAllText($OpenAiProvider, $Utf8NoBom).Replace("`r`n", "`n")
     $Changed = $false
 
+    # Repair the exact malformed Alpha 2 patch produced by the first M3 smoke
+    # build, where PowerShell concatenated the new property onto the preceding
+    # Python line without a newline. This is deliberately narrow so unrelated
+    # provider edits are never rewritten silently.
+    $BrokenReasoningProperty = '            self.base_url = config.get("url")        self.reasoning_effort = config.get("reasoning_effort")'
+    $RepairedReasoningProperty = '            self.base_url = config.get("url")' + "`n" + '        self.reasoning_effort = config.get("reasoning_effort")'
+    if ($Text.Contains($BrokenReasoningProperty)) {
+        $Text = $Text.Replace($BrokenReasoningProperty, $RepairedReasoningProperty)
+        $Changed = $true
+        Write-Host "Repaired Alpha 2 OpenAI reasoning patch newline."
+    }
+
     $ReasoningProperty = '        self.reasoning_effort = config.get("reasoning_effort")'
     if (-not $Text.Contains($ReasoningProperty)) {
-        $BaseUrlAnchor = @'
-        else:
-            self.base_url = config.get("url")
-'@.Replace("`r`n", "`n")
+        $BaseUrlAnchor = '        else:' + "`n" + '            self.base_url = config.get("url")'
 
         if (-not $Text.Contains($BaseUrlAnchor)) {
             throw "OpenAI reasoning compatibility patch guard failed at provider configuration."
@@ -56,7 +65,7 @@ function Ensure-LunaProviderCompatibility {
 
         $Text = $Text.Replace(
             $BaseUrlAnchor,
-            $BaseUrlAnchor + $ReasoningProperty + "`n"
+            $BaseUrlAnchor + "`n" + $ReasoningProperty
         )
         $Changed = $true
     }
@@ -85,6 +94,10 @@ function Ensure-LunaProviderCompatibility {
     if (-not $Text.Contains($ReasoningProperty)) {
         throw "OpenAI reasoning compatibility post-patch verification failed."
     }
+    if ($Text.Contains($BrokenReasoningProperty)) {
+        throw "OpenAI reasoning compatibility post-patch verification found the malformed joined line."
+    }
+
     $FinalRequestCount = ([regex]::Matches(
         $Text,
         [regex]::Escape('request_params["reasoning_effort"] = self.reasoning_effort')
