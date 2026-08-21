@@ -1,6 +1,6 @@
 # Kadence 2.0 Alpha 2 — Milestone 3 Benchmark Plan
 
-Status: **STAGE A PASS / STAGE B HARNESS READY**
+Status: **PASS / CLOSED — GPT-5.6 LUNA DEFAULT**
 
 Date: **21 Aug 2026**
 
@@ -9,9 +9,9 @@ Branch: `kadence/2.0-alpha-2`
 ## Progress
 
 - Stage A compatibility smoke: **PASS** — see `MILESTONE3_STAGEA_VALIDATION.md`.
-- Stage B controlled benchmark: **READY TO RUN** — local-only harness under `benchmark/` plus `run_m3_benchmark_windows.ps1`.
-- Stage C physical voice benchmark: **PENDING**.
-- Default-provider decision: **PENDING**.
+- Stage B controlled benchmark: **PASS** — clean zero-error confirmation plus locked blind quality review; see `MILESTONE3_STAGEB_VALIDATION.md` and `MILESTONE3_VALIDATION.md`.
+- Stage C physical voice confirmation: **PASS** — corrected provider lock and retained physical evidence; see `MILESTONE3_VALIDATION.md`.
+- Default-provider decision: **GPT-5.6 Luna selected**; Gemini 3.5 Flash-Lite retained as pre-boot fallback.
 
 ## Decision under test
 
@@ -23,6 +23,8 @@ The candidates are deliberately limited to:
 - **OpenAI GPT-5.6 Luna** — sole OpenAI contender for Alpha 2 because higher-cost GPT-5.6 tiers are outside the intended operating-cost envelope for Kadence's planned utility workload.
 
 No other OpenAI model is part of Milestone 3.
+
+**Final result:** GPT-5.6 Luna wins the combined benchmark and becomes the Alpha 2 default. Gemini remains available as the faster pre-boot fallback profile.
 
 ## Fixed variables
 
@@ -114,6 +116,8 @@ Prompt categories:
 
 The harness also generates a blind A/B quality-review document so subjective scoring can be completed without seeing provider identity or latency first.
 
+**Result: PASS.** The clean confirmation completed 8/8 measured calls for each provider with zero errors. Gemini remained the raw latency winner; Luna won the locked blind human quality review 5 prompts to 1, with 2 ties.
+
 ### Stage C — physical voice benchmark
 
 Run a smaller matched set through the actual robot and retain the accepted Alpha 1 timing markers.
@@ -128,6 +132,8 @@ Measure where available:
 
 Human speech variation is recorded but is not used to disguise LLM-side latency differences.
 
+**Result: PASS after harness correction.** The first blind harness attempt was rejected because ambient profile state could override the intended hidden mapping and the initial log-retention patch inherited V3 cleanup. After both harness defects were corrected, retained logs proved A=Gemini and B=Luna. The corrected matched physical confirmation showed frozen-transport timing remained stable; the human operator reported the model-side delay difference as negligible and gave B/Luna a slight audible-flow preference.
+
 ## Gate
 
 Milestone 3 passes only when:
@@ -138,5 +144,7 @@ Milestone 3 passes only when:
 - one provider/model is explicitly chosen as the Alpha 2 default;
 - the other remains a working pre-boot fallback;
 - no Alpha 1 transport invariant was changed.
+
+**Gate result: PASS.** GPT-5.6 Luna is the Alpha 2 default; Gemini 3.5 Flash-Lite remains the fallback; transport invariants remain unchanged.
 
 The Control Surface LLM selector remains optional quality-of-life work and is not required to clear this milestone.
