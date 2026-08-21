@@ -34,6 +34,34 @@ $UiText = $UiText.Replace('("PID {0} / {1} / {2}" -f $Pid,$p.Name,$cmd)', '("PID
 $UiText = $UiText.Replace('("PID {0}" -f $Pid)', '("PID {0}" -f $ProcessId)')
 $UiText = $UiText.Replace('(Describe-Process -Pid $c.Pid)', '(Describe-Process -ProcessId $c.Pid)')
 
+# Milestone 3 keeps provider selection outside the UI, but the monitor must not
+# lie about which provider is active. Make the runtime copy provider-neutral at
+# rest and update the health tile when the Alpha 2 launcher announces its
+# selected pre-boot profile.
+$UiText = $UiText.Replace('Canonical identity / Gemini Flash-Lite', 'Canonical identity / Selected LLM')
+$UiText = $UiText.Replace('@{Name="LLM";Value="Gemini 3.5 Flash-Lite"},', '@{Name="LLM";Value="Selected pre-boot"},')
+$UiText = $UiText.Replace('$modelHealth = New-PanelLabel "MODEL  GEMINI"', '$modelHealth = New-PanelLabel "MODEL  WAITING"')
+
+$LegacyModelBlock = @'
+    if ($Line -match 'GeminiLLM') {
+        $modelHealth.Text = "MODEL  GEMINI"; $modelHealth.ForeColor = $ColorCyan
+    }
+'@
+$M3ModelBlock = @'
+    if ($Line -match 'Kadence LLM profile: openai-luna') {
+        $modelHealth.Text = "MODEL  GPT-5.6 LUNA"; $modelHealth.ForeColor = $ColorCyan
+        $modeLabel.Text = "Canonical identity / GPT-5.6 Luna"
+    }
+    elseif ($Line -match 'Kadence LLM profile: gemini') {
+        $modelHealth.Text = "MODEL  GEMINI"; $modelHealth.ForeColor = $ColorCyan
+        $modeLabel.Text = "Canonical identity / Gemini Flash-Lite"
+    }
+    elseif ($Line -match 'GeminiLLM') {
+        $modelHealth.Text = "MODEL  GEMINI"; $modelHealth.ForeColor = $ColorCyan
+    }
+'@
+$UiText = $UiText.Replace($LegacyModelBlock.TrimEnd(), $M3ModelBlock.TrimEnd())
+
 # When START SERVER is explicitly requested, reclaim only the exact stale
 # Kadence backend signature (dedicated conda python + app.py owning BOTH 8000
 # and 8003), then run the normal port preflight. Merely opening the UI never
