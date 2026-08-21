@@ -96,4 +96,15 @@ if (-not $UiText.Contains($LogNeedle)) {
 }
 $UiText = $UiText.Replace($LogNeedle, $LogReplacement)
 
+# V3 normally deletes its temporary backend log when the Control Surface closes.
+# In Stage C that same variable now points at our evidence file, so suppress only
+# that cleanup line while blind mode is active. Normal non-Stage-C cleanup is
+# untouched because this patch returns early when there is no active session.
+$CleanupNeedle = 'if ($script:BackendLogPath -and (Test-Path $script:BackendLogPath)) { Remove-Item $script:BackendLogPath -Force -ErrorAction SilentlyContinue }'
+$CleanupReplacement = 'if ($script:BackendLogPath -and (Test-Path $script:BackendLogPath)) { Write-Host "[KADENCE STAGE C] Raw backend log retained: $script:BackendLogPath" }'
+if (-not $UiText.Contains($CleanupNeedle)) {
+    throw "M3 Stage C blind patch could not locate backend-log cleanup; evidence retention cannot be guaranteed."
+}
+$UiText = $UiText.Replace($CleanupNeedle, $CleanupReplacement)
+
 return $UiText
