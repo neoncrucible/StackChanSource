@@ -33,6 +33,32 @@ if ([string]::IsNullOrWhiteSpace($RunDir) -or (-not (Test-Path $RunDir))) {
     throw "M3 Stage C run directory is missing: '$RunDir'."
 }
 
+# Resolve the provider internally from the blind mapping, but never surface it
+# in the operator UI. The normal Alpha 2 launcher also honours an ambient
+# KADENCE_LLM_PROFILE environment variable before the local profile file, so a
+# Stage C run must pass the mapped profile explicitly on the launcher command
+# line. The explicit -LlmProfile parameter has highest precedence and therefore
+# makes A/B deterministic even if the user's shell has a stale environment
+# override. This changes only the Stage C control plane, never voice transport.
+$MappingPath = Join-Path $RunDir "blind_mapping.json"
+try {
+    $Mapping = [System.IO.File]::ReadAllText($MappingPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+}
+catch {
+    throw "M3 Stage C blind mapping is unreadable: $MappingPath"
+}
+$Provider = if ($Label -eq "A") { ([string]$Mapping.A).Trim().ToLowerInvariant() } else { ([string]$Mapping.B).Trim().ToLowerInvariant() }
+if ($Provider -notin @("gemini", "luna")) {
+    throw "M3 Stage C blind mapping contains an invalid provider for profile $Label."
+}
+
+$StartNeedle = '& ''$StartScript'''
+$StartReplacement = '& ''$StartScript'' -LlmProfile ''' + $Provider + ''''
+if (-not $UiText.Contains($StartNeedle)) {
+    throw "M3 Stage C blind patch could not locate Alpha 2 launcher invocation; provider lock cannot be guaranteed."
+}
+$UiText = $UiText.Replace($StartNeedle, $StartReplacement)
+
 $BlindModel = "MODEL  BLIND $Label"
 $BlindMode = "Canonical identity / Blind profile $Label"
 $BlindStack = "Blind profile $Label"
