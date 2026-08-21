@@ -10,6 +10,7 @@ if ($env:OS -ne "Windows_NT") {
 $UiScript = Join-Path $PSScriptRoot "control_surface\KadenceControlV3.ps1"
 $PatchScript = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV4.ps1"
 $PatchScriptV41 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV41.ps1"
+$PatchScriptV42 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV42.ps1"
 
 if (-not (Test-Path $UiScript)) {
     throw "Kadence Control Surface script not found: $UiScript"
@@ -20,6 +21,9 @@ if (-not (Test-Path $PatchScript)) {
 if (-not (Test-Path $PatchScriptV41)) {
     throw "Kadence Control Surface V4.1 patch not found: $PatchScriptV41"
 }
+if (-not (Test-Path $PatchScriptV42)) {
+    throw "Kadence Control Surface V4.2 patch not found: $PatchScriptV42"
+}
 
 $WindowsPowerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 if (-not (Test-Path $WindowsPowerShell)) {
@@ -28,15 +32,18 @@ if (-not (Test-Path $WindowsPowerShell)) {
 
 # Keep the validated V3 source intact and render the current Alpha 2 operator UI
 # into a temporary UTF-8-BOM sibling copy. This preserves PSScriptRoot and avoids
-# Windows PowerShell 5.1 ANSI parsing problems.
+# Windows PowerShell 5.1 ANSI parsing problems. V4.2 is inert unless a local M3
+# Stage C blind-session marker exists; in that case it masks provider identity
+# and captures raw A/B logs without changing backend/transport behaviour.
 $TempUi = Join-Path (Split-Path $UiScript -Parent) ("KadenceControl-run-{0}.ps1" -f [guid]::NewGuid().ToString("N"))
 $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $UiText = [System.IO.File]::ReadAllText($UiScript, [System.Text.Encoding]::UTF8)
 $UiText = & $PatchScript -UiText $UiText
 $UiText = & $PatchScriptV41 -UiText $UiText
+$UiText = & $PatchScriptV42 -UiText $UiText
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
-Write-Host "Starting Kadence Control Surface V4.1..."
+Write-Host "Starting Kadence Control Surface V4.2..."
 try {
     & $WindowsPowerShell -STA -NoLogo -NoProfile -ExecutionPolicy Bypass -File $TempUi
     $ExitCode = $LASTEXITCODE
