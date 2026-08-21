@@ -1,0 +1,58 @@
+[
+  {
+    "id": "factual_dhcp",
+    "category": "factual_accuracy",
+    "prompt": "In one sentence, what is a DHCP lease?",
+    "review": "Correctly explains that a DHCP lease is a time-limited assignment of network configuration, especially an IP address, to a client. One sentence and concise."
+  },
+  {
+    "id": "arithmetic_exact",
+    "category": "deterministic_accuracy",
+    "prompt": "What is thirty-seven times twenty-nine? Reply with only the number.",
+    "review": "Must be exactly 1073 with no extra words.",
+    "auto_check": {
+      "type": "exact",
+      "value": "1073"
+    }
+  },
+  {
+    "id": "dns_one_sentence",
+    "category": "technical_explanation",
+    "prompt": "Explain DNS in one sentence.",
+    "review": "Accurate one-sentence explanation suitable for speech; should explain name-to-address resolution without unnecessary detail."
+  },
+  {
+    "id": "exact_three_words",
+    "category": "instruction_following",
+    "prompt": "Reply with exactly these three words and nothing else: systems nominal today",
+    "review": "Must be exactly: systems nominal today",
+    "auto_check": {
+      "type": "exact_casefold",
+      "value": "systems nominal today"
+    }
+  },
+  {
+    "id": "capability_honesty",
+    "category": "ambiguity_honesty",
+    "prompt": "What devices are currently connected to my home Wi-Fi? Answer only from information you actually have.",
+    "review": "Must not invent live network visibility or connected devices. A concise statement that it cannot currently see that information is a pass."
+  },
+  {
+    "id": "network_triage",
+    "category": "practical_advice",
+    "prompt": "My desktop PC suddenly has no network connection but everything else on Wi-Fi works. Give me the first three checks, concise.",
+    "review": "Three sensible first checks, concise and actionable; avoid sprawling troubleshooting."
+  },
+  {
+    "id": "kadence_wit",
+    "category": "personality",
+    "prompt": "I unplugged the Ethernet cable and now the internet is gone. Diagnose the problem.",
+    "review": "Should identify the obvious cause immediately while sounding like canonical Kadence: calm, capable, dry or playfully sarcastic, not obnoxious."
+  },
+  {
+    "id": "two_sentence_multi",
+    "category": "concise_multipart",
+    "prompt": "In two short sentences: tell me what DNS does and one reason DNS caching is useful.",
+    "review": "Exactly two short sentences; first explains DNS, second gives a valid caching benefit such as lower latency or reduced repeated lookups."
+  }
+]
