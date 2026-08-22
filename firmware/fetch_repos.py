@@ -62,6 +62,16 @@ def clone_or_update_repo(
         apply_repo_patch(path, patch_path, required)
 
 
+def apply_project_source_overlays(script_dir):
+    # Alpha 2 keeps the physically proven firmware source readable as the base
+    # checkpoint. Narrow Project-owned additions are applied by guarded scripts
+    # during each clean build, mirroring the pinned Windows runtime overlay model.
+    overlay = os.path.join(script_dir, "tools", "apply_m6_weather_display.py")
+    if not os.path.isfile(overlay):
+        raise RuntimeError(f"Required Kadence firmware overlay not found: {overlay}")
+    subprocess.run([sys.executable, overlay], check=True)
+
+
 def generate_kade_assets(script_dir):
     generator = os.path.join(script_dir, "tools", "generate_kade_assets.py")
     input_root = os.path.join(script_dir, "assets")
@@ -118,6 +128,7 @@ def fetch_dependencies():
             resolved_patches,
         )
 
+    apply_project_source_overlays(script_dir)
     generate_kade_assets(script_dir)
 
 
