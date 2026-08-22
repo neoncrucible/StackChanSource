@@ -11,6 +11,10 @@ $GeminiProvider = Join-Path $RepoDir "main\xiaozhi-server\core\providers\llm\gem
 $SileroProvider = Join-Path $RepoDir "main\xiaozhi-server\core\providers\vad\silero.py"
 $RuntimeConfig = Join-Path $RepoDir "main\xiaozhi-server\data\.config.yaml"
 $TemplateConfig = Join-Path $PSScriptRoot "kadence.config.example.yaml"
+$KadenceSessionSource = Join-Path $PSScriptRoot "kadence_session.py"
+$KadenceSessionTarget = Join-Path $RepoDir "main\xiaozhi-server\core\kadence_session.py"
+$WebSocketServer = Join-Path $RepoDir "main\xiaozhi-server\core\websocket_server.py"
+$ConnectionHandler = Join-Path $RepoDir "main\xiaozhi-server\core\connection.py"
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 if (-not (Test-Path $GeminiProvider)) {
@@ -24,6 +28,15 @@ if (-not (Test-Path $RuntimeConfig)) {
 }
 if (-not (Test-Path $TemplateConfig)) {
     throw "Kadence Alpha config template was not found: $TemplateConfig"
+}
+if (-not (Test-Path $KadenceSessionSource)) {
+    throw "Kadence M4 session helper was not found: $KadenceSessionSource"
+}
+if (-not (Test-Path $WebSocketServer)) {
+    throw "Pinned Xiaozhi WebSocket server was not found: $WebSocketServer"
+}
+if (-not (Test-Path $ConnectionHandler)) {
+    throw "Pinned Xiaozhi connection handler was not found: $ConnectionHandler"
 }
 
 # Always read/write these files as UTF-8 explicitly. Windows PowerShell 5.1
@@ -74,7 +87,7 @@ elseif ($ProviderText.Contains($SamplingOriginal)) {
     Write-Host "Applied Xiaozhi Gemini 3.x generation-config patch: removed deprecated sampling parameters."
 }
 else {
-    throw "Gemini generation-config patch guard failed. Expected pinned GenerationConfig block was not found; refusing to modify runtime."
+    throw "Gemini generation-config patch guard failed. Expected pinned GenerationConfig block was not found; refusing to modify runtime config."
 }
 
 if ($ProviderChanged) {
@@ -214,4 +227,285 @@ if (-not $VadText.Contains($ManualEndpoint) -or
 if ($VadChanged) {
     [System.IO.File]::WriteAllText($SileroProvider, $VadText, $Utf8NoBom)
     Write-Host "Kadence manual-mode Silero endpoint observer installed (buffering semantics unchanged)."
+}
+
+# Milestone 4: install the Project-owned volatile session helper into the ignored
+# pinned runtime. This is deliberately separate from Xiaozhi's Memory provider:
+# it stores only short user/assistant exchanges for the life of this backend
+# process and contains no provider-specific code or durable storage.
+$SessionSourceText = [System.IO.File]::ReadAllText($KadenceSessionSource, $Utf8NoBom)
+$SessionTargetText = if (Test-Path $KadenceSessionTarget) {
+    [System.IO.File]::ReadAllText($KadenceSessionTarget, $Utf8NoBom)
+} else {
+    ""
+}
+if ($SessionTargetText -ne $SessionSourceText) {
+    [System.IO.File]::WriteAllText($KadenceSessionTarget, $SessionSourceText, $Utf8NoBom)
+    Write-Host "Installed Kadence M4 volatile session helper into local runtime."
+} else {
+    Write-Host "Kadence M4 volatile session helper: already installed."
+}
+
+# Own session state at WebSocketServer/process scope rather than inside Luna,
+# Gemini or a per-socket ConnectionHandler. Each new handler receives the same
+# in-memory store; backend restart naturally destroys it.
+$WsText = [System.IO.File]::ReadAllText($WebSocketServer, $Utf8NoBom).Replace("`r`n", "`n")
+$WsChanged = $false
+
+$WsImportOriginal = "from core.connection import ConnectionHandler`n"
+$WsImportPatched = "from core.connection import ConnectionHandler`nfrom core.kadence_session import KadenceSessionHistory`n"
+if ($WsText.Contains($WsImportPatched)) {
+    Write-Host "Kadence M4 WebSocket session import: already applied."
+}
+elseif ($WsText.Contains($WsImportOriginal)) {
+    $WsText = $WsText.Replace($WsImportOriginal, $WsImportPatched)
+    $WsChanged = $true
+    Write-Host "Applied Kadence M4 WebSocket session import."
+}
+else {
+    throw "Kadence M4 WebSocket import guard failed; refusing to modify runtime."
+}
+
+$WsInitOriginal = @'
+        self.logger = setup_logging(config)
+        self.config_lock = asyncio.Lock()
+'@.Replace("`r`n", "`n")
+$WsInitPatched = @'
+        self.logger = setup_logging(config)
+        self.config_lock = asyncio.Lock()
+        self.kadence_session_history = KadenceSessionHistory(
+            max_exchanges=8,
+            max_chars=12_000,
+        )
+'@.Replace("`r`n", "`n")
+
+if ($WsText.Contains($WsInitPatched)) {
+    Write-Host "Kadence M4 process-lifetime session store: already applied."
+}
+elseif ($WsText.Contains($WsInitOriginal)) {
+    $WsText = $WsText.Replace($WsInitOriginal, $WsInitPatched)
+    $WsChanged = $true
+    Write-Host "Applied Kadence M4 process-lifetime session store."
+}
+else {
+    throw "Kadence M4 WebSocket init guard failed; refusing to modify runtime."
+}
+
+$WsHandlerOriginal = @'
+        handler = ConnectionHandler(
+            self.config,
+            self._vad,
+            self._asr,
+            self._llm,
+            self._memory,
+            self._intent,
+            self,  # 传入server实例
+        )
+'@.Replace("`r`n", "`n")
+$WsHandlerPatched = @'
+        handler = ConnectionHandler(
+            self.config,
+            self._vad,
+            self._asr,
+            self._llm,
+            self._memory,
+            self._intent,
+            self,  # 传入server实例
+            session_history=self.kadence_session_history,
+        )
+'@.Replace("`r`n", "`n")
+
+if ($WsText.Contains($WsHandlerPatched)) {
+    Write-Host "Kadence M4 handler session injection: already applied."
+}
+elseif ($WsText.Contains($WsHandlerOriginal)) {
+    $WsText = $WsText.Replace($WsHandlerOriginal, $WsHandlerPatched)
+    $WsChanged = $true
+    Write-Host "Applied Kadence M4 handler session injection."
+}
+else {
+    throw "Kadence M4 handler injection guard failed; refusing to modify runtime."
+}
+
+if (-not $WsText.Contains("KadenceSessionHistory") -or
+    -not $WsText.Contains("session_history=self.kadence_session_history")) {
+    throw "Kadence M4 WebSocket post-patch verification failed."
+}
+
+if ($WsChanged) {
+    [System.IO.File]::WriteAllText($WebSocketServer, $WsText, $Utf8NoBom)
+    Write-Host "Kadence M4 WebSocket process-session ownership installed."
+}
+
+# Hydrate a fresh per-socket Dialogue from the process store after canonical
+# system-prompt construction, then commit only completed top-level spoken turns
+# back into that store. Provider adapters continue receiving the same generic
+# Dialogue they already consume.
+$ConnText = [System.IO.File]::ReadAllText($ConnectionHandler, $Utf8NoBom).Replace("`r`n", "`n")
+$ConnChanged = $false
+
+$ConnSignatureOriginal = @'
+            _intent,
+            server=None,
+    ):
+'@.Replace("`r`n", "`n")
+$ConnSignaturePatched = @'
+            _intent,
+            server=None,
+            session_history=None,
+    ):
+'@.Replace("`r`n", "`n")
+
+if ($ConnText.Contains($ConnSignaturePatched)) {
+    Write-Host "Kadence M4 ConnectionHandler session parameter: already applied."
+}
+elseif ($ConnText.Contains($ConnSignatureOriginal)) {
+    $ConnText = $ConnText.Replace($ConnSignatureOriginal, $ConnSignaturePatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M4 ConnectionHandler session parameter."
+}
+else {
+    throw "Kadence M4 ConnectionHandler signature guard failed; refusing to modify runtime."
+}
+
+$ConnStateOriginal = @'
+        self.server = server  # 保存server实例的引用
+
+        self.need_bind = False  # 是否需要绑定设备
+'@.Replace("`r`n", "`n")
+$ConnStatePatched = @'
+        self.server = server  # 保存server实例的引用
+        self.kadence_session_history = session_history
+        self._kadence_history_hydrated = False
+
+        self.need_bind = False  # 是否需要绑定设备
+'@.Replace("`r`n", "`n")
+
+if ($ConnText.Contains($ConnStatePatched)) {
+    Write-Host "Kadence M4 ConnectionHandler session state: already applied."
+}
+elseif ($ConnText.Contains($ConnStateOriginal)) {
+    $ConnText = $ConnText.Replace($ConnStateOriginal, $ConnStatePatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M4 ConnectionHandler session state."
+}
+else {
+    throw "Kadence M4 ConnectionHandler state guard failed; refusing to modify runtime."
+}
+
+$ConnHydrateCallOriginal = @'
+            self._init_prompt_enhancement()
+            """注入工具调用few-shot示例（仅function_call模式）"""
+'@.Replace("`r`n", "`n")
+$ConnHydrateCallPatched = @'
+            self._init_prompt_enhancement()
+            self._hydrate_kadence_session_history()
+            """注入工具调用few-shot示例（仅function_call模式）"""
+'@.Replace("`r`n", "`n")
+
+if ($ConnText.Contains($ConnHydrateCallPatched)) {
+    Write-Host "Kadence M4 dialogue hydration call: already applied."
+}
+elseif ($ConnText.Contains($ConnHydrateCallOriginal)) {
+    $ConnText = $ConnText.Replace($ConnHydrateCallOriginal, $ConnHydrateCallPatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M4 dialogue hydration call."
+}
+else {
+    throw "Kadence M4 hydration-call guard failed; refusing to modify runtime."
+}
+
+$ConnMethodsAnchor = @'
+    def change_system_prompt(self, prompt):
+'@.Replace("`r`n", "`n")
+$ConnMethodsPatched = @'
+    def _hydrate_kadence_session_history(self):
+        if self._kadence_history_hydrated:
+            return
+        self._kadence_history_hydrated = True
+
+        if self.kadence_session_history is None or not self.device_id:
+            return
+
+        messages = self.kadence_session_history.get_messages(self.device_id)
+        for item in messages:
+            role = item.get("role")
+            content = item.get("content")
+            if role in ("user", "assistant") and isinstance(content, str) and content:
+                self.dialogue.put(Message(role=role, content=content))
+
+        if messages:
+            self.logger.bind(tag=TAG).info(
+                f"KADENCE SESSION: hydrated {len(messages) // 2} exchange(s)"
+            )
+
+    def _commit_kadence_session_exchange(self, query, assistant_text):
+        if self.kadence_session_history is None or not self.device_id:
+            return
+
+        retained = self.kadence_session_history.append_exchange(
+            self.device_id,
+            query,
+            assistant_text,
+        )
+        if retained:
+            count = self.kadence_session_history.exchange_count(self.device_id)
+            self.logger.bind(tag=TAG).info(
+                f"KADENCE SESSION: retained exchange count={count}"
+            )
+
+    def change_system_prompt(self, prompt):
+'@.Replace("`r`n", "`n")
+
+if ($ConnText.Contains("    def _hydrate_kadence_session_history(self):`n")) {
+    Write-Host "Kadence M4 session helper methods: already applied."
+}
+elseif ($ConnText.Contains($ConnMethodsAnchor)) {
+    $ConnText = $ConnText.Replace($ConnMethodsAnchor, $ConnMethodsPatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M4 session helper methods."
+}
+else {
+    throw "Kadence M4 helper-method guard failed; refusing to modify runtime."
+}
+
+$ConnCommitOriginal = @'
+        if len(response_message) > 0:
+            text_buff = "".join(response_message)
+            self.tts.store_tts_text(current_sentence_id, text_buff)
+            self.dialogue.put(Message(role="assistant", content=text_buff))
+
+        if depth == 0:
+'@.Replace("`r`n", "`n")
+$ConnCommitPatched = @'
+        if len(response_message) > 0:
+            text_buff = "".join(response_message)
+            self.tts.store_tts_text(current_sentence_id, text_buff)
+            self.dialogue.put(Message(role="assistant", content=text_buff))
+            if depth == 0 and not self.client_abort:
+                self._commit_kadence_session_exchange(query, text_buff)
+
+        if depth == 0:
+'@.Replace("`r`n", "`n")
+
+if ($ConnText.Contains($ConnCommitPatched)) {
+    Write-Host "Kadence M4 completed-turn commit: already applied."
+}
+elseif ($ConnText.Contains($ConnCommitOriginal)) {
+    $ConnText = $ConnText.Replace($ConnCommitOriginal, $ConnCommitPatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M4 completed-turn commit."
+}
+else {
+    throw "Kadence M4 completed-turn commit guard failed; refusing to modify runtime."
+}
+
+if (-not $ConnText.Contains("self._hydrate_kadence_session_history()") -or
+    -not $ConnText.Contains("self._commit_kadence_session_exchange(query, text_buff)")) {
+    throw "Kadence M4 ConnectionHandler post-patch verification failed."
+}
+
+if ($ConnChanged) {
+    [System.IO.File]::WriteAllText($ConnectionHandler, $ConnText, $Utf8NoBom)
+    Write-Host "Kadence M4 ConnectionHandler session continuity installed."
 }
