@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, Iterable, Mapping, Optional
 
 ToolHandler = Callable[[Dict[str, Any]], Any | Awaitable[Any]]
 _TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-_SUPPORTED_COMMON = {"type", "enum"}
+_SUPPORTED_COMMON = {"type", "enum", "description"}
 _SUPPORTED_BY_TYPE = {
     "object": {"properties", "required", "additionalProperties"},
     "array": {"items", "minItems", "maxItems"},
@@ -105,9 +105,9 @@ class KadenceToolBoundary:
                 "Tool is not allow-listed.",
             )
 
-        parsed = self._parse_arguments(name, arguments)
-        if isinstance(parsed, dict) and parsed.get("__kadence_rejected__"):
-            return parsed["result"]
+        parsed, rejection = self._parse_arguments(name, arguments)
+        if rejection is not None:
+            return rejection
 
         spec = self._tools[name]
         try:
@@ -119,6 +119,13 @@ class KadenceToolBoundary:
             result = spec.handler(parsed)
             if inspect.isawaitable(result):
                 result = await result
+            json.dumps(result, allow_nan=False)
+        except (TypeError, ValueError):
+            return self._reject(
+                name,
+                "invalid_result",
+                "Tool returned a result that is not JSON-safe.",
+            )
         except Exception:
             return self._reject(
                 name,
@@ -134,30 +141,26 @@ class KadenceToolBoundary:
             "error": None,
         }
 
-    def _parse_arguments(self, name: str, arguments: Any) -> Any:
+    def _parse_arguments(
+        self, name: str, arguments: Any
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         if isinstance(arguments, str):
             try:
                 arguments = json.loads(arguments) if arguments.strip() else {}
             except json.JSONDecodeError:
-                return {
-                    "__kadence_rejected__": True,
-                    "result": self._reject(
-                        name,
-                        "malformed_json",
-                        "Tool arguments were not valid JSON.",
-                    ),
-                }
+                return None, self._reject(
+                    name,
+                    "malformed_json",
+                    "Tool arguments were not valid JSON.",
+                )
 
         if not isinstance(arguments, dict):
-            return {
-                "__kadence_rejected__": True,
-                "result": self._reject(
-                    name,
-                    "invalid_arguments",
-                    "Tool arguments must be a JSON object.",
-                ),
-            }
-        return arguments
+            return None, self._reject(
+                name,
+                "invalid_arguments",
+                "Tool arguments must be a JSON object.",
+            )
+        return arguments, None
 
     @staticmethod
     def _reject(tool: Optional[str], code: str, message: str) -> Dict[str, Any]:
@@ -185,6 +188,9 @@ class KadenceToolBoundary:
             raise ToolRegistrationError(
                 f"{path} uses unsupported schema keyword(s): {sorted(unsupported)}"
             )
+
+        if "description" in schema and not isinstance(schema["description"], str):
+            raise ToolRegistrationError(f"{path}.description must be a string")
 
         if "enum" in schema:
             enum_values = schema["enum"]
@@ -313,7 +319,7 @@ class KadenceToolBoundary:
                 raise ToolValidationError(f"{path} is too short")
             if "maxLength" in schema and len(value) > schema["maxLength"]:
                 raise ToolValidationError(f"{path} is too long")
-            if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
+            if "pattern" in schema and re.search(schema["pattern"], value) is None:
                 raise ToolValidationError(f"{path} does not match the required pattern")
 
         elif schema_type in ("integer", "number"):
