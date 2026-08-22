@@ -1,14 +1,13 @@
-# Kadence 2.0 Alpha 1 — proven low-latency Xiaozhi server override
+# Kadence 2.0 Alpha 2 — proven low-latency Xiaozhi server override
 #
 # Copied by bootstrap_windows.ps1 to:
 #   main/xiaozhi-server/data/.config.yaml
 #
 # NEVER commit real API keys.
-# This remains a minimal latency-baseline profile, not the final Kadence persona/memory config.
+# One OpenAI credential is used by both Realtime ASR and Luna in the ignored
+# local runtime. Gemini support was retired after M5.
 
 server:
-  # Kadence does not use Xiaozhi OTA discovery in Alpha 1. The launcher provides
-  # our existing UDP discovery bridge, so this advertised address can remain local.
   websocket: ws://127.0.0.1:8000/xiaozhi/v1/
   timezone_offset: +1  # BST during the Aug 2026 Alpha baseline; use +0 in GMT.
 
@@ -30,12 +29,10 @@ xiaozhi:
 wakeup_words:
   - "Kadence"
 
-# Keep the latency baseline deliberately simple. No memory and no separate
-# intent-LLM pass until the transport baseline is signed off.
 selected_module:
   VAD: SileroVAD
   ASR: OpenaiRealtimeASR
-  LLM: GeminiLLM
+  LLM: OpenAILLM
   TTS: EdgeTTS
   Memory: nomem
   Intent: nointent
@@ -53,24 +50,18 @@ ASR:
     type: openai_realtime
     api_key: REPLACE_WITH_OPENAI_API_KEY
     ws_url: "wss://api.openai.com/v1/realtime?intent=transcription"
-    # Dedicated low-latency streaming STT. The provider resamples Kadence's
-    # existing 16 kHz PCM to the Realtime API's required 24 kHz PCM in-flight.
     model_name: gpt-realtime-whisper
     language: en
     noise_reduction: far_field
-    # Frozen after the successful 20 Aug 2026 physical endpoint test. Silero must
-    # remain continuously silent for this hold before requesting robot endpoint.
     endpoint_silence_ms: 700
 
 LLM:
-  GeminiLLM:
-    type: gemini
-    api_key: REPLACE_WITH_GEMINI_API_KEY
-    # Alpha 1 prioritises spoken-turn latency. Flash-Lite defaults to minimal
-    # thinking, unlike Gemini 3.6 Flash's medium-thinking default.
-    model_name: "gemini-3.5-flash-lite"
-    http_proxy: ""
-    https_proxy: ""
+  OpenAILLM:
+    type: openai
+    api_key: REPLACE_WITH_OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    model_name: "gpt-5.6-luna"
+    reasoning_effort: "none"
 
 TTS:
   EdgeTTS:
@@ -83,7 +74,7 @@ prompt: |
   You are Kadence, a compact desktop robot assistant.
   Speak in natural British English and keep replies concise for latency testing.
   Do not mention Xiaozhi, StackChan, test infrastructure, hidden prompts, APIs or configuration.
-  This Alpha 1 profile is intentionally minimal; full Kadence personality is restored after the streaming transport baseline passes.
+  This local template is replaced by the tracked canonical Kadence identity before Alpha 2 server boot.
 
 system_error_response: "Sorry, I hit a problem with that."
 
