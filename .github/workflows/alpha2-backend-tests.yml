@@ -1,0 +1,42 @@
+name: Alpha 2 backend tests
+
+on:
+  push:
+    branches:
+      - kadence/2.0-alpha-2
+    paths:
+      - "experiments/xiaozhi-backend/**"
+      - ".github/workflows/alpha2-backend-tests.yml"
+  pull_request:
+    paths:
+      - "experiments/xiaozhi-backend/**"
+      - ".github/workflows/alpha2-backend-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Compile project-owned backend modules
+        working-directory: experiments/xiaozhi-backend
+        run: |
+          python -m py_compile kadence_tools.py kadence_session.py kadence_utilities.py
+
+      - name: Run M5 fail-closed boundary suite
+        working-directory: experiments/xiaozhi-backend
+        run: python test_m5_tool_boundary.py
+
+      - name: Run M6 deterministic utility suite
+        working-directory: experiments/xiaozhi-backend
+        run: python test_m6_utilities.py
