@@ -50,6 +50,11 @@ class KadenceToolHandlerAdapter:
         payload = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
         return ActionResponse(action=Action.REQLLM, result=payload)
 
+    async def cleanup(self):
+        """Match Xiaozhi's handler lifecycle without owning external resources."""
+
+        return None
+
 
 def _m5_probe_handler(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return {
