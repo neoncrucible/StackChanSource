@@ -30,18 +30,18 @@ if ($SourceText -ne $TargetText) {
     Write-Host "Kadence M6 read-only utilities already installed."
 }
 
-# M5 deliberately kept the handler provider-neutral and originally required only
-# mode + logger. M6 web lookup needs the already-loaded local runtime config only
-# to reuse Kadence's existing OpenAI credential; it does not expose config to the
-# model or change tool authority.
+# M6 intentionally leaves the physically validated M5 ConnectionHandler call
+# signature alone. An early M6 development build briefly added config=self.config;
+# repair that obsolete local runtime shape if encountered, then verify the proven
+# mode + logger call remains present.
 $ConnText = [System.IO.File]::ReadAllText($ConnectionPath, $Utf8NoBom).Replace("`r`n", "`n")
-$OldCall = @'
+$BaseCall = @'
             self.func_handler = build_kadence_tool_handler(
                 kadence_tool_mode,
                 logger=self.logger,
             )
 '@.Replace("`r`n", "`n")
-$NewCall = @'
+$ObsoleteCall = @'
             self.func_handler = build_kadence_tool_handler(
                 kadence_tool_mode,
                 logger=self.logger,
@@ -49,18 +49,19 @@ $NewCall = @'
             )
 '@.Replace("`r`n", "`n")
 
-if ($ConnText.Contains($NewCall)) {
-    Write-Host "Kadence M6 tool config handoff: already applied."
-}
-elseif ($ConnText.Contains($OldCall)) {
-    $ConnText = $ConnText.Replace($OldCall, $NewCall)
+if ($ConnText.Contains($ObsoleteCall)) {
+    $ConnText = $ConnText.Replace($ObsoleteCall, $BaseCall)
     [System.IO.File]::WriteAllText($ConnectionPath, $ConnText, $Utf8NoBom)
-    Write-Host "Applied Kadence M6 tool config handoff."
+    Write-Host "Removed obsolete M6 config handoff; restored proven M5 handler wiring."
+}
+elseif ($ConnText.Contains($BaseCall)) {
+    Write-Host "Kadence M6 handler wiring: proven M5 call preserved."
 }
 else {
-    throw "Kadence M6 config-handoff guard failed; refusing to modify runtime."
+    throw "Kadence M6 handler-wiring guard failed; refusing to modify runtime."
 }
 
-if (-not $ConnText.Contains('config=self.config,')) {
-    throw "Kadence M6 config-handoff verification failed."
+$VerifyText = [System.IO.File]::ReadAllText($ConnectionPath, $Utf8NoBom).Replace("`r`n", "`n")
+if (-not $VerifyText.Contains($BaseCall) -or $VerifyText.Contains('config=self.config,')) {
+    throw "Kadence M6 handler-wiring verification failed."
 }
