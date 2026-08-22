@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
 $LunaProfileApplier = Join-Path $PSScriptRoot "apply_luna_profile_windows.ps1"
 $ToolsApplier = Join-Path $PSScriptRoot "apply_kadence_tools_windows.ps1"
+$M6Applier = Join-Path $PSScriptRoot "apply_m6_utilities_windows.ps1"
 $FrozenLauncher = Join-Path $PSScriptRoot "start_windows.ps1"
 $RetiredProfilePath = Join-Path $RuntimeRoot "kadence-llm-profile.txt"
 
@@ -72,7 +73,13 @@ function Enable-KadenceCondaPath {
     throw "Conda was not found. Install Miniconda/Anaconda or set CONDA_EXE/KADENCE_HOME before starting Kadence."
 }
 
-foreach ($Required in @($PersonaInjector, $LunaProfileApplier, $ToolsApplier, $FrozenLauncher)) {
+foreach ($Required in @(
+    $PersonaInjector,
+    $LunaProfileApplier,
+    $ToolsApplier,
+    $M6Applier,
+    $FrozenLauncher
+)) {
     if (-not (Test-Path $Required)) {
         throw "Missing Alpha 2 launcher dependency: $Required"
     }
@@ -84,10 +91,9 @@ Write-Host ""
 
 & $PersonaInjector -RuntimeRoot $RuntimeRoot
 
-# M3 proved the abstraction; M5 proved the tool boundary on both providers.
-# From M6 onward Alpha 2 deliberately carries one cloud cognition path: Luna.
-# LOCAL/LUNA selection is the target beta/live architecture and is not smuggled
-# into Alpha 2 before the local engine exists.
+# M3 proved the abstraction; M5 proved the tool boundary. From M6 onward Alpha 2
+# deliberately carries one cloud cognition path: Luna. LOCAL/LUNA selection is
+# the target beta/live architecture and is not smuggled into Alpha 2 early.
 if (Test-Path $RetiredProfilePath) {
     Remove-Item $RetiredProfilePath -Force -ErrorAction SilentlyContinue
     Write-Host "Removed retired Gemini/Luna profile selector state."
@@ -96,12 +102,14 @@ Write-Host ""
 Write-Host "Applying fixed Alpha 2 LLM profile: luna"
 & $LunaProfileApplier -RuntimeRoot $RuntimeRoot
 
-# M5 remains the authority boundary. M6 will replace the inert probe mode with
-# the first real read-only utility registry without changing this execution gate.
-$env:KADENCE_TOOL_MODE = "m5_probe"
+# M5 remains the authority boundary. M6 swaps the inert probe advertisement for
+# exactly three read-only Project-owned utilities; no generic HTTP/MCP/OS tool is
+# exposed to Luna.
+$env:KADENCE_TOOL_MODE = "m6_readonly"
 Write-Host ""
 Write-Host "Applying Kadence safe tool boundary: $env:KADENCE_TOOL_MODE"
 & $ToolsApplier -RuntimeRoot $RuntimeRoot
+& $M6Applier -RuntimeRoot $RuntimeRoot
 
 Write-Host ""
 Write-Host "Canonical identity ready. Preparing local runtime..."
