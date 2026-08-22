@@ -41,8 +41,10 @@ if (-not (Test-Path $ConnectionHandler)) {
 
 # Always read/write these files as UTF-8 explicitly. Windows PowerShell 5.1
 # otherwise uses its legacy default text encoding and can corrupt non-ASCII
-# punctuation in YAML comments during an in-place migration.
-$ProviderText = [System.IO.File]::ReadAllText($GeminiProvider, $Utf8NoBom)
+# punctuation in YAML comments during an in-place migration. Normalize the
+# ignored Gemini Python runtime to LF in memory so guarded multiline patches are
+# stable even when another Alpha 2 patcher previously rewrote Windows CRLF.
+$ProviderText = [System.IO.File]::ReadAllText($GeminiProvider, $Utf8NoBom).Replace("`r`n", "`n")
 $ProviderChanged = $false
 
 # google-generativeai==0.8.5 does not accept a top-level `timeout=` argument on
@@ -71,12 +73,12 @@ $SamplingOriginal = @"
             top_k=40,
             max_output_tokens=2048,
         )
-"@
+"@.Replace("`r`n", "`n")
 $SamplingReplacement = @"
         self.gen_cfg = GenerationConfig(
             max_output_tokens=2048,
         )
-"@
+"@.Replace("`r`n", "`n")
 
 if ($ProviderText.Contains($SamplingReplacement)) {
     Write-Host "Xiaozhi Gemini 3.x generation-config patch: already applied."
