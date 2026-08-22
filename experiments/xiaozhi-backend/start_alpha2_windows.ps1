@@ -1,30 +1,23 @@
 param(
     [string]$RuntimeRoot = (Join-Path $PSScriptRoot ".runtime"),
-    [string]$CondaEnv = "kadence2-xiaozhi",
-    [string]$LlmProfile = ""
+    [string]$CondaEnv = "kadence2-xiaozhi"
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
-$LlmProfileApplier = Join-Path $PSScriptRoot "apply_llm_profile_windows.ps1"
-$M5ToolsApplier = Join-Path $PSScriptRoot "apply_m5_tools_windows.ps1"
-$M5GeminiRoundtripApplier = Join-Path $PSScriptRoot "apply_m5_gemini_tool_roundtrip_windows.ps1"
+$LunaProfileApplier = Join-Path $PSScriptRoot "apply_luna_profile_windows.ps1"
+$ToolsApplier = Join-Path $PSScriptRoot "apply_kadence_tools_windows.ps1"
 $FrozenLauncher = Join-Path $PSScriptRoot "start_windows.ps1"
-$LocalProfilePath = Join-Path $RuntimeRoot "kadence-llm-profile.txt"
+$RetiredProfilePath = Join-Path $RuntimeRoot "kadence-llm-profile.txt"
 
 function Enable-KadenceCondaPath {
-    # The packaged Control Surface starts from a clean Windows process and may
-    # not inherit the user's interactive shell PATH. Discover common Miniconda/
-    # Anaconda installs and expose conda to the frozen Alpha 1 launcher without
-    # modifying that launcher or any transport behaviour.
     if (Get-Command conda -ErrorAction SilentlyContinue) {
         return
     }
 
     $Roots = New-Object System.Collections.Generic.List[string]
-
     if ($env:CONDA_EXE -and (Test-Path $env:CONDA_EXE)) {
         $CondaExeDir = Split-Path $env:CONDA_EXE -Parent
         if ((Split-Path $CondaExeDir -Leaf) -ieq "Scripts") {
@@ -79,42 +72,10 @@ function Enable-KadenceCondaPath {
     throw "Conda was not found. Install Miniconda/Anaconda or set CONDA_EXE/KADENCE_HOME before starting Kadence."
 }
 
-function Resolve-KadenceLlmProfile {
-    if (-not [string]::IsNullOrWhiteSpace($LlmProfile)) {
-        $Candidate = $LlmProfile.Trim().ToLowerInvariant()
+foreach ($Required in @($PersonaInjector, $LunaProfileApplier, $ToolsApplier, $FrozenLauncher)) {
+    if (-not (Test-Path $Required)) {
+        throw "Missing Alpha 2 launcher dependency: $Required"
     }
-    elseif (-not [string]::IsNullOrWhiteSpace($env:KADENCE_LLM_PROFILE)) {
-        $Candidate = $env:KADENCE_LLM_PROFILE.Trim().ToLowerInvariant()
-    }
-    elseif (Test-Path $LocalProfilePath) {
-        $Candidate = ([System.IO.File]::ReadAllText($LocalProfilePath)).Trim().ToLowerInvariant()
-    }
-    else {
-        # Milestone 3 winner. Gemini remains selectable as a pre-boot fallback.
-        $Candidate = "luna"
-    }
-
-    if ($Candidate -notin @("gemini", "luna")) {
-        throw "Unsupported Kadence LLM profile '$Candidate'. Expected gemini or luna."
-    }
-
-    return $Candidate
-}
-
-if (-not (Test-Path $PersonaInjector)) {
-    throw "Missing Alpha 2 persona injector: $PersonaInjector"
-}
-if (-not (Test-Path $LlmProfileApplier)) {
-    throw "Missing Alpha 2 LLM profile applier: $LlmProfileApplier"
-}
-if (-not (Test-Path $M5ToolsApplier)) {
-    throw "Missing Alpha 2 M5 tool applier: $M5ToolsApplier"
-}
-if (-not (Test-Path $M5GeminiRoundtripApplier)) {
-    throw "Missing Alpha 2 M5 Gemini tool round-trip applier: $M5GeminiRoundtripApplier"
-}
-if (-not (Test-Path $FrozenLauncher)) {
-    throw "Missing frozen Alpha 1 launcher: $FrozenLauncher"
 }
 
 Write-Host "=== Kadence 2.0 Alpha 2 ==="
@@ -123,24 +84,24 @@ Write-Host ""
 
 & $PersonaInjector -RuntimeRoot $RuntimeRoot
 
-$ResolvedLlmProfile = Resolve-KadenceLlmProfile
+# M3 proved the abstraction; M5 proved the tool boundary on both providers.
+# From M6 onward Alpha 2 deliberately carries one cloud cognition path: Luna.
+# LOCAL/LUNA selection is the target beta/live architecture and is not smuggled
+# into Alpha 2 before the local engine exists.
+if (Test-Path $RetiredProfilePath) {
+    Remove-Item $RetiredProfilePath -Force -ErrorAction SilentlyContinue
+    Write-Host "Removed retired Gemini/Luna profile selector state."
+}
 Write-Host ""
-Write-Host "Applying pre-boot LLM profile: $ResolvedLlmProfile"
-& $LlmProfileApplier -Profile $ResolvedLlmProfile -RuntimeRoot $RuntimeRoot
+Write-Host "Applying fixed Alpha 2 LLM profile: luna"
+& $LunaProfileApplier -RuntimeRoot $RuntimeRoot
 
-# Milestone 5 uses one inert, Project-owned probe to validate the real function-
-# call path before M6 enables any external/read-only utility. The runtime adapter
-# never falls through to Xiaozhi's generic plugin/MCP/IoT executors.
+# M5 remains the authority boundary. M6 will replace the inert probe mode with
+# the first real read-only utility registry without changing this execution gate.
 $env:KADENCE_TOOL_MODE = "m5_probe"
 Write-Host ""
 Write-Host "Applying Kadence safe tool boundary: $env:KADENCE_TOOL_MODE"
-& $M5ToolsApplier -RuntimeRoot $RuntimeRoot
-
-# Pinned Xiaozhi manually reconstructs Gemini conversation history. Gemini 3
-# requires function-call thought signatures to be replayed with the tool result,
-# so install a provider-local compatibility shim after the generic M5 boundary.
-# This does not change Kadence's allow-list or validation policy.
-& $M5GeminiRoundtripApplier -RuntimeRoot $RuntimeRoot
+& $ToolsApplier -RuntimeRoot $RuntimeRoot
 
 Write-Host ""
 Write-Host "Canonical identity ready. Preparing local runtime..."
@@ -148,8 +109,4 @@ Enable-KadenceCondaPath
 Write-Host "Starting frozen Alpha 1 transport stack..."
 Write-Host ""
 
-# Deliberately delegate transport startup to the proven Alpha 1 launcher.
-# Alpha 2 owns identity/runtime/LLM-profile/tool-policy selection around it; it
-# does not fork or retune the frozen transport. LLM selection is fixed for the
-# server run and changing it requires shutdown/restart.
 & $FrozenLauncher -RuntimeRoot $RuntimeRoot -CondaEnv $CondaEnv
