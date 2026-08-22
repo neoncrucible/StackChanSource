@@ -190,7 +190,13 @@ $ToolInputPatched = @'
 
                     future = asyncio.run_coroutine_threadsafe(
 '@.Replace("`r`n", "`n")
-if ($ConnText.Contains($ToolInputPatched)) {
+$ToolInputSafeMarkers = (
+    $ConnText.Contains('kadence_safe_boundary = bool(') -and
+    $ConnText.Contains('getattr(self.func_handler, "kadence_safe_boundary", False)') -and
+    $ConnText.Contains('if kadence_safe_boundary:') -and
+    $ConnText.Contains('tool_input = {}')
+)
+if ($ConnText.Contains($ToolInputPatched) -or $ToolInputSafeMarkers) {
     Write-Host "Kadence pre-execution boundary guard: already applied."
 }
 elseif ($ConnText.Contains($ToolInputOriginal)) {
@@ -213,7 +219,11 @@ $SuccessReportPatched = @'
                                 report_tool_call=False,
                             )
 '@.Replace("`r`n", "`n")
-if ($ConnText.Contains($SuccessReportPatched)) {
+$SuccessReportSafeMarkers = [regex]::IsMatch(
+    $ConnText,
+    '(?ms)if not kadence_safe_boundary:\s+enqueue_tool_report\(\s+self,\s+tool_call_data\[''name''\],\s+tool_input,\s+str\(result\.result\) if result\.result else None,\s+report_tool_call=False,\s+\)'
+)
+if ($ConnText.Contains($SuccessReportPatched) -or $SuccessReportSafeMarkers) {
     Write-Host "Kadence success-report bypass: already applied."
 }
 elseif ($ConnText.Contains($SuccessReportOriginal)) {
@@ -236,7 +246,11 @@ $ErrorReportPatched = @'
                                 report_tool_call=False,
                             )
 '@.Replace("`r`n", "`n")
-if ($ConnText.Contains($ErrorReportPatched)) {
+$ErrorReportSafeMarkers = [regex]::IsMatch(
+    $ConnText,
+    '(?ms)if not kadence_safe_boundary:\s+enqueue_tool_report\(\s+self,\s+tool_call_data\[''name''\],\s+tool_input,\s+str\(e\),\s+report_tool_call=False,\s+\)'
+)
+if ($ConnText.Contains($ErrorReportPatched) -or $ErrorReportSafeMarkers) {
     Write-Host "Kadence error-report bypass: already applied."
 }
 elseif ($ConnText.Contains($ErrorReportOriginal)) {
@@ -272,7 +286,12 @@ $RecursivePatched = @'
                             self._kadence_tool_root_query = None
                             break
 '@.Replace("`r`n", "`n")
-if ($ConnText.Contains($RecursivePatched)) {
+$RecursiveSafeMarkers = (
+    $ConnText.Contains('kadence_dialogue_start = len(self.dialogue.dialogue)') -and
+    $ConnText.Contains('kadence_root_query = getattr(self, "_kadence_tool_root_query", None)') -and
+    $ConnText.Contains('self._kadence_tool_root_query = None')
+)
+if ($ConnText.Contains($RecursivePatched) -or $RecursiveSafeMarkers) {
     Write-Host "Kadence tool-result session commit: already applied."
 }
 elseif ($ConnText.Contains($RecursiveOriginal)) {
