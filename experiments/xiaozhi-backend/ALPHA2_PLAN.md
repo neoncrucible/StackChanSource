@@ -1,8 +1,9 @@
 # Kadence 2.0 Alpha 2 — Locked Plan
 
-Status: **SCOPE LOCKED / IMPLEMENTATION ACTIVE**
+Status: **SCOPE LOCKED / IMPLEMENTATION ACTIVE / POST-M5 PROVIDER SIMPLIFICATION APPLIED**
 
-Date locked: **20 Aug 2026**
+Date locked: **20 Aug 2026**  
+Post-M5 provider amendment: **22 Aug 2026**
 
 Branch: `kadence/2.0-alpha-2`
 
@@ -16,11 +17,15 @@ Physically validated Alpha 1 firmware checkpoint:
 
 ## Alpha 2 question
 
-> Can Kadence become recognisably herself and genuinely useful, with interchangeable server-side intelligence and safe read-only utilities, without sacrificing Alpha 1's proven voice transport?
+> Can Kadence become recognisably herself and genuinely useful, with Project-owned server-side intelligence boundaries and safe read-only utilities, without sacrificing Alpha 1's proven voice transport?
 
 ## User-visible goal
 
-Kadence becomes a fast, useful desktop assistant with a canonical personality, short-session conversational continuity, selectable pre-boot LLM profiles and tightly controlled read-only utilities, while preserving the validated Alpha 1 transport and robot-side behaviour.
+Kadence becomes a fast, useful desktop assistant with a canonical personality, short-session conversational continuity and tightly controlled read-only utilities while preserving the validated Alpha 1 transport and robot-side behaviour.
+
+From M6 onward Alpha 2 deliberately uses **GPT-5.6 Luna only** for LLM inference. The earlier Gemini/Luna dual-provider work remains historical validation evidence, not an ongoing fallback requirement.
+
+The intended beta/live cognition selector is **LOCAL / LUNA** only once a local engine exists. There is no automatic fallback or silent escalation contract: if the selected engine fails, the failure is surfaced rather than switching providers behind the user's back.
 
 ## Non-negotiable Alpha 1 transport invariants
 
@@ -75,19 +80,36 @@ No model-selected facial expression, LED expression, servo motion or arbitrary p
 
 ## LLM plan
 
-LLM selection is server-side and occurs **before server boot**.
+### Historical M3 decision
 
-Gemini Flash-Lite is the Alpha 1 reference candidate. OpenAI will be added as a competing Alpha 2 candidate. Both are benchmarked using the same canonical Kadence personality, ASR, endpointing and TTS. The benchmark winner becomes the default; both remain available as pre-boot fallback profiles.
+M3 compared Gemini 3.5 Flash-Lite with GPT-5.6 Luna under the same canonical identity, ASR, endpointing and TTS. Gemini won raw provider latency; Luna won broader blind quality and physical conversational flow. Luna therefore became the accepted Alpha 2 default.
 
-**Milestone 3 result:** GPT-5.6 Luna is the Alpha 2 default. Gemini 3.5 Flash-Lite remains available as the pre-boot fallback profile. See `MILESTONE3_VALIDATION.md`.
+M5 subsequently proved that the Project-owned tool boundary could work through both providers, including a provider-local repair for Gemini 3 function-call continuation signatures. This completed the abstraction test; it did **not** create a requirement to carry two providers forever.
 
-The Control Surface does **not** need an LLM selector for its Milestone 2 foundation. During early Alpha 2 development, provider/profile selection may remain configuration-driven. A pre-boot LLM selector is a later quality-of-life enhancement and must not block the server boot/monitor UI or early testing.
+### Post-M5 simplification amendment
 
-When the UI selector is added later, the selected LLM remains fixed for that server run. Changing LLM requires server shutdown and restart. There is no Alpha 2 live hot-swap requirement.
+From M6 onward:
+
+- Alpha 2 supports **Luna only** as its active cloud LLM;
+- Gemini is retired from the Kadence runtime/configuration/control path;
+- no further Gemini dual testing is required;
+- no fallback model is configured;
+- a Luna failure is allowed to fail visibly;
+- historical M3/M5 Gemini evidence remains in validation records and Git history;
+- dormant Gemini source inside the pinned third-party Xiaozhi checkout is not treated as an active Kadence capability and does not need to be deleted from upstream history.
+
+Future beta/live target:
+
+- `LOCAL` — explicit local inference mode;
+- `LUNA` — explicit cloud inference mode.
+
+There is **no AUTO mode**, no silent local-to-cloud escalation and no automatic cloud fallback in the accepted target architecture. Provider selection remains a conscious operator/user choice.
+
+LOCAL is still outside Alpha 2 implementation scope. Alpha 2 must not fake a LOCAL switch before the local engine exists.
 
 ## Conversation continuity
 
-Alpha 2 may retain short live-session conversation context so follow-up questions across separate wake-word turns make sense.
+Alpha 2 retains short live-session conversation context so follow-up questions across separate wake-word turns make sense.
 
 This is **not persistent memory**.
 
@@ -129,70 +151,49 @@ Out of scope for Alpha 2 utilities:
 
 **Gate:** branch ancestry and rollback checkpoints verified.
 
+**Status: PASS / CLOSED.**
+
 ### Milestone 1 — Canonical Kadence identity
 
-- Add one provider-independent canonical personality source.
-- Make server runtime consume the canonical identity without burying identity ownership inside a provider-specific profile.
-- Preserve Sonia voice and existing robot states.
+Add one provider-independent canonical personality source while preserving Sonia voice and existing robot states.
 
-**Gate:** scripted factual, technical and conversational prompts show consistent Kadence identity without infrastructure leakage or forced character performance.
+**Gate:** factual, technical and conversational prompts show consistent Kadence identity without infrastructure leakage or forced character performance.
+
+**Status: PASS / CLOSED.**
 
 ### Milestone 2 — Kadence Control Surface foundation
 
-Rebuild the Windows server monitor as an EYE-themed Kadence boot console and live monitor.
+Windows EYE-themed operator surface with Start Server, Stop Server, server/robot state, health, warnings and useful live log output. It must not alter Alpha 1 transport behaviour.
 
-For the Milestone 2 foundation, keep the UI deliberately narrow:
-
-- Start Server;
-- Stop Server;
-- server process state;
-- Kadence/server connection state where available;
-- current backend health/status;
-- warnings/errors;
-- useful live log/monitor output.
-
-The existing configured LLM/profile is used when the server starts. LLM selection, session modifiers, utility toggles, benchmark controls and other configuration controls are **not required to clear Milestone 2** and can be layered onto the Control Surface later.
-
-The EYE avatar is the visual centrepiece and may reflect **monitor/system state**, but this does not add or alter robot-side expression behaviour.
-
-**Gate:** the Control Surface starts/stops the existing backend cleanly and accurately reports state without changing Alpha 1 transport behaviour.
+**Status: USER ACCEPTED / CLOSED.**
 
 ### Milestone 3 — Gemini vs OpenAI benchmark
 
-Hold all non-LLM variables constant and compare Gemini Flash-Lite with the chosen OpenAI candidate.
+Historical provider comparison used to select the Alpha 2 default.
 
-Measure at minimum:
-
-- LLM request to first useful output;
-- LLM request to first TTS-ready output where measurable;
-- end-of-user-speech to audible reply where measurable;
-- answer quality/accuracy;
-- canonical personality adherence;
-- spoken-answer concision;
-- instruction following;
-- cost per turn where practical.
-
-**Gate:** choose the Alpha 2 default from recorded benchmark evidence while retaining both pre-boot profiles.
-
-**Status: PASS / CLOSED.** GPT-5.6 Luna selected as default; Gemini 3.5 Flash-Lite retained as fallback. No Alpha 1 transport invariant changed.
+**Status: PASS / CLOSED.** GPT-5.6 Luna selected. Gemini's historical benchmark role is retained in the evidence, but Gemini was subsequently retired from active operation after M5.
 
 ### Milestone 4 — Session continuity
 
 Add non-persistent conversational context across separate wake-word turns.
 
-**Gate:** follow-up references work reliably and a backend restart demonstrably clears the session context.
+**Gate:** follow-up references work reliably and a backend restart demonstrably clears session context.
+
+**Status: PASS / CLOSED.**
 
 ### Milestone 5 — Safe utility boundary
 
-Implement the validated, allow-listed function/tool contract before enabling real utility actions.
+Implement and physically validate the allow-listed function/tool contract before enabling real utilities.
 
-**Gate:** invalid or invented tool requests fail closed; allowed calls return structured results; ordinary conversation remains unaffected when no tool is needed.
+**Gate:** invalid/invented requests fail closed; allowed calls return structured results; ordinary conversation remains unaffected; tool turns coexist with M4 continuity.
+
+**Status: PASS / CLOSED.** The boundary was physically proven with Luna and, for abstraction evidence, Gemini. Ongoing dual-provider testing is no longer required.
 
 ### Milestone 6 — First utilities
 
-Enable time/date, weather and factual web lookup.
+Enable time/date, weather and factual web lookup through the closed M5 boundary.
 
-**Gate:** repeated physical tests mix ordinary conversation and read-only utility calls without fabricated results or infrastructure leakage.
+**Gate:** repeated physical tests mix ordinary conversation and read-only utility calls without fabricated results or infrastructure leakage. Alpha 2 M6 acceptance is Luna-only.
 
 ### Milestone 7 — Session behaviour overlays
 
@@ -204,7 +205,7 @@ Allow optional temporary behaviour modifiers from the Control Surface while cano
 
 Run a mixed-use physical acceptance session covering normal conversation, personality, follow-ups, utility calls, deliberate utility failures and repeated wake/listen/reply/idle cycles.
 
-**Gate:** record exact provider/model, persona revision, context behaviour, utility set, physical results and rollback SHA, then close Alpha 2 as `VALIDATED / FROZEN`.
+**Gate:** record exact Luna model, persona revision, context behaviour, utility set, physical results and rollback SHA, then close Alpha 2 as `VALIDATED / FROZEN`.
 
 ## Explicitly out of scope for Alpha 2
 
@@ -217,9 +218,12 @@ Run a mixed-use physical acceptance session covering normal conversation, person
 - timers/reminders;
 - email/calendar/PC write control;
 - Pi 5 deployment;
+- local LLM deployment;
+- LOCAL/LUNA UI switching before a real local engine exists;
+- AUTO routing or silent provider fallback;
 - Python migration unless independently required by a blocking defect;
 - transport optimisation or endpoint retuning without new physical evidence.
 
 ## Immediate implementation priority
 
-Proceed to **Milestone 4 — Session continuity**: retain short conversational context across separate wake-word turns within the current backend session, while ensuring a backend restart clears that context and no durable personal memory is introduced.
+Proceed to **Milestone 6 — read-only utilities** after one Luna-only simplification smoke test confirms the retired Gemini path has not disturbed the accepted runtime.
