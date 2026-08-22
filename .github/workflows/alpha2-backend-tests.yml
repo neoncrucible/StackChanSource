@@ -15,11 +15,24 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - name: Mark backend tests pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl --fail-with-body -sS \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d '{"state":"pending","context":"kadence-alpha/backend-tests","description":"M5/M6 project tests running"}'
+
       - name: Check out source
         uses: actions/checkout@v4
 
@@ -40,3 +53,24 @@ jobs:
       - name: Run M6 deterministic utility suite
         working-directory: experiments/xiaozhi-backend
         run: python test_m6_utilities.py
+
+      - name: Report backend test status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE="success"
+            DESCRIPTION="M5/M6 project tests passed"
+          else
+            STATE="failure"
+            DESCRIPTION="M5/M6 project tests failed"
+          fi
+          curl --fail-with-body -sS \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "{\"state\":\"${STATE}\",\"context\":\"kadence-alpha/backend-tests\",\"description\":\"${DESCRIPTION}\"}"
