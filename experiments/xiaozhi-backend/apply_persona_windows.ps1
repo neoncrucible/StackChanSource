@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $RepoDir = Join-Path $RuntimeRoot "xiaozhi-esp32-server"
 $ConfigPath = Join-Path $RepoDir "main\xiaozhi-server\data\.config.yaml"
 $PersonaPath = Join-Path $PSScriptRoot "persona\KADENCE_CANONICAL.md"
-$PatchScript = Join-Path $PSScriptRoot "patch_runtime_windows.ps1"
+$PatchScript = Join-Path $PSScriptRoot "patch_runtime_luna_windows.ps1"
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 if (-not (Test-Path $RepoDir)) {
@@ -24,9 +24,9 @@ if (-not (Test-Path $PatchScript)) {
     throw "Runtime compatibility patch script not found: $PatchScript"
 }
 
-# Run the existing guarded runtime repair first. This preserves the frozen
-# Alpha 1 transport patches and ensures a repaired YAML file cannot overwrite
-# the Alpha 2 persona after we inject it.
+# Run the active Luna-only guarded runtime repair first. This preserves the
+# frozen Alpha 1 transport/M4 patches and ensures a repaired YAML file cannot
+# overwrite the Alpha 2 persona after we inject it.
 & $PatchScript -RepoDir $RepoDir
 
 $ConfigText = [System.IO.File]::ReadAllText($ConfigPath, $Utf8NoBom)
@@ -59,8 +59,6 @@ foreach ($Line in $ConfigLines) {
     }
 
     if ($SkippingOldPrompt) {
-        # YAML literal-block content is indented. Ignore the previous prompt's
-        # indented/blank lines until the next top-level key, then resume copying.
         if ([string]::IsNullOrWhiteSpace($Line) -or $Line -match '^\s') {
             continue
         }
@@ -75,7 +73,6 @@ if (-not $FoundPrompt) {
 }
 
 $RenderedConfig = $Output -join "`r`n"
-
 if ($RenderedConfig -ne $ConfigText) {
     [System.IO.File]::WriteAllText($ConfigPath, $RenderedConfig, $Utf8NoBom)
     Write-Host "Injected canonical Kadence persona into ignored runtime config."
