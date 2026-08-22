@@ -10,6 +10,7 @@ Set-StrictMode -Version Latest
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
 $LlmProfileApplier = Join-Path $PSScriptRoot "apply_llm_profile_windows.ps1"
 $M5ToolsApplier = Join-Path $PSScriptRoot "apply_m5_tools_windows.ps1"
+$M5GeminiRoundtripApplier = Join-Path $PSScriptRoot "apply_m5_gemini_tool_roundtrip_windows.ps1"
 $FrozenLauncher = Join-Path $PSScriptRoot "start_windows.ps1"
 $LocalProfilePath = Join-Path $RuntimeRoot "kadence-llm-profile.txt"
 
@@ -109,6 +110,9 @@ if (-not (Test-Path $LlmProfileApplier)) {
 if (-not (Test-Path $M5ToolsApplier)) {
     throw "Missing Alpha 2 M5 tool applier: $M5ToolsApplier"
 }
+if (-not (Test-Path $M5GeminiRoundtripApplier)) {
+    throw "Missing Alpha 2 M5 Gemini tool round-trip applier: $M5GeminiRoundtripApplier"
+}
 if (-not (Test-Path $FrozenLauncher)) {
     throw "Missing frozen Alpha 1 launcher: $FrozenLauncher"
 }
@@ -131,6 +135,12 @@ $env:KADENCE_TOOL_MODE = "m5_probe"
 Write-Host ""
 Write-Host "Applying Kadence safe tool boundary: $env:KADENCE_TOOL_MODE"
 & $M5ToolsApplier -RuntimeRoot $RuntimeRoot
+
+# Pinned Xiaozhi manually reconstructs Gemini conversation history. Gemini 3
+# requires function-call thought signatures to be replayed with the tool result,
+# so install a provider-local compatibility shim after the generic M5 boundary.
+# This does not change Kadence's allow-list or validation policy.
+& $M5GeminiRoundtripApplier -RuntimeRoot $RuntimeRoot
 
 Write-Host ""
 Write-Host "Canonical identity ready. Preparing local runtime..."
