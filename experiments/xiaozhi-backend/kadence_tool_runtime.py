@@ -166,15 +166,20 @@ def _build_m6_boundary() -> KadenceToolBoundary:
             KadenceToolSpec(
                 name="kadence_weather",
                 description=(
-                    "Get read-only weather for a named place. day_offset 0 means today, "
-                    "1 tomorrow, up to 6 days ahead."
+                    "Get read-only weather for a city, town or specifically qualified locality. "
+                    "day_offset 0 means today, 1 tomorrow, up to 6 days ahead. For a broad "
+                    "state, region or country, ask the user to specify a city or town instead "
+                    "of treating a regional centroid as representative weather."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
                         "location": {
                             "type": "string",
-                            "description": "City or place to look up.",
+                            "description": (
+                                "City/town or qualified locality, for example London, Tokyo, "
+                                "or Miami, Florida."
+                            ),
                             "minLength": 1,
                             "maxLength": 96,
                         },
