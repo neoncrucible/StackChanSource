@@ -229,7 +229,7 @@ class KadenceReadOnlyUtilities:
             OPEN_METEO_GEOCODE,
             params={
                 "name": query,
-                "count": 1,
+                "count": 10,
                 "language": "en",
                 "format": "json",
             },
@@ -239,7 +239,42 @@ class KadenceReadOnlyUtilities:
         if not results:
             raise KadenceUtilityError("Location was not found.")
 
-        raw = results[0]
+        # Open-Meteo intentionally uses prefix matching for location names of
+        # three or more characters. Never trust result[0] blindly: a query such
+        # as "Florida" can otherwise resolve to "Floridablanca". Prefer a result
+        # whose actual place name exactly matches the user's location token.
+        base_query = query.split(",", 1)[0].strip().casefold()
+        exact_matches = [
+            candidate
+            for candidate in results
+            if isinstance(candidate, dict)
+            and _bounded_text(candidate.get("name"), 96).casefold() == base_query
+        ]
+
+        if exact_matches:
+            raw = exact_matches[0]
+        else:
+            raw = results[0]
+            # A single unqualified word is especially vulnerable to prefix-match
+            # surprises. Fail closed rather than silently forecasting a different
+            # place. Multi-word/qualified searches retain provider ranking.
+            if "," not in query and " " not in base_query:
+                raise KadenceUtilityError(
+                    "Location was ambiguous. Please specify a city or town."
+                )
+
+        if not isinstance(raw, dict):
+            raise KadenceUtilityError("Geocoder returned an invalid location.")
+
+        # Weather/time are point utilities. Administrative regions and countries
+        # can span large areas or multiple time zones, so do not pretend their
+        # centroid is "the weather" or "the time" for the whole region.
+        feature_code = _bounded_text(raw.get("feature_code"), 16).upper()
+        if feature_code.startswith("ADM") or feature_code.startswith("PCL"):
+            raise KadenceUtilityError(
+                "Location is too broad. Please specify a city or town."
+            )
+
         try:
             latitude = float(raw["latitude"])
             longitude = float(raw["longitude"])
