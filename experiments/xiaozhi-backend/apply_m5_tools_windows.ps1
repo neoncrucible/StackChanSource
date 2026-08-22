@@ -196,6 +196,56 @@ else {
     throw "Kadence M5 intent guard failed; refusing to modify runtime."
 }
 
+$FewshotOriginal = @'
+        if not hasattr(self, "func_handler") or self.func_handler is None:
+            return
+
+        tools = self.func_handler.get_functions()
+'@.Replace("`r`n", "`n")
+$FewshotPatched = @'
+        if not hasattr(self, "func_handler") or self.func_handler is None:
+            return
+        if getattr(self.func_handler, "kadence_safe_boundary", False):
+            return
+
+        tools = self.func_handler.get_functions()
+'@.Replace("`r`n", "`n")
+if ($ConnText.Contains($FewshotPatched)) {
+    Write-Host "Kadence M5 generic tool few-shot bypass: already applied."
+}
+elseif ($ConnText.Contains($FewshotOriginal)) {
+    $ConnText = $ConnText.Replace($FewshotOriginal, $FewshotPatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M5 generic tool few-shot bypass."
+}
+else {
+    throw "Kadence M5 few-shot guard failed; refusing to modify runtime."
+}
+
+$AdvertiseOriginal = @'
+            if functions is not None and depth == 0:
+                functions.append(DIRECT_ANSWER_TOOL)
+'@.Replace("`r`n", "`n")
+$AdvertisePatched = @'
+            if (
+                    functions is not None
+                    and depth == 0
+                    and not getattr(self.func_handler, "kadence_safe_boundary", False)
+            ):
+                functions.append(DIRECT_ANSWER_TOOL)
+'@.Replace("`r`n", "`n")
+if ($ConnText.Contains($AdvertisePatched)) {
+    Write-Host "Kadence M5 allowlist-only tool advertisement: already applied."
+}
+elseif ($ConnText.Contains($AdvertiseOriginal)) {
+    $ConnText = $ConnText.Replace($AdvertiseOriginal, $AdvertisePatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M5 allowlist-only tool advertisement."
+}
+else {
+    throw "Kadence M5 tool-advertisement guard failed; refusing to modify runtime."
+}
+
 $RootQueryOriginal = @'
         if depth == 0:
             current_sentence_id = str(uuid.uuid4().hex)
@@ -296,43 +346,6 @@ else {
     throw "Kadence M5 error-report guard failed; refusing to modify runtime."
 }
 
-$DirectAnswerOriginal = @'
-                    if not real_tool_calls:
-                        if depth == 0:
-                            self.tts.tts_text_queue.put(
-'@.Replace("`r`n", "`n")
-$DirectAnswerPatched = @'
-                    if not real_tool_calls:
-                        if depth == 0 and not self.client_abort:
-                            for tc in direct_answer_calls:
-                                kadence_direct_text = self._extract_direct_answer_response(
-                                    tc.get("arguments", "{}")
-                                )
-                                kadence_direct_text = self._clean_response_garbage(
-                                    kadence_direct_text or ""
-                                )
-                                if kadence_direct_text:
-                                    self._commit_kadence_session_exchange(
-                                        query,
-                                        kadence_direct_text,
-                                    )
-                                    self._kadence_tool_root_query = None
-                                    break
-                        if depth == 0:
-                            self.tts.tts_text_queue.put(
-'@.Replace("`r`n", "`n")
-if ($ConnText.Contains($DirectAnswerPatched)) {
-    Write-Host "Kadence M5 direct-answer session commit: already applied."
-}
-elseif ($ConnText.Contains($DirectAnswerOriginal)) {
-    $ConnText = $ConnText.Replace($DirectAnswerOriginal, $DirectAnswerPatched)
-    $ConnChanged = $true
-    Write-Host "Applied Kadence M5 direct-answer session commit."
-}
-else {
-    throw "Kadence M5 direct-answer guard failed; refusing to modify runtime."
-}
-
 $RecursiveOriginal = @'
             self.chat(None, depth=depth + 1)
 '@.Replace("`r`n", "`n")
@@ -372,6 +385,7 @@ else {
 if (-not $ConnText.Contains("build_kadence_tool_handler") -or
     -not $ConnText.Contains('KADENCE_TOOL_MODE') -or
     -not $ConnText.Contains('kadence_safe_boundary') -or
+    -not $ConnText.Contains('and not getattr(self.func_handler, "kadence_safe_boundary", False)') -or
     -not $ConnText.Contains('self._kadence_tool_root_query = query') -or
     -not $ConnText.Contains('kadence_dialogue_start = len(self.dialogue.dialogue)') -or
     -not $ConnText.Contains('self._commit_kadence_session_exchange(')) {
