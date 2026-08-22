@@ -7,13 +7,20 @@ Set-StrictMode -Version Latest
 
 $RepoDir = Join-Path $RuntimeRoot "xiaozhi-esp32-server"
 $ConnectionPath = Join-Path $RepoDir "main\xiaozhi-server\core\connection.py"
+$GeminiProviderPath = Join-Path $RepoDir "main\xiaozhi-server\core\providers\llm\gemini\gemini.py"
 $ToolsSource = Join-Path $PSScriptRoot "kadence_tools.py"
 $RuntimeSource = Join-Path $PSScriptRoot "kadence_tool_runtime.py"
 $ToolsTarget = Join-Path $RepoDir "main\xiaozhi-server\core\kadence_tools.py"
 $RuntimeTarget = Join-Path $RepoDir "main\xiaozhi-server\core\kadence_tool_runtime.py"
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
-foreach ($RequiredPath in @($RepoDir, $ConnectionPath, $ToolsSource, $RuntimeSource)) {
+foreach ($RequiredPath in @(
+    $RepoDir,
+    $ConnectionPath,
+    $GeminiProviderPath,
+    $ToolsSource,
+    $RuntimeSource
+)) {
     if (-not (Test-Path $RequiredPath)) {
         throw "Kadence M5 required path was not found: $RequiredPath"
     }
@@ -43,6 +50,99 @@ function Install-KadenceFile {
 
 Install-KadenceFile -Source $ToolsSource -Target $ToolsTarget -Label "Kadence M5 safe tool boundary"
 Install-KadenceFile -Source $RuntimeSource -Target $RuntimeTarget -Label "Kadence M5 runtime tool adapter"
+
+# google-generativeai==0.8.5 accepts a narrower function-schema dialect than
+# OpenAI. Kadence keeps the full strict schema for execution validation and gives
+# Gemini only a provider-compatible advertising copy. Stripping a keyword here
+# never weakens the Project-owned execution gate.
+$GeminiText = [System.IO.File]::ReadAllText($GeminiProviderPath, $Utf8NoBom).Replace("`r`n", "`n")
+$GeminiChanged = $false
+
+$GeminiBuildOriginal = @'
+    @staticmethod
+    def _build_tools(funcs: List[Dict[str, Any]] | None):
+        if not funcs:
+            return None
+        return [
+            types.Tool(
+                function_declarations=[
+                    types.FunctionDeclaration(
+                        name=f["function"]["name"],
+                        description=f["function"]["description"],
+                        parameters=f["function"]["parameters"],
+                    )
+                    for f in funcs
+                ]
+            )
+        ]
+'@.Replace("`r`n", "`n")
+
+$GeminiBuildPatched = @'
+    @staticmethod
+    def _sanitize_kadence_tool_schema(schema):
+        if not isinstance(schema, dict):
+            return schema
+
+        # Legacy google-generativeai FunctionDeclaration supports the common
+        # descriptive subset below. Validation-only constraints remain enforced
+        # by core.kadence_tools before any handler can execute.
+        allowed = {"type", "description", "enum", "properties", "required", "items"}
+        clean = {}
+        for key, value in schema.items():
+            if key not in allowed:
+                continue
+            if key == "properties" and isinstance(value, dict):
+                clean[key] = {
+                    child_name: LLMProvider._sanitize_kadence_tool_schema(child_schema)
+                    for child_name, child_schema in value.items()
+                }
+            elif key == "items":
+                clean[key] = LLMProvider._sanitize_kadence_tool_schema(value)
+            else:
+                clean[key] = value
+        return clean
+
+    @staticmethod
+    def _build_tools(funcs: List[Dict[str, Any]] | None):
+        if not funcs:
+            return None
+        return [
+            types.Tool(
+                function_declarations=[
+                    types.FunctionDeclaration(
+                        name=f["function"]["name"],
+                        description=f["function"]["description"],
+                        parameters=LLMProvider._sanitize_kadence_tool_schema(
+                            f["function"]["parameters"]
+                        ),
+                    )
+                    for f in funcs
+                ]
+            )
+        ]
+'@.Replace("`r`n", "`n")
+
+if ($GeminiText.Contains($GeminiBuildPatched)) {
+    Write-Host "Kadence M5 Gemini tool-schema sanitizer: already applied."
+}
+elseif ($GeminiText.Contains($GeminiBuildOriginal)) {
+    $GeminiText = $GeminiText.Replace($GeminiBuildOriginal, $GeminiBuildPatched)
+    $GeminiChanged = $true
+    Write-Host "Applied Kadence M5 Gemini tool-schema sanitizer."
+}
+else {
+    throw "Kadence M5 Gemini schema guard failed; refusing to modify runtime."
+}
+
+if (-not $GeminiText.Contains("_sanitize_kadence_tool_schema") -or
+    -not $GeminiText.Contains('allowed = {"type", "description", "enum", "properties", "required", "items"}')) {
+    throw "Kadence M5 Gemini schema post-patch verification failed."
+}
+
+if ($GeminiChanged) {
+    [System.IO.File]::WriteAllText($GeminiProviderPath, $GeminiText, $Utf8NoBom)
+    Write-Host "Kadence M5 Gemini provider compatibility installed."
+}
 
 $ConnText = [System.IO.File]::ReadAllText($ConnectionPath, $Utf8NoBom).Replace("`r`n", "`n")
 $ConnChanged = $false
