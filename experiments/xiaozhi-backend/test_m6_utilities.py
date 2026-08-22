@@ -48,6 +48,42 @@ class FakeNetwork:
             name = (params or {}).get("name")
             if name == "Nowhere Invalid":
                 return {"results": []}
+            if name == "Florida":
+                return {
+                    "results": [
+                        {
+                            "name": "Floridablanca",
+                            "admin1": "Santander",
+                            "country": "Colombia",
+                            "latitude": 7.0622,
+                            "longitude": -73.0864,
+                            "timezone": "America/Bogota",
+                            "feature_code": "PPLA2",
+                        },
+                        {
+                            "name": "Florida",
+                            "country": "United States",
+                            "latitude": 27.6648,
+                            "longitude": -81.5158,
+                            "timezone": "America/New_York",
+                            "feature_code": "ADM1",
+                        },
+                    ]
+                }
+            if name == "Miami, Florida":
+                return {
+                    "results": [
+                        {
+                            "name": "Miami",
+                            "admin1": "Florida",
+                            "country": "United States",
+                            "latitude": 25.7617,
+                            "longitude": -80.1918,
+                            "timezone": "America/New_York",
+                            "feature_code": "PPLA2",
+                        }
+                    ]
+                }
             return {
                 "results": [
                     {
@@ -57,6 +93,7 @@ class FakeNetwork:
                         "latitude": 35.6762 if name == "Tokyo" else 51.5074,
                         "longitude": 139.6503 if name == "Tokyo" else -0.1278,
                         "timezone": "Asia/Tokyo" if name == "Tokyo" else "Europe/London",
+                        "feature_code": "PPLC",
                     }
                 ]
             }
@@ -166,6 +203,39 @@ def main():
         print("PASS  unknown location fails safely")
     else:
         raise AssertionError("unknown location unexpectedly succeeded")
+
+    florida_forecast_calls_before = len(
+        [call for call in fake.calls if call["url"] == OPEN_METEO_FORECAST]
+    )
+    try:
+        utilities.weather({"location": "Florida", "day_offset": 0})
+    except KadenceUtilityError as exc:
+        expect("city or town" in str(exc), "broad Florida query asks for a city or town")
+    else:
+        raise AssertionError("broad Florida query unexpectedly succeeded")
+    florida_forecast_calls_after = len(
+        [call for call in fake.calls if call["url"] == OPEN_METEO_FORECAST]
+    )
+    expect(
+        florida_forecast_calls_after == florida_forecast_calls_before,
+        "broad location is rejected before forecast lookup",
+    )
+
+    florida_geocode_call = next(
+        call
+        for call in reversed(fake.calls)
+        if call["url"] == OPEN_METEO_GEOCODE and call["params"]["name"] == "Florida"
+    )
+    expect(
+        florida_geocode_call["params"]["count"] == 10,
+        "geocoder inspects bounded candidate set instead of trusting result one",
+    )
+
+    miami = utilities.weather({"location": "Miami, Florida", "day_offset": 0})
+    expect(
+        miami["location"] == "Miami, Florida, United States",
+        "qualified city within broad region remains valid",
+    )
 
     web = utilities.web_lookup({"query": "What changed today?"})
     expect(web["answer"] == "Current factual answer.", "web lookup extracts spoken factual answer")
