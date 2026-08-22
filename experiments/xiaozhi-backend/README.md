@@ -1,160 +1,134 @@
-# Kadence 2.0 Alpha 1 — Windows Runbook
+# Kadence 2.0 Alpha 2 — Windows Runbook
 
-This experiment lives on `kadence/2.0-alpha-1`. The known-good `beta/project-kadence` branch remains untouched and is the rollback point.
+Current branch: `kadence/2.0-alpha-2`
 
-Current Alpha baseline (20 Aug 2026):
+This directory hosts the Windows backend/runtime wrappers used by the physically validated Kadence 2.0 Alpha 2 stack. Historical Alpha 1/M3 details remain in their validation and close-out records; this file describes the **current** operating path.
 
-- pinned Xiaozhi backend `e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`;
-- 16 kHz / 60 ms Opus robot uplink over the retained warm Xiaozhi WebSocket;
-- Windows Silero endpoint observation with a frozen `700 ms` sustained-silence hold;
-- OpenAI Realtime `gpt-realtime-whisper` transcription (16 kHz -> 24 kHz PCM resampled in-flight);
-- Gemini `gemini-3.5-flash-lite`;
+## Current stack
+
+- pinned Xiaozhi backend: `e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`;
+- 16 kHz / 60 ms Opus robot uplink over Xiaozhi v1 WebSocket;
+- Windows Silero endpoint observation with frozen `700 ms` silence hold;
+- OpenAI Realtime `gpt-realtime-whisper` ASR;
+- GPT-5.6 Luna (`gpt-5.6-luna`, `reasoning_effort: none`);
 - Edge TTS `en-GB-SoniaNeural`;
-- TTS Opus returned through the robot's existing `AudioService` decode/playback queues;
-- no memory, no intent LLM, no MCP robot actions.
+- M4 bounded volatile session continuity;
+- M5 Project-owned safe tool boundary;
+- no persistent personal memory, generic MCP execution, shell access or model-driven robot motion.
 
-The endpoint control contract is documented in `KADENCE_CONTROL_PROTOCOL.md`.
+## Provider policy
 
-## 0. Before starting
+From M6 onward Alpha 2 is **Luna only**.
 
-Stop any older Kadence Windows voice server. Alpha 1 reuses UDP discovery port `45872`; the launcher deliberately fails instead of silently competing for the port.
+Gemini was used during M3 benchmarking and M5 provider-abstraction validation, then retired from the active Kadence runtime/config/control path. It is not a fallback and no ongoing Gemini regression pass is required.
 
-Do not flash an Alpha firmware image unless the corresponding PR #8 factory firmware build is green.
+Future beta/live target is **LOCAL / LUNA** explicit selection only. There is no AUTO mode and no silent fallback: if the selected inference engine fails, the failure is surfaced.
 
-## 1. Pull Alpha
+The robot firmware remains provider-agnostic and does not contain a Gemini-specific inference path.
 
-```powershell
-git fetch origin
-git switch kadence/2.0-alpha-1
-git pull
-```
+## Bootstrap
 
-Then enter:
-
-```powershell
-cd experiments\xiaozhi-backend
-```
-
-## 2. Bootstrap once
+From this directory:
 
 ```powershell
 .\bootstrap_windows.ps1
 ```
 
-The bootstrap creates the ignored runtime at:
+The bootstrap creates/refreshes the ignored Xiaozhi runtime and verifies the pinned upstream revision. Real API credentials are never committed.
 
-`.runtime\xiaozhi-esp32-server`
+The checked-in `kadence.config.example.yaml` contains one OpenAI placeholder. The ignored local runtime uses that credential for both Realtime ASR and Luna.
 
-and checks out exactly:
+## Start with the Control Surface
 
-`e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`
-
-It also creates the Conda environment `kadence2-xiaozhi` and the local runtime config.
-
-## 3. Start the proven Alpha stack
+Preferred operator path:
 
 ```powershell
-.\start_windows.ps1
+.\start_control_surface.ps1
 ```
 
-`start_windows.ps1` now performs the full reproducible startup path:
+The packaged EXE may also be used when already built.
 
-1. verifies the pinned Xiaozhi revision;
-2. applies the narrowly guarded Gemini/Silero runtime compatibility patches;
-3. securely injects missing OpenAI/Gemini credentials into the ignored local config;
-4. installs/refreshes the tracked Kadence Realtime ASR provider automatically;
-5. preserves the frozen `700 ms` endpoint hold;
-6. locates the working standalone FFmpeg build when present;
-7. starts the UDP discovery bridge and Xiaozhi server.
-
-Real API keys are never committed or printed. The checked-in config contains placeholders only.
-
-If the ordinary PowerShell session cannot find `conda`, add the existing Miniconda paths to that shell first:
+The Control Surface delegates backend startup to:
 
 ```powershell
-$env:Path = "$env:USERPROFILE\miniconda3;$env:USERPROFILE\miniconda3\Scripts;$env:USERPROFILE\miniconda3\condabin;$env:Path"
+.\start_alpha2_windows.ps1
 ```
 
-No LAN-IP edit is required. Kadence discovers the PC through the retained `KADENCE_DISCOVER_V1` UDP bridge and connects to `/xiaozhi/v1/`.
+Current startup sequence:
 
-Expected ASR startup markers include:
+1. apply the Luna-only guarded runtime/M4 compatibility path;
+2. inject the canonical Kadence persona;
+3. force the accepted Luna profile;
+4. apply the Project-owned safe tool boundary;
+5. discover Conda;
+6. delegate transport startup to `start_windows.ps1`;
+7. verify pinned Xiaozhi, install/refresh Realtime ASR, locate FFmpeg and start the proven UDP discovery/WebSocket stack.
+
+Until M6 replaces the inert M5 probe registry, startup still sets:
+
+`KADENCE_TOOL_MODE=m5_probe`
+
+This is temporary development state, not a production utility.
+
+## Expected current markers
+
+Useful startup lines include:
 
 ```text
-初始化组件: asr成功 OpenaiRealtimeASR
+Kadence canonical identity: v1 / sha256 7871c8453b3cf679c915c04220eef9bba14db535526d8e5bab666dbc66009aa1
+Applying fixed Alpha 2 LLM profile: luna
+Kadence LLM profile: openai-luna / model=gpt-5.6-luna / reasoning=none
+KADENCE TOOLS: mode=m5_probe allowlist=['kadence_boundary_probe']
 K2 ASR LIVE ready: model=gpt-realtime-whisper, 16k->24k PCM, endpoint=700ms
 ```
 
-## 4. Optional PC-side preflight
+A normal Alpha 2 boot should no longer request a Gemini API key, select Gemini or apply Gemini provider compatibility/tool-roundtrip patches.
 
-In a second PowerShell from this folder:
+## Current active Project wrappers
 
-```powershell
-.\test_backend.ps1
-```
+- `patch_runtime_luna_windows.ps1` — frozen transport-adjacent Silero + M4 guarded runtime patching only;
+- `apply_luna_profile_windows.ps1` — accepted Luna LLM profile and OpenAI provider compatibility;
+- `apply_persona_windows.ps1` — canonical identity injection;
+- `apply_kadence_tools_windows.ps1` — M5 safe tool plumbing;
+- `start_windows.ps1` — proven discovery/ASR/transport launcher;
+- `start_alpha2_windows.ps1` — Alpha 2 orchestration;
+- `start_control_surface.ps1` — operator UI launcher.
 
-It checks TCP `8000` plus the exact UDP discovery request/reply used by the robot.
+Closed M3 benchmark executables and Gemini-specific runtime helpers were removed after M5. Their history remains in Git and their accepted conclusions remain in the milestone records.
 
-## 5. Firmware behaviour
+## Physical smoke after runtime changes
 
-Alpha firmware preserves:
+A small smoke is enough unless the milestone-specific gate requires more:
 
-- local `Kadence` wake word;
-- chirp/listening UI;
-- touch and swipe cancellation;
-- motion/torque safety behaviour;
-- on-device AFE endpoint as fallback;
-- ten-second capture safety cap;
-- warm Xiaozhi WebSocket;
-- final 180 ms Opus flush before `listen/stop`;
-- downstream Xiaozhi TTS playback through the existing robot speaker path.
+1. start the Control Surface;
+2. verify Luna is the active model;
+3. verify robot connection and Realtime ASR readiness;
+4. ask one ordinary factual question;
+5. if tool plumbing changed, run the currently advertised safe utility/probe once;
+6. confirm normal wake -> listen -> endpoint -> ASR -> think -> speak -> idle behaviour.
 
-Server-side Silero now sends a proper versioned Kadence `endpoint` control message after sustained silence. The server never directly starts a reply while the robot is still recording; firmware remains authoritative for closing capture and sending Xiaozhi stop-listening.
+Do not flash firmware for server-only Alpha 2 changes.
 
-## 6. Physical smoke test
+## Stop / rollback conditions
 
-Use:
+Stop and investigate rather than retuning blindly if there is:
 
-`Kadence, what is twelve times seven?`
+- repeated reboot/reconnect instability;
+- microphone or AFE failure after a turn;
+- persistent/reproducible audio corruption;
+- cancellation failure;
+- raw model-directed hardware motion;
+- tool execution outside Kadence's explicit allow-list;
+- credentials or personal conversation content appearing in tracked files.
 
-Useful server markers:
+Do not modify the frozen Alpha 1 branch to repair an Alpha 2 server regression. Use the validation records and recorded rollback SHAs to repair forward or revert on `kadence/2.0-alpha-2`.
 
-- `K2 ASR LIVE first audio frame`
-- `K2 ASR LIVE first transcript delta ...`
-- `K2 ENDPOINT requested after ...`
-- `K2 ASR LIVE audio buffer committed`
-- `K2 ASR LIVE completed ... after commit`
-- `K2 ASR LIVE -> chat: ...`
+## Next milestone
 
-Useful firmware markers:
+M6 adds the first real read-only utilities through the closed M5 boundary:
 
-- `K2 LATENCY T1` — first microphone Opus sent;
-- `Kadence control endpoint request received` — server endpoint reached device;
-- `K2 LATENCY T2` — robot ended capture and began final Opus flush;
-- `K2 LATENCY T3` — STT received by firmware;
-- `K2 LATENCY T7` — first returned TTS Opus queued;
-- `TTS playback drained` — completed turn released back to the UI.
+- date/time;
+- weather;
+- factual web lookup.
 
-The validated 20 Aug baseline is recorded in `LATENCY_TEST.md`.
-
-## 7. Stop conditions
-
-Return to the Beta image if any of these recur:
-
-- uncontrolled servo movement;
-- repeated reboot;
-- microphone/AFE fails to recover after a turn;
-- persistent audio feedback;
-- cancellation no longer stops the turn;
-- model output attempts raw hardware control;
-- credentials or personal memory appear in tracked/logged material.
-
-## Still out of scope
-
-Until the transport baseline is formally signed off, do not mix in:
-
-- persistent memory;
-- SD-card identity storage;
-- MCP motion/actions;
-- emotion mapping;
-- vision;
-- new expressions/hardware.
+M6 acceptance is Luna-only. No Gemini duplicate test is required.
