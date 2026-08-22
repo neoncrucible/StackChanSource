@@ -1,33 +1,36 @@
 # Project Kadence 2.0 - Alpha 2 Rolling Contingency Snapshot
 
-**Status:** CURRENT THROUGH MILESTONE 4 / MILESTONE 5 IMPLEMENTED — PHYSICAL VALIDATION PENDING  
-**Snapshot:** 22 Aug 2026, 14:26 Europe/London  
+**Status:** CURRENT THROUGH MILESTONE 5 / MILESTONE 6 NEXT  
+**Snapshot:** 22 Aug 2026, 15:30 Europe/London  
 **Repository:** `neoncrucible/StackChanSource`  
 **Active branch:** `kadence/2.0-alpha-2`
 
 ## Purpose
 
-This is the rolling recovery record for Project Kadence 2.0 Alpha 2. It is not a roadmap replacement. It exists so development can be resumed from a clean chat or recovered after a bad change without reopening already validated work.
+This is the rolling recovery record for Project Kadence 2.0 Alpha 2. It exists so work can resume from a clean chat or recover after a bad change without reopening already validated milestones.
 
 ## Proven anchors and rollback lines
 
 - Frozen Alpha 1 head: `2d9ca4d515cee8f32f7d4fa0ecb7a80d17093ee1`.
 - Physically validated Alpha 1 firmware checkpoint: `b51bd762eb315b7bc330db0a5f9ecc1daa2183da`.
 - Independent rollback line: `beta/project-kadence`.
-- Alpha 1 historical branch: `kadence/2.0-alpha-1`; it remains frozen and must not be rewritten or retuned casually.
-- Pinned Xiaozhi upstream observed in accepted Alpha 2 boot: `e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`.
-- Canonical Kadence persona SHA-256 observed at boot: `7871c8453b3cf679c915c04220eef9bba14db535526d8e5bab666dbc66009aa1`.
-- M4 implementation repair head before validation record: `063bb7a497ee1d179c1a0783a64cf287810edfca`.
-- M4 closed recovery head before M5 implementation: `fb753073939359fda613adf2f5d7c9632dcf5281`.
-- M5 implementation head before this snapshot update: `6880f52dca29101d0616f263094448888f2a7278`.
+- Alpha 1 historical branch: `kadence/2.0-alpha-1`; it remains frozen.
+- Pinned Xiaozhi upstream: `e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`.
+- Canonical Kadence persona SHA-256: `7871c8453b3cf679c915c04220eef9bba14db535526d8e5bab666dbc66009aa1`.
+- M4 implementation repair head before validation: `063bb7a497ee1d179c1a0783a64cf287810edfca`.
+- M4 closed recovery head before M5 work: `fb753073939359fda613adf2f5d7c9632dcf5281`.
+- M5 initial implementation/physical-gate head: `721801a0b5e56f823a5b0d4d97771bd302a09a07`.
+- M5 newline-idempotence repair head: `6803bc7497f4454084374b239f55e1f72553d0d4`.
+- M5 Gemini signed tool-roundtrip implementation head: `9fe9e8b3c8cc61d71a1bb8ef7dd1b288dda68352`.
+- M5 validation record commit: `cf4285a4eee66492f711a55a5448e3b4d304c502`.
 
 ## Frozen transport invariants inherited from Alpha 1
 
-Do not silently retune any of the following during Alpha 2:
+Do not silently retune:
 
 - Xiaozhi v1 bidirectional WebSocket transport.
 - 16 kHz / 60 ms Opus robot uplink.
-- OpenAI Realtime `gpt-realtime-whisper` ASR path.
+- OpenAI Realtime `gpt-realtime-whisper` ASR.
 - Windows Silero preferred endpointing with 700 ms sustained-silence hold.
 - ESP32 AFE endpoint fallback.
 - 180 ms final Opus flush.
@@ -43,220 +46,171 @@ If a new feature appears to require changing one of these, stop implementation a
 
 ### M0 - Scope lock and provenance: CLOSED
 
-Alpha 2 was branched from the frozen Alpha 1 head and rollback lines were preserved.
+Alpha 2 was branched from frozen Alpha 1 with rollback lines preserved.
 
-### M1 - Canonical Kadence identity: PHYSICALLY VALIDATED
+### M1 - Canonical Kadence identity: PASS / CLOSED
 
-Kadence's personality is Project-owned rather than provider-owned. Accepted character is cool, analytical, precise, competent first, concise in speech, naturally British, with sharp wit and playful sarcasm used sparingly. No new robot expression system or LED behaviour was added.
+Kadence personality is Project-owned and provider-independent. Accepted character: cool, analytical, precise, competent first, concise in speech, naturally British, with sharp wit/playful sarcasm used naturally rather than constantly. No new robot expression or LED system was added.
 
-### M2 - Control Surface foundation: USER ACCEPTED / VALIDATED
+### M2 - Control Surface foundation: USER ACCEPTED / CLOSED
 
-Accepted Windows EYE-themed Control Surface provides start/stop controls, process and robot/server state, ASR/persona/model/transport status, preflight port checks, live UTF-8 logs, packaged EXE launching, project/Conda discovery, and narrow stale-Kadence cleanup. It delegates actual voice transport startup to the inherited frozen Alpha 1 path.
+Accepted Windows EYE-themed Control Surface provides backend start/stop, robot/server state, ASR/persona/model/transport status, preflight port checks, UTF-8 live logs, packaged EXE launch, project/Conda discovery and narrow stale-Kadence cleanup. It delegates actual voice transport startup to the frozen Alpha 1 path.
 
-Evidence gap retained honestly: the final packaged STOP SERVER path is implemented, but a separately captured final packaged stop-cycle log was not recorded in the accepting chat.
+Evidence gap retained honestly: the accepting M2 chat did not capture a separate final packaged STOP SERVER-cycle log.
 
-### M3 - Gemini vs OpenAI benchmark: PASS / CLOSED
+### M3 - Provider benchmark: PASS / CLOSED
 
 - Default LLM: GPT-5.6 Luna (`gpt-5.6-luna`, `reasoning_effort: none`).
 - Fallback: Gemini 3.5 Flash-Lite.
-- Selection remains pre-boot; changing provider requires server restart.
-- Gemini won raw provider latency; Luna won overall blind quality and physical conversational flow.
-- No Alpha 1 transport invariant was changed to favour either provider.
+- Provider selection is pre-boot; changing provider requires backend restart.
+- Gemini won raw provider latency; Luna won broader blind quality and physical conversational flow.
+- No transport invariant was changed to favour either provider.
 
-Accepted M3 caveats:
+Historical M3 caveats already fixed:
 
-- Initial Stage C provider A/B harness was invalid because an ambient `KADENCE_LLM_PROFILE` could override the blind profile. This was corrected before accepting evidence.
-- The Stage C log-retention issue was corrected before final evidence.
-- One cold-boot session showed weaker wakeword pickup for roughly ten seconds after readiness; it resolved without retuning and is non-material unless reproduced consistently.
+- an ambient `KADENCE_LLM_PROFILE` initially compromised one blind harness;
+- initial log retention was insufficient;
+- one cold boot showed weak wakeword pickup for roughly ten seconds, then recovered without retuning.
 
 ### M4 - Non-persistent session continuity: PASS / CLOSED
 
-Kadence now owns short conversational continuity at backend-process scope rather than inside Luna, Gemini, the robot or Xiaozhi durable Memory.
+Kadence owns short live-session continuity at backend-process scope rather than inside Luna, Gemini, the robot or Xiaozhi durable Memory.
 
-Accepted architecture and limits:
+Architecture/limits:
 
-- Project-owned `KadenceSessionHistory`.
-- One volatile store owned at `WebSocketServer` process scope.
-- History keyed by stable robot `device-id`.
-- Fresh `ConnectionHandler` instances hydrate generic `user`/`assistant` history from the process store.
-- Completed top-level spoken exchanges are committed back to the store.
-- Both Luna and Gemini continue to consume the normal provider-neutral Xiaozhi `Dialogue` path.
-- Maximum 8 completed exchanges.
-- Secondary 12,000-character ceiling.
-- Oldest complete exchange is pruned first.
-- No TTL, summarisation, token-counting, durable storage, personal profile, vector database or SD-card memory.
+- Project-owned `KadenceSessionHistory` at `WebSocketServer` process scope;
+- keyed by stable `device-id`;
+- fresh handlers hydrate generic `user`/`assistant` history;
+- completed top-level turns commit back to the process store;
+- maximum 8 completed exchanges;
+- 12,000-character secondary ceiling;
+- prune oldest complete exchange first;
+- no TTL, summarisation, token counting, vector DB, durable storage, personal profile or SD-card memory.
 
-Physical acceptance demonstrated:
+Physical acceptance proved cross-wake Frank Herbert references, three-plus connected turns, clean topic switching, stable persona, reconnect hydration, 8-exchange cap, backend-restart wipe and normal wake/listen/endpoint/ASR/think/speak/idle behaviour.
 
-- `Who wrote Dune?` followed by a separate wake `When was he born?` correctly resolved Frank Herbert.
-- A multi-step Frank Herbert chain remained coherent through at least four connected turns.
-- Switching to Tokyo cleanly displaced the old Dune topic, and `What is its population roughly?` resolved to Tokyo.
-- Canonical Kadence personality remained intact.
-- The retained count reached 8 and remained bounded at 8.
-- A fresh WebSocket/ConnectionHandler hydrated `8 exchange(s)` and `Which is the biggest one?` correctly resolved the pre-reconnect Saturn context to Titan.
-- The session test word `mongoose` was remembered before backend restart and forgotten after backend restart, with the new process beginning a fresh retained count.
-- Normal wake/listen/endpoint/ASR/think/speak/idle behaviour remained functional and no frozen transport invariant changed.
+M4 history note: the first boot failed closed on a brittle patch guard; the guard was narrowed without changing architecture and the subsequent physical run passed fully.
 
-M4 startup-history note:
+M4 audio note: one severe crackle occurred on the first post-reconnect Saturn/Titan answer. Server-side TTS reported success and it did not recur. Treat as non-blocking unless reproducible.
 
-- The first physical M4 boot failed closed on an overly brittle PowerShell handler-injection guard before backend launch.
-- The guard was narrowed to an ASCII-only attachment point immediately before `handler.handle_connection(websocket)` without changing the M4 architecture.
-- The corrected boot and full physical acceptance then passed.
+### M5 - Safe tool boundary: PASS / CLOSED
 
-M4 audio observation:
+Kadence now has a physically validated Project-owned allow-list/schema execution gate.
 
-- One severe audible crackle was reported during the first post-reconnect Saturn/Titan answer.
-- Server logs showed successful TTS generation with zero retries and no M4/session error for that answer.
-- The event occurred shortly after WebSocket reconnect/resource handoff and did not recur during the remainder of the validation run.
-- Treat as a non-blocking observation. Do not retune transport/playback for a single unreproduced event; investigate only if it becomes reproducible.
-
-## Current Alpha 2 operating state
-
-The normal development target is the packaged Control Surface starting the Alpha 2 Windows backend, with canonical Kadence identity loaded and Luna as default. Gemini remains the explicit fallback profile. Transport behaviour remains the frozen Alpha 1 behaviour.
-
-Kadence now has bounded **volatile live-session conversational continuity** only. It still has no persistent personal memory, no vector database, no robot-owned memory, no arbitrary OS execution, no smart-home writes and no model-driven motion.
-
-Backend restart intentionally clears M4 conversational continuity.
-
-## CURRENT: Milestone 5 - Safe tool boundary
-
-**Implementation status: BUILT / STATIC BOUNDARY TEST PASS / PHYSICAL VOICE VALIDATION PENDING.**
-
-### User-visible objective
-
-Introduce the first Project-owned boundary through which Kadence can request utilities later, without yet giving the model unrestricted capabilities or implementing M6 utilities under cover of M5.
-
-### Accepted M5 architecture
-
-Authority is deliberately separated from Xiaozhi's generic tool registry:
+Authority line:
 
 `provider proposes call -> Kadence allow-list/schema gate -> Project-owned handler -> structured result -> provider final wording`
 
-The following architecture is explicitly rejected for Alpha 2:
+Not allowed:
 
-`provider -> Xiaozhi generic plugin/MCP/IoT registry -> whatever executor happens to match`
+`provider -> generic Xiaozhi plugin/MCP/IoT registry -> arbitrary executor`
 
-The pinned Xiaozhi `UnifiedToolHandler` is therefore treated only as upstream plumbing/reference code and is bypassed whenever `KADENCE_TOOL_MODE` is active.
+Tracked implementation includes:
 
-### Project-owned boundary
-
-Tracked implementation:
-
-- `experiments/xiaozhi-backend/kadence_tools.py`
-- `experiments/xiaozhi-backend/kadence_tool_runtime.py`
-- `experiments/xiaozhi-backend/apply_m5_tools_windows.ps1`
-- `experiments/xiaozhi-backend/test_m5_tool_boundary.py`
+- `kadence_tools.py`;
+- `kadence_tool_runtime.py`;
+- `apply_m5_tools_windows.ps1`;
+- `apply_m5_gemini_tool_roundtrip_windows.ps1`;
+- `test_m5_tool_boundary.py`.
 
 Boundary properties:
 
 - only explicitly registered Kadence tools are advertised;
-- unknown/invented names fail closed;
-- arguments may arrive as a JSON object or raw JSON string but must resolve to an object;
-- required fields, types, enum values, bounds, patterns and nested shapes are checked before execution;
-- every object schema must use `additionalProperties: false`;
-- unsupported schema keywords fail registration rather than being silently ignored;
-- synchronous and asynchronous handlers are supported;
-- handler exceptions are contained and implementation details are not returned to the model;
-- handler results must be JSON-safe and reject NaN/non-serialisable output;
-- all outcomes use a small structured result envelope;
-- there is no fallback to arbitrary Python, shell, filesystem, process, network, MCP, IoT or OS execution.
+- names and arguments are revalidated immediately before execution;
+- object schemas are closed with `additionalProperties: false`;
+- unsupported schema keywords fail registration;
+- wrong names, malformed JSON, wrong types, missing fields, range/enum/pattern violations and extra fields fail closed;
+- handler exceptions are contained;
+- results must be JSON-safe and finite;
+- no generic shell/filesystem/process/network/MCP/IoT fallback exists.
 
-No new `jsonschema` dependency was introduced because the pinned runtime requirements do not declare it. The Project validator intentionally implements only the subset Alpha 2 needs and rejects schemas using unsupported constraints.
+Static abuse suite: **29/29 PASS**.
 
-### Provider independence
+M5 physical Luna acceptance proved:
 
-Luna receives the generic OpenAI-style function descriptors directly.
+- safe allow-list exactly `['kadence_boundary_probe']`;
+- ordinary conversation remained no-tool;
+- M4 follow-up continuity remained intact;
+- spoken allow-listed probe executed successfully;
+- invented delete/shell capabilities could not execute;
+- a completed tool turn survived normal WebSocket reconnect through M4 history;
+- backend restart still wiped continuity;
+- canonical personality and frozen transport behaviour remained intact.
 
-The pinned Gemini adapter already converts the same generic `function.name / description / parameters` structure to Gemini `FunctionDeclaration`s. Because `google-generativeai==0.8.5` accepts a narrower schema dialect, the guarded M5 runtime patch sanitises **only Gemini's advertising copy** to common descriptive fields. The full Kadence schema remains unchanged and is still enforced before execution.
+M5 Gemini acceptance proved:
 
-Provider compatibility therefore changes presentation only, never authority.
+- normal Gemini conversation worked under the same canonical identity and safe allow-list;
+- an initial tool attempt correctly exposed a Gemini 3 `thought_signature` continuation incompatibility in the pinned adapter;
+- the compatibility repair remained provider-local and did not weaken Kadence authority;
+- Gemini tool mode now preserves the signed function-call context and returns a proper function response via a dedicated REST round-trip, while ordinary Gemini chat remains on the previously proven SDK path;
+- a final genuine Gemini `Sapphire` probe logged `KADENCE TOOL: accepted name=kadence_boundary_probe`, returned a normal spoken answer, retained the exchange, and produced no `thought_signature` 400.
 
-### M5 inert physical probe
+Canonical validation record: `MILESTONE5_VALIDATION.md`.
 
-Until M5 closes, the Alpha 2 launcher sets:
+## Current Alpha 2 operating state
 
-`KADENCE_TOOL_MODE=m5_probe`
+Normal development target remains the packaged Control Surface and Alpha 2 Windows backend.
 
-The only registered executable capability is:
+Default provider should be **Luna**. Gemini is the explicit pre-boot fallback. Transport remains frozen Alpha 1 behaviour.
 
-`kadence_boundary_probe`
+Kadence currently has:
 
-It accepts one short safe `code` string and returns that code in a deterministic JSON result. It performs no network, filesystem, shell, process, device, home-automation or external action.
+- canonical provider-independent identity;
+- bounded volatile live-session continuity;
+- a safe provider-neutral tool authority boundary;
+- one inert M5 development probe only.
 
-Kadence safe mode also suppresses Xiaozhi's synthetic `direct_answer` tool and generic function-call few-shot injection. Ordinary model text remains ordinary model text, preserving the existing M4 normal-conversation path. Only the Kadence registry's descriptors are advertised as executable tools.
+Kadence still has no persistent personal memory, vector database, arbitrary OS execution, smart-home writes or model-driven motion.
 
-### M4 coexistence
+Backend restart intentionally clears M4 continuity.
 
-M5 does not modify M4's guarded completed-turn block, so the M4 patch remains recognisable/idempotent on later boots.
+## NEXT: Milestone 6 - Read-only utilities
 
-For real tool turns, M5 captures the original top-level user query, snapshots the dialogue immediately before the tool-result recursive model call, and after the final assistant response commits the new final user/assistant exchange back through the existing M4 `KadenceSessionHistory`. This is intended to make future utility turns survive normal WebSocket/handler churn without introducing durable memory.
+M6 is the next milestone and must be discussed before code.
 
-### Static boundary evidence
+Planned user-visible scope:
 
-The tracked `test_m5_tool_boundary.py` completed **29/29 checks** successfully before physical rollout. Covered cases include:
+- date/time;
+- weather;
+- factual web lookup.
 
-- valid allow-listed dict call;
-- valid JSON-string call;
-- invented tool;
-- malformed JSON;
-- non-object arguments;
-- missing required field;
-- wrong type;
-- enum violation;
-- numeric bound violation;
-- unexpected extra field;
-- internal-looking collision field;
-- async handler;
-- handler exception containment/no detail leak;
-- non-JSON handler result;
-- NaN result;
-- empty registry advertising no capabilities;
-- unregistered future weather utility refusing execution;
-- duplicate registration;
-- unsupported schema keyword;
-- open-ended `additionalProperties: true` schema.
+M6 requirements:
 
-### M5 physical gate still required
+- every utility must register through the closed M5 Kadence boundary;
+- read-only only;
+- no generic MCP/plugin/IoT exposure;
+- no shell, filesystem, process or arbitrary network execution granted to the model;
+- provider-neutral schemas/results;
+- canonical personality and M4 continuity must survive tool use;
+- failures must be bounded and spoken cleanly;
+- external lookup results must be treated as untrusted data, not instructions;
+- no frozen transport invariant changes.
 
-Do **not** close M5 until the actual robot/backend path demonstrates:
+Do not implement M7 behaviour overlays or post-Alpha-2 local-model routing under M6.
 
-- clean guarded startup with only `kadence_boundary_probe` in the safe allow-list;
-- ordinary no-tool conversation still works normally;
-- ordinary M4 follow-up continuity still works with function-call capability enabled;
-- explicit spoken M5 probe causes the allow-listed tool to execute and returns a natural spoken result;
-- a request for a non-allow-listed capability cannot produce arbitrary execution;
-- a tool-using exchange survives a normal WebSocket reconnect via M4 process continuity;
-- backend restart still clears session continuity;
-- safe handler cleanup introduces no disconnect error;
-- canonical personality remains intact;
-- frozen transport behaviour remains stable;
-- no unexplained recurring audio regression appears.
-
-Only after those checks pass should `MILESTONE5_VALIDATION.md` be added and the milestone marked CLOSED.
-
-## Remaining Alpha 2 roadmap after M5
+## Remaining Alpha 2 roadmap
 
 - M6 - first read-only utilities: date/time, weather and factual web lookup.
-- M7 - temporary session behaviour overlays from the Control Surface, always layered over canonical Kadence.
+- M7 - temporary session behaviour overlays from the Control Surface, layered over canonical Kadence.
 - M8 - mixed physical acceptance, exact-state recording and Alpha 2 freeze.
 
-## Explicitly parked for post-Alpha-2
+## Parked for post-Alpha-2
 
-A promising future architecture was identified on 21 Aug 2026: Kadence should eventually support interchangeable cognition with `LOCAL / AUTO / LUNA` modes. The intended direction is that Kadence owns identity, session/memory policy and tools, while local or cloud models are replaceable inference engines. AUTO would eventually route routine/local work to a local model and escalate difficult reasoning to Luna.
+Future architecture candidate: `LOCAL / AUTO / LUNA`, where Kadence owns identity, context/memory policy and tools while inference engines are interchangeable. LOCAL handles routine/internal work, LUNA is explicit advanced cloud reasoning, and AUTO is local-first with escalation.
 
-This concept is deliberately NOT part of Alpha 2. Do not expand M5 to implement it. It is a candidate backbone for Alpha 3 or the first post-Alpha-2 architecture milestone after Alpha 2 is physically frozen.
+This remains post-Alpha-2 scope.
 
 ## Recovery rules
 
 If Alpha 2 becomes unstable:
 
-1. Identify whether the regression is server-side Alpha 2 work or the frozen transport path.
-2. Do not modify the frozen Alpha 1 branch to fix an Alpha 2 regression.
-3. Compare against the Alpha 1 head `2d9ca4d...` and the accepted Alpha 2 milestone records.
-4. Preserve the current Alpha 2 branch history; revert or repair forward rather than rewriting validated history unless there is a compelling reason.
+1. Identify whether regression is Alpha 2 server work or frozen transport.
+2. Do not modify the frozen Alpha 1 branch to fix Alpha 2.
+3. Compare against the Alpha 1 head and accepted Alpha 2 validation records.
+4. Preserve branch history; repair forward or revert rather than rewriting validated history.
 5. Use `beta/project-kadence` only as the independent older rollback line when needed.
-6. If physical evidence suggests an Alpha 1 transport invariant truly must change, stop and explicitly reopen that invariant before touching it.
+6. If physical evidence suggests a frozen transport invariant truly must change, stop and explicitly reopen that invariant first.
 
 ## Resume instruction for a fresh chat
 
-Read the live `kadence/2.0-alpha-2` branch, `ALPHA2_PLAN.md`, M1-M4 validation records and this rolling contingency snapshot. Treat M0-M4 as closed. Treat M5 as implemented but **not closed** until its physical voice/containment gate passes. Do not create another branch, reopen provider benchmarking, enable M6 utilities early, expose generic MCP/plugin/IoT execution, or retune transport unless new physical evidence requires it.
+Read live `kadence/2.0-alpha-2`, `ALPHA2_PLAN.md`, M1-M5 validation records and this rolling contingency snapshot. Treat **M0-M5 as closed**. Start by discussing and defining **M6** before code. Do not create another branch, reopen provider benchmarking, expose generic MCP/plugin/IoT execution, implement M7 early, or retune frozen transport without new physical evidence.
