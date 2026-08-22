@@ -93,21 +93,20 @@ if (-not (Test-Path $ConfigPath)) {
     throw "Missing $ConfigPath. Run bootstrap_windows.ps1 first."
 }
 
-$RuntimePatchScript = Join-Path $PSScriptRoot "patch_runtime_windows.ps1"
+$RuntimePatchScript = Join-Path $PSScriptRoot "patch_runtime_luna_windows.ps1"
 if (-not (Test-Path $RuntimePatchScript)) {
-    throw "Missing runtime compatibility patch script: $RuntimePatchScript"
+    throw "Missing active Luna runtime compatibility patch script: $RuntimePatchScript"
 }
 & $RuntimePatchScript -RepoDir $RepoDir
 
 # The upstream loader reads YAML literally; it does not expand environment
-# variables. Keep placeholders only in Git and inject secrets into the ignored
-# runtime copy. Read/write explicitly as UTF-8 without BOM so Windows PowerShell
-# 5.1 cannot corrupt non-ASCII YAML while replacing placeholders.
+# variables. Kadence now has one cloud credential source: OpenAI, shared by Luna
+# and Realtime ASR. Keep it only in the ignored local runtime copy.
 $ConfigText = [System.IO.File]::ReadAllText($ConfigPath, $Utf8NoBom)
 $ConfigChanged = $false
 
 if ($ConfigText.Contains("REPLACE_WITH_OPENAI_API_KEY")) {
-    $OpenAiKey = Read-SecretValue -EnvironmentName "KADENCE_OPENAI_API_KEY" -Prompt "OpenAI API key for Alpha 1 speech recognition"
+    $OpenAiKey = Read-SecretValue -EnvironmentName "KADENCE_OPENAI_API_KEY" -Prompt "OpenAI API key for Kadence Luna / Realtime ASR"
     if ([string]::IsNullOrWhiteSpace($OpenAiKey)) {
         throw "OpenAI API key was empty."
     }
@@ -115,27 +114,15 @@ if ($ConfigText.Contains("REPLACE_WITH_OPENAI_API_KEY")) {
     $ConfigChanged = $true
 }
 
-if ($ConfigText.Contains("REPLACE_WITH_GEMINI_API_KEY")) {
-    $GeminiKey = Read-SecretValue -EnvironmentName "KADENCE_GEMINI_API_KEY" -Prompt "Gemini API key for Alpha 1 LLM"
-    if ([string]::IsNullOrWhiteSpace($GeminiKey)) {
-        throw "Gemini API key was empty."
-    }
-    $ConfigText = $ConfigText.Replace("REPLACE_WITH_GEMINI_API_KEY", $GeminiKey)
-    $ConfigChanged = $true
-}
-
 if ($ConfigChanged) {
     [System.IO.File]::WriteAllText($ConfigPath, $ConfigText, $Utf8NoBom)
-    Write-Host "Stored Alpha 1 credentials only in the ignored local runtime config."
+    Write-Host "Stored Kadence OpenAI credential only in the ignored local runtime config."
 }
 
 if ($ConfigText -match "REPLACE_WITH_[A-Z0-9_]+") {
-    throw "Alpha 1 config still contains an unresolved credential placeholder."
+    throw "Kadence config still contains an unresolved credential placeholder."
 }
 
-# The proven Alpha baseline now uses the tracked Realtime ASR provider. Install
-# or refresh it automatically so a fresh bootstrap needs only start_windows.ps1;
-# the separate helper remains available for explicit migration/repair.
 $RealtimeInstaller = Join-Path $PSScriptRoot "enable_realtime_asr_windows.ps1"
 if (-not (Test-Path $RealtimeInstaller)) {
     throw "Missing Realtime ASR installer: $RealtimeInstaller"
@@ -158,17 +145,13 @@ if (-not (Test-Path $PythonExe)) {
     throw "Python was not found in Conda environment '$CondaEnv': $PythonExe"
 }
 
-# Kadence Beta already discovers its Windows voice service by UDP broadcast.
-# Preserve that proven firmware behaviour for Alpha 1: this tiny bridge answers
-# the existing discovery packet but points the robot at Xiaozhi's native
-# WebSocket endpoint. It means the PC's DHCP address can change without a
-# firmware rebuild or hard-coded IP.
+# Preserve the proven UDP discovery bridge and frozen robot transport contract.
 $Probe = $null
 try {
     $Probe = [System.Net.Sockets.UdpClient]::new($DiscoveryPort)
 }
 catch {
-    throw "UDP discovery port $DiscoveryPort is already in use. Stop the old Kadence voice server before starting Alpha 1."
+    throw "UDP discovery port $DiscoveryPort is already in use. Stop the old Kadence voice server before starting Alpha 2."
 }
 finally {
     if ($null -ne $Probe) {
@@ -227,9 +210,6 @@ $env:CONDA_DEFAULT_ENV = $CondaEnv
 
 Push-Location $ServerDir
 try {
-    # Launch the environment's Python directly. On Windows, `conda run` can
-    # prepend Library\bin again and make Python resolve Conda's broken ffmpeg
-    # ahead of the standalone build even after PATH has been overridden.
     if ($null -ne $FfmpegBin) {
         $ResolvedFfmpeg = (& $PythonExe -c "import shutil; print(shutil.which('ffmpeg') or '')").Trim()
         if ($ResolvedFfmpeg -ne $FfmpegExe) {
