@@ -196,6 +196,27 @@ else {
     throw "Kadence M5 intent guard failed; refusing to modify runtime."
 }
 
+$RootQueryOriginal = @'
+        if depth == 0:
+            current_sentence_id = str(uuid.uuid4().hex)
+'@.Replace("`r`n", "`n")
+$RootQueryPatched = @'
+        if depth == 0:
+            self._kadence_tool_root_query = query
+            current_sentence_id = str(uuid.uuid4().hex)
+'@.Replace("`r`n", "`n")
+if ($ConnText.Contains($RootQueryPatched)) {
+    Write-Host "Kadence M5 root-query capture: already applied."
+}
+elseif ($ConnText.Contains($RootQueryOriginal)) {
+    $ConnText = $ConnText.Replace($RootQueryOriginal, $RootQueryPatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M5 root-query capture."
+}
+else {
+    throw "Kadence M5 root-query guard failed; refusing to modify runtime."
+}
+
 $ToolInputOriginal = @'
                     tool_input = json.loads(tool_call_data.get("arguments") or "{}")
                     enqueue_tool_report(self, tool_call_data['name'], tool_input)
@@ -295,6 +316,7 @@ $DirectAnswerPatched = @'
                                         query,
                                         kadence_direct_text,
                                     )
+                                    self._kadence_tool_root_query = None
                                     break
                         if depth == 0:
                             self.tts.tts_text_queue.put(
@@ -311,9 +333,47 @@ else {
     throw "Kadence M5 direct-answer guard failed; refusing to modify runtime."
 }
 
+$RecursiveOriginal = @'
+            self.chat(None, depth=depth + 1)
+'@.Replace("`r`n", "`n")
+$RecursivePatched = @'
+            kadence_dialogue_start = len(self.dialogue.dialogue)
+            self.chat(None, depth=depth + 1)
+            if depth == 0 and not self.client_abort:
+                kadence_root_query = getattr(self, "_kadence_tool_root_query", None)
+                if kadence_root_query:
+                    for kadence_message in reversed(
+                        self.dialogue.dialogue[kadence_dialogue_start:]
+                    ):
+                        if (
+                            kadence_message.role == "assistant"
+                            and isinstance(kadence_message.content, str)
+                            and kadence_message.content.strip()
+                        ):
+                            self._commit_kadence_session_exchange(
+                                kadence_root_query,
+                                kadence_message.content,
+                            )
+                            self._kadence_tool_root_query = None
+                            break
+'@.Replace("`r`n", "`n")
+if ($ConnText.Contains($RecursivePatched)) {
+    Write-Host "Kadence M5 tool-result session commit: already applied."
+}
+elseif ($ConnText.Contains($RecursiveOriginal)) {
+    $ConnText = $ConnText.Replace($RecursiveOriginal, $RecursivePatched)
+    $ConnChanged = $true
+    Write-Host "Applied Kadence M5 tool-result session commit."
+}
+else {
+    throw "Kadence M5 tool-result session guard failed; refusing to modify runtime."
+}
+
 if (-not $ConnText.Contains("build_kadence_tool_handler") -or
     -not $ConnText.Contains('KADENCE_TOOL_MODE') -or
     -not $ConnText.Contains('kadence_safe_boundary') -or
+    -not $ConnText.Contains('self._kadence_tool_root_query = query') -or
+    -not $ConnText.Contains('kadence_dialogue_start = len(self.dialogue.dialogue)') -or
     -not $ConnText.Contains('self._commit_kadence_session_exchange(')) {
     throw "Kadence M5 post-patch verification failed; refusing to write runtime."
 }
