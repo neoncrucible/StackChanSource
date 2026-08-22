@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from plugins_func.register import Action, ActionResponse
 
+from config.config_loader import get_project_dir, read_config
 from core.kadence_tools import KadenceToolBoundary, KadenceToolSpec
 from core.kadence_utilities import KadenceReadOnlyUtilities
 
@@ -113,8 +114,13 @@ def _m5_probe_handler(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _find_openai_settings(config: Optional[Dict[str, Any]]) -> tuple[str, str]:
-    config = config or {}
+def _find_openai_settings() -> tuple[str, str]:
+    # Read only Kadence's own ignored runtime config. This avoids changing the
+    # physically validated M5 ConnectionHandler call signature merely to pass a
+    # credential into the trusted Project-owned utility layer.
+    config_path = get_project_dir() + "data/.config.yaml"
+    config = read_config(config_path) or {}
+
     llm = config.get("LLM") or {}
     luna = llm.get("OpenAILLM") or {}
     api_key = str(luna.get("api_key") or "").strip()
@@ -127,8 +133,8 @@ def _find_openai_settings(config: Optional[Dict[str, Any]]) -> tuple[str, str]:
     return api_key, model
 
 
-def _build_m6_boundary(config: Optional[Dict[str, Any]]) -> KadenceToolBoundary:
-    api_key, model = _find_openai_settings(config)
+def _build_m6_boundary() -> KadenceToolBoundary:
+    api_key, model = _find_openai_settings()
     utilities = KadenceReadOnlyUtilities(
         openai_api_key=api_key,
         openai_model=model,
@@ -209,15 +215,11 @@ def _build_m6_boundary(config: Optional[Dict[str, Any]]) -> KadenceToolBoundary:
     )
 
 
-def build_kadence_tool_handler(
-    mode: str,
-    logger=None,
-    config: Optional[Dict[str, Any]] = None,
-) -> KadenceToolHandlerAdapter:
+def build_kadence_tool_handler(mode: str, logger=None) -> KadenceToolHandlerAdapter:
     normalized = (mode or "").strip().lower()
 
     if normalized == "m6_readonly":
-        return KadenceToolHandlerAdapter(_build_m6_boundary(config), logger=logger)
+        return KadenceToolHandlerAdapter(_build_m6_boundary(), logger=logger)
 
     if normalized == "m5_probe":
         boundary = KadenceToolBoundary(
