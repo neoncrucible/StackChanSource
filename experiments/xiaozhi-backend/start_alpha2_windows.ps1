@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
 $LlmProfileApplier = Join-Path $PSScriptRoot "apply_llm_profile_windows.ps1"
+$M5ToolsApplier = Join-Path $PSScriptRoot "apply_m5_tools_windows.ps1"
 $FrozenLauncher = Join-Path $PSScriptRoot "start_windows.ps1"
 $LocalProfilePath = Join-Path $RuntimeRoot "kadence-llm-profile.txt"
 
@@ -105,6 +106,9 @@ if (-not (Test-Path $PersonaInjector)) {
 if (-not (Test-Path $LlmProfileApplier)) {
     throw "Missing Alpha 2 LLM profile applier: $LlmProfileApplier"
 }
+if (-not (Test-Path $M5ToolsApplier)) {
+    throw "Missing Alpha 2 M5 tool applier: $M5ToolsApplier"
+}
 if (-not (Test-Path $FrozenLauncher)) {
     throw "Missing frozen Alpha 1 launcher: $FrozenLauncher"
 }
@@ -120,6 +124,14 @@ Write-Host ""
 Write-Host "Applying pre-boot LLM profile: $ResolvedLlmProfile"
 & $LlmProfileApplier -Profile $ResolvedLlmProfile -RuntimeRoot $RuntimeRoot
 
+# Milestone 5 uses one inert, Project-owned probe to validate the real function-
+# call path before M6 enables any external/read-only utility. The runtime adapter
+# never falls through to Xiaozhi's generic plugin/MCP/IoT executors.
+$env:KADENCE_TOOL_MODE = "m5_probe"
+Write-Host ""
+Write-Host "Applying Kadence safe tool boundary: $env:KADENCE_TOOL_MODE"
+& $M5ToolsApplier -RuntimeRoot $RuntimeRoot
+
 Write-Host ""
 Write-Host "Canonical identity ready. Preparing local runtime..."
 Enable-KadenceCondaPath
@@ -127,7 +139,7 @@ Write-Host "Starting frozen Alpha 1 transport stack..."
 Write-Host ""
 
 # Deliberately delegate transport startup to the proven Alpha 1 launcher.
-# Alpha 2 owns identity/runtime/LLM-profile selection around it; it does not fork
-# or retune the frozen transport. LLM selection is fixed for the server run and
-# changing it requires shutdown/restart.
+# Alpha 2 owns identity/runtime/LLM-profile/tool-policy selection around it; it
+# does not fork or retune the frozen transport. LLM selection is fixed for the
+# server run and changing it requires shutdown/restart.
 & $FrozenLauncher -RuntimeRoot $RuntimeRoot -CondaEnv $CondaEnv
