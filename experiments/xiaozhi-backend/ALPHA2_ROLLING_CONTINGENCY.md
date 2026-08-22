@@ -1,13 +1,13 @@
 # Project Kadence 2.0 - Alpha 2 Rolling Contingency Snapshot
 
-**Status:** CURRENT THROUGH MILESTONE 5 / MILESTONE 6 NEXT  
-**Snapshot:** 22 Aug 2026, 15:30 Europe/London  
+**Status:** CURRENT THROUGH MILESTONE 5 / POST-M5 PROVIDER FAT TRIM APPLIED / MILESTONE 6 NEXT  
+**Snapshot:** 22 Aug 2026, Europe/London  
 **Repository:** `neoncrucible/StackChanSource`  
 **Active branch:** `kadence/2.0-alpha-2`
 
 ## Purpose
 
-This is the rolling recovery record for Project Kadence 2.0 Alpha 2. It exists so work can resume from a clean chat or recover after a bad change without reopening already validated milestones.
+This is the rolling recovery record for Project Kadence 2.0 Alpha 2. It exists so work can resume from a clean chat or recover after a bad change without reopening already validated milestones or resurrecting retired architecture.
 
 ## Proven anchors and rollback lines
 
@@ -18,11 +18,13 @@ This is the rolling recovery record for Project Kadence 2.0 Alpha 2. It exists s
 - Pinned Xiaozhi upstream: `e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5`.
 - Canonical Kadence persona SHA-256: `7871c8453b3cf679c915c04220eef9bba14db535526d8e5bab666dbc66009aa1`.
 - M4 implementation repair head before validation: `063bb7a497ee1d179c1a0783a64cf287810edfca`.
-- M4 closed recovery head before M5 work: `fb753073939359fda613adf2f5d7c9632dcf5281`.
-- M5 initial implementation/physical-gate head: `721801a0b5e56f823a5b0d4d97771bd302a09a07`.
-- M5 newline-idempotence repair head: `6803bc7497f4454084374b239f55e1f72553d0d4`.
-- M5 Gemini signed tool-roundtrip implementation head: `9fe9e8b3c8cc61d71a1bb8ef7dd1b288dda68352`.
-- M5 validation record commit: `cf4285a4eee66492f711a55a5448e3b4d304c502`.
+- M4 closed recovery head before M5: `fb753073939359fda613adf2f5d7c9632dcf5281`.
+- M5 initial physical-gate head: `721801a0b5e56f823a5b0d4d97771bd302a09a07`.
+- M5 newline-idempotence repair: `6803bc7497f4454084374b239f55e1f72553d0d4`.
+- M5 Gemini signed tool-roundtrip implementation: `9fe9e8b3c8cc61d71a1bb8ef7dd1b288dda68352`.
+- M5 closed recovery head before provider simplification: `11a7d0f6c59985a62f8e7f7618b82114c9fcef66`.
+- Post-M5 provider simplification work began at `7735ccdec5d0174c0824c139e1a1666ee71ab35d`.
+- Simplification state immediately before this snapshot update: `b9387a45bc374252545dd0db4e53aa60d300cff1`.
 
 ## Frozen transport invariants inherited from Alpha 1
 
@@ -50,7 +52,7 @@ Alpha 2 was branched from frozen Alpha 1 with rollback lines preserved.
 
 ### M1 - Canonical Kadence identity: PASS / CLOSED
 
-Kadence personality is Project-owned and provider-independent. Accepted character: cool, analytical, precise, competent first, concise in speech, naturally British, with sharp wit/playful sarcasm used naturally rather than constantly. No new robot expression or LED system was added.
+Kadence personality is Project-owned and inference-engine-independent. Accepted character: cool, analytical, precise, competent first, concise in speech, naturally British, with sharp wit/playful sarcasm used naturally rather than constantly. No new robot expression or LED system was added.
 
 ### M2 - Control Surface foundation: USER ACCEPTED / CLOSED
 
@@ -58,23 +60,24 @@ Accepted Windows EYE-themed Control Surface provides backend start/stop, robot/s
 
 Evidence gap retained honestly: the accepting M2 chat did not capture a separate final packaged STOP SERVER-cycle log.
 
-### M3 - Provider benchmark: PASS / CLOSED
+### M3 - Provider benchmark: PASS / CLOSED / HISTORICAL
 
-- Default LLM: GPT-5.6 Luna (`gpt-5.6-luna`, `reasoning_effort: none`).
-- Fallback: Gemini 3.5 Flash-Lite.
-- Provider selection is pre-boot; changing provider requires backend restart.
-- Gemini won raw provider latency; Luna won broader blind quality and physical conversational flow.
-- No transport invariant was changed to favour either provider.
+M3 compared Gemini 3.5 Flash-Lite and GPT-5.6 Luna while keeping identity, ASR, endpointing, TTS and transport constant.
 
-Historical M3 caveats already fixed:
+Historical result:
 
-- an ambient `KADENCE_LLM_PROFILE` initially compromised one blind harness;
-- initial log retention was insufficient;
-- one cold boot showed weak wakeword pickup for roughly ten seconds, then recovered without retuning.
+- Gemini won raw provider latency.
+- Luna won broader blind answer quality and physical conversational flow.
+- Luna became the Alpha 2 default.
+- No transport invariant changed to favour either provider.
+
+Historical M3 caveats were corrected before acceptance: an ambient profile override compromised an early blind harness, initial log retention was insufficient, and one cold boot briefly had weaker wakeword pickup before recovering without retuning.
+
+**Post-M5 policy supersedes the old fallback clause:** Gemini is no longer an active fallback and the M3 benchmark harness is retired. The validation records remain authoritative historical evidence.
 
 ### M4 - Non-persistent session continuity: PASS / CLOSED
 
-Kadence owns short live-session continuity at backend-process scope rather than inside Luna, Gemini, the robot or Xiaozhi durable Memory.
+Kadence owns short live-session continuity at backend-process scope rather than inside an inference provider, robot firmware or Xiaozhi durable Memory.
 
 Architecture/limits:
 
@@ -87,30 +90,29 @@ Architecture/limits:
 - prune oldest complete exchange first;
 - no TTL, summarisation, token counting, vector DB, durable storage, personal profile or SD-card memory.
 
-Physical acceptance proved cross-wake Frank Herbert references, three-plus connected turns, clean topic switching, stable persona, reconnect hydration, 8-exchange cap, backend-restart wipe and normal wake/listen/endpoint/ASR/think/speak/idle behaviour.
+Physical acceptance proved cross-wake references, three-plus connected turns, clean topic switching, stable persona, reconnect hydration, the 8-exchange cap, backend-restart wipe and normal wake/listen/endpoint/ASR/think/speak/idle behaviour.
 
-M4 history note: the first boot failed closed on a brittle patch guard; the guard was narrowed without changing architecture and the subsequent physical run passed fully.
+M4 history note: the first physical boot failed closed on a brittle patch guard; the guard was narrowed without changing architecture and the subsequent run passed fully.
 
 M4 audio note: one severe crackle occurred on the first post-reconnect Saturn/Titan answer. Server-side TTS reported success and it did not recur. Treat as non-blocking unless reproducible.
 
 ### M5 - Safe tool boundary: PASS / CLOSED
 
-Kadence now has a physically validated Project-owned allow-list/schema execution gate.
+Kadence has a physically validated Project-owned allow-list/schema execution gate.
 
 Authority line:
 
-`provider proposes call -> Kadence allow-list/schema gate -> Project-owned handler -> structured result -> provider final wording`
+`inference engine proposes call -> Kadence allow-list/schema gate -> Project-owned handler -> structured result -> inference engine final wording`
 
 Not allowed:
 
-`provider -> generic Xiaozhi plugin/MCP/IoT registry -> arbitrary executor`
+`inference engine -> generic Xiaozhi plugin/MCP/IoT registry -> arbitrary executor`
 
-Tracked implementation includes:
+Core tracked implementation retained after simplification:
 
 - `kadence_tools.py`;
 - `kadence_tool_runtime.py`;
-- `apply_m5_tools_windows.ps1`;
-- `apply_m5_gemini_tool_roundtrip_windows.ps1`;
+- `apply_kadence_tools_windows.ps1`;
 - `test_m5_tool_boundary.py`.
 
 Boundary properties:
@@ -126,49 +128,79 @@ Boundary properties:
 
 Static abuse suite: **29/29 PASS**.
 
-M5 physical Luna acceptance proved:
+Physical Luna acceptance proved ordinary no-tool conversation, M4 follow-up continuity, allow-listed execution, containment of invented delete/shell requests, tool-turn survival across reconnect, restart wipe, persona stability and frozen transport behaviour.
 
-- safe allow-list exactly `['kadence_boundary_probe']`;
-- ordinary conversation remained no-tool;
-- M4 follow-up continuity remained intact;
-- spoken allow-listed probe executed successfully;
-- invented delete/shell capabilities could not execute;
-- a completed tool turn survived normal WebSocket reconnect through M4 history;
-- backend restart still wiped continuity;
-- canonical personality and frozen transport behaviour remained intact.
-
-M5 Gemini acceptance proved:
-
-- normal Gemini conversation worked under the same canonical identity and safe allow-list;
-- an initial tool attempt correctly exposed a Gemini 3 `thought_signature` continuation incompatibility in the pinned adapter;
-- the compatibility repair remained provider-local and did not weaken Kadence authority;
-- Gemini tool mode now preserves the signed function-call context and returns a proper function response via a dedicated REST round-trip, while ordinary Gemini chat remains on the previously proven SDK path;
-- a final genuine Gemini `Sapphire` probe logged `KADENCE TOOL: accepted name=kadence_boundary_probe`, returned a normal spoken answer, retained the exchange, and produced no `thought_signature` 400.
+Gemini was also physically tested solely to prove provider abstraction. An initial Gemini 3 `thought_signature` incompatibility was repaired provider-locally and a final genuine Gemini probe passed. That work completed its architectural purpose and has now been retired from the active runtime path.
 
 Canonical validation record: `MILESTONE5_VALIDATION.md`.
 
+## Post-M5 provider simplification - ACTIVE POLICY
+
+User explicitly chose to stop paying the time/complexity cost of dual-provider operation and testing.
+
+### Alpha 2 from M6 onward
+
+- **Active LLM: GPT-5.6 Luna only** (`gpt-5.6-luna`, `reasoning_effort: none`).
+- Gemini is not a fallback.
+- No Gemini regression/acceptance pass is required for M6-M8.
+- If Luna fails, Kadence surfaces the failure; it does not silently switch inference providers.
+- One OpenAI credential source is used by Luna and OpenAI Realtime ASR in the ignored local runtime.
+- Robot firmware remains provider-agnostic; there was no Gemini-specific robot inference path to remove.
+
+### Beta/live target
+
+The accepted future cognition selector is exactly:
+
+- `LOCAL`
+- `LUNA`
+
+No `AUTO` mode. No silent LOCAL -> LUNA escalation. No hidden fallback. The selected engine either works or reports failure.
+
+LOCAL does not exist yet and must not be faked into Alpha 2. This remains post-Alpha-2 work.
+
+### Runtime fat removed/retired
+
+The active Alpha 2 path now uses:
+
+- `apply_luna_profile_windows.ps1`;
+- `patch_runtime_luna_windows.ps1`;
+- `apply_kadence_tools_windows.ps1`;
+- Luna-only `kadence.config.example.yaml`;
+- Luna-only Alpha 2 launcher/Control Surface state.
+
+Retired from the active tree after M5:
+
+- dual-provider `apply_llm_profile_windows.ps1`;
+- provider-specific `apply_m5_tools_windows.ps1`;
+- `apply_m5_gemini_tool_roundtrip_windows.ps1`;
+- Gemini-bearing `patch_runtime_windows.ps1`;
+- `set_llm_profile_windows.ps1`;
+- runnable M3 benchmark scripts/prompt pack;
+- M3 blind-provider Control Surface V4.2 layer.
+
+Historical M3/M5 validation documents remain. Git history remains the recovery source for retired benchmark code.
+
+The pinned Xiaozhi checkout itself is not vandalised to delete dormant upstream Gemini source. It remains pinned/immutable for provenance; Kadence simply no longer selects, configures or patches Gemini.
+
 ## Current Alpha 2 operating state
 
-Normal development target remains the packaged Control Surface and Alpha 2 Windows backend.
+Normal development target is the packaged Control Surface and Alpha 2 Windows backend with:
 
-Default provider should be **Luna**. Gemini is the explicit pre-boot fallback. Transport remains frozen Alpha 1 behaviour.
+- canonical Kadence identity;
+- GPT-5.6 Luna only;
+- OpenAI Realtime ASR;
+- Sonia Edge TTS;
+- frozen Silero/transport settings;
+- bounded volatile M4 session continuity;
+- closed M5 safe tool authority boundary.
 
-Kadence currently has:
+Until M6 replaces the probe registry, `KADENCE_TOOL_MODE=m5_probe` remains a temporary inert development mode.
 
-- canonical provider-independent identity;
-- bounded volatile live-session continuity;
-- a safe provider-neutral tool authority boundary;
-- one inert M5 development probe only.
-
-Kadence still has no persistent personal memory, vector database, arbitrary OS execution, smart-home writes or model-driven motion.
-
-Backend restart intentionally clears M4 continuity.
+Kadence still has no persistent personal memory, vector database, arbitrary OS execution, smart-home writes or model-driven motion. Backend restart intentionally clears M4 continuity.
 
 ## NEXT: Milestone 6 - Read-only utilities
 
-M6 is the next milestone and must be discussed before code.
-
-Planned user-visible scope:
+M6 planned user-visible scope:
 
 - date/time;
 - weather;
@@ -176,17 +208,17 @@ Planned user-visible scope:
 
 M6 requirements:
 
-- every utility must register through the closed M5 Kadence boundary;
+- every utility registers through the closed M5 Kadence boundary;
 - read-only only;
+- Luna-only acceptance; no Gemini duplicate test;
 - no generic MCP/plugin/IoT exposure;
 - no shell, filesystem, process or arbitrary network execution granted to the model;
-- provider-neutral schemas/results;
-- canonical personality and M4 continuity must survive tool use;
-- failures must be bounded and spoken cleanly;
-- external lookup results must be treated as untrusted data, not instructions;
+- failures bounded and spoken cleanly;
+- external lookup results treated as untrusted data, never instructions;
+- canonical identity and M4 continuity survive utility use;
 - no frozen transport invariant changes.
 
-Do not implement M7 behaviour overlays or post-Alpha-2 local-model routing under M6.
+Do not implement M7 behaviour overlays or LOCAL/LUNA switching under M6.
 
 ## Remaining Alpha 2 roadmap
 
@@ -196,9 +228,9 @@ Do not implement M7 behaviour overlays or post-Alpha-2 local-model routing under
 
 ## Parked for post-Alpha-2
 
-Future architecture candidate: `LOCAL / AUTO / LUNA`, where Kadence owns identity, context/memory policy and tools while inference engines are interchangeable. LOCAL handles routine/internal work, LUNA is explicit advanced cloud reasoning, and AUTO is local-first with escalation.
+Future architecture: **LOCAL / LUNA** with explicit operator selection. Kadence continues to own identity, context/memory policy and tools while the selected inference engine is replaceable.
 
-This remains post-Alpha-2 scope.
+There is no accepted AUTO router and no automatic fallback policy.
 
 ## Recovery rules
 
@@ -206,11 +238,12 @@ If Alpha 2 becomes unstable:
 
 1. Identify whether regression is Alpha 2 server work or frozen transport.
 2. Do not modify the frozen Alpha 1 branch to fix Alpha 2.
-3. Compare against the Alpha 1 head and accepted Alpha 2 validation records.
+3. Compare against Alpha 1 and accepted Alpha 2 validation records.
 4. Preserve branch history; repair forward or revert rather than rewriting validated history.
 5. Use `beta/project-kadence` only as the independent older rollback line when needed.
-6. If physical evidence suggests a frozen transport invariant truly must change, stop and explicitly reopen that invariant first.
+6. Do not resurrect Gemini as a fallback unless the user explicitly reopens that architectural decision.
+7. If physical evidence suggests a frozen transport invariant truly must change, stop and explicitly reopen that invariant first.
 
 ## Resume instruction for a fresh chat
 
-Read live `kadence/2.0-alpha-2`, `ALPHA2_PLAN.md`, M1-M5 validation records and this rolling contingency snapshot. Treat **M0-M5 as closed**. Start by discussing and defining **M6** before code. Do not create another branch, reopen provider benchmarking, expose generic MCP/plugin/IoT execution, implement M7 early, or retune frozen transport without new physical evidence.
+Read live `kadence/2.0-alpha-2`, `ALPHA2_PLAN.md`, M1-M5 validation records and this rolling contingency snapshot. Treat **M0-M5 as closed**. Treat the post-M5 Luna-only simplification as current architecture. Run one Luna-only simplification smoke if not yet physically recorded, then proceed to M6. Do not create another branch, reopen provider benchmarking, restore Gemini fallback, invent AUTO routing, expose generic MCP/plugin/IoT execution, implement M7 early, or retune frozen transport without new physical evidence.
