@@ -16,11 +16,11 @@ if (-not (Test-Path $GeminiProviderPath)) {
 $Text = [System.IO.File]::ReadAllText($GeminiProviderPath, $Utf8NoBom).Replace("`r`n", "`n")
 $Changed = $false
 
-# Gemini 3 requires the opaque thought signature returned on a functionCall to
-# be replayed on the same functionCall part when the tool result is submitted.
-# Keep that provider metadata local to the Gemini adapter and key it by the
-# generic Xiaozhi tool-call id so Kadence's Project-owned tool boundary remains
-# provider-neutral.
+# google-generativeai==0.8.5 pins google-ai-generativelanguage==0.6.15, which
+# predates Gemini 3 thought-signature support. Keep normal Gemini text chat on the
+# proven SDK path, but use the same Gemini generateContent REST endpoint for tool
+# mode so opaque thoughtSignature metadata can be preserved exactly without
+# changing the frozen Python environment or adding a dependency.
 $CacheOriginal = @'
         self.gen_cfg = GenerationConfig(
             max_output_tokens=2048,
@@ -31,8 +31,8 @@ $CachePatched = @'
             max_output_tokens=2048,
         )
 
-        # Provider-local metadata needed only for Gemini tool round-trips.
-        # Values may include opaque thought-signature bytes; never log them.
+        # Provider-local metadata for Gemini function-call round-trips only.
+        # Never log thought signatures and never persist them to disk.
         self._kadence_tool_call_context = {}
 '@.Replace("`r`n", "`n")
 
@@ -48,173 +48,182 @@ else {
     throw "Kadence M5 Gemini context-cache guard failed; refusing to modify runtime."
 }
 
-$HistoryOriginal = @'
-            if r == "assistant" and "tool_calls" in m:
-                tc = m["tool_calls"][0]
-                contents.append(
-                    {
-                        "role": "model",
-                        "parts": [
-                            {
-                                "function_call": {
-                                    "name": tc["function"]["name"],
-                                    "args": json.loads(tc["function"]["arguments"]),
-                                }
-                            }
-                        ],
-                    }
-                )
-                continue
+$FunctionsOriginal = @'
+    def response_with_functions(self, session_id, dialogue, functions=None):
+        yield from self._generate(dialogue, self._build_tools(functions))
 
-            if r == "tool":
-                contents.append(
-                    {
-                        "role": "model",
-                        "parts": [{"text": str(m.get("content", ""))}],
-                    }
-                )
-                continue
+    def _generate(self, dialogue, tools):
 '@.Replace("`r`n", "`n")
-$HistoryPatched = @'
+$FunctionsPatched = @'
+    def response_with_functions(self, session_id, dialogue, functions=None):
+        yield from self._generate_with_functions_rest(dialogue, functions)
+
+    def _generate_with_functions_rest(self, dialogue, functions=None):
+        role_map = {"assistant": "model", "user": "user"}
+        contents = []
+
+        for m in dialogue:
+            r = m["role"]
+
             if r == "assistant" and "tool_calls" in m:
-                tc = m["tool_calls"][0]
-                kadence_part = {
-                    "function_call": {
-                        "name": tc["function"]["name"],
-                        "args": json.loads(tc["function"]["arguments"]),
+                parts = []
+                for tc in m["tool_calls"]:
+                    part = {
+                        "functionCall": {
+                            "name": tc["function"]["name"],
+                            "args": json.loads(tc["function"]["arguments"]),
+                        }
                     }
-                }
-                kadence_context = self._kadence_tool_call_context.get(
-                    tc.get("id"), {}
-                )
-                kadence_signature = kadence_context.get("thought_signature")
-                if kadence_signature:
-                    kadence_part["thought_signature"] = kadence_signature
-                contents.append(
-                    {
-                        "role": "model",
-                        "parts": [kadence_part],
-                    }
-                )
+                    context = self._kadence_tool_call_context.get(
+                        tc.get("id"), {}
+                    )
+                    signature = context.get("thought_signature")
+                    if signature:
+                        part["thoughtSignature"] = signature
+                    parts.append(part)
+                contents.append({"role": "model", "parts": parts})
                 continue
 
             if r == "tool":
-                kadence_context = self._kadence_tool_call_context.get(
+                context = self._kadence_tool_call_context.get(
                     m.get("tool_call_id"), {}
                 )
-                kadence_tool_name = kadence_context.get("name")
-                if kadence_tool_name:
-                    kadence_raw_result = m.get("content", "")
-                    try:
-                        kadence_result = json.loads(kadence_raw_result or "{}")
-                    except (json.JSONDecodeError, TypeError):
-                        kadence_result = {"result": str(kadence_raw_result)}
-                    if not isinstance(kadence_result, dict):
-                        kadence_result = {"result": kadence_result}
+                tool_name = context.get("name")
+                raw_result = m.get("content", "")
+                try:
+                    result = json.loads(raw_result or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    result = {"result": str(raw_result)}
+                if not isinstance(result, dict):
+                    result = {"result": result}
+
+                if tool_name:
                     contents.append(
                         {
                             "role": "user",
                             "parts": [
                                 {
-                                    "function_response": {
-                                        "name": kadence_tool_name,
-                                        "response": kadence_result,
+                                    "functionResponse": {
+                                        "name": tool_name,
+                                        "response": result,
                                     }
                                 }
                             ],
                         }
                     )
                 else:
-                    # Preserve pinned behaviour for any unrelated/legacy tool
-                    # message that was not produced by this Gemini provider.
                     contents.append(
                         {
-                            "role": "model",
-                            "parts": [{"text": str(m.get("content", ""))}],
+                            "role": "user",
+                            "parts": [{"text": str(raw_result)}],
                         }
                     )
                 continue
-'@.Replace("`r`n", "`n")
 
-if ($Text.Contains($HistoryPatched)) {
-    Write-Host "Kadence M5 Gemini signed tool history: already applied."
-}
-elseif ($Text.Contains($HistoryOriginal)) {
-    $Text = $Text.Replace($HistoryOriginal, $HistoryPatched)
-    $Changed = $true
-    Write-Host "Applied Kadence M5 Gemini signed tool history/functionResponse mapping."
-}
-else {
-    throw "Kadence M5 Gemini tool-history guard failed; refusing to modify runtime."
-}
+            contents.append(
+                {
+                    "role": role_map.get(r, "user"),
+                    "parts": [{"text": str(m.get("content", ""))}],
+                }
+            )
 
-$CaptureOriginal = @'
-                    if getattr(part, "function_call", None):
-                        fc = part.function_call
-                        yield None, [
-                            SimpleNamespace(
-                                id=uuid.uuid4().hex,
-                                type="function",
-                                function=SimpleNamespace(
-                                    name=fc.name,
-                                    arguments=json.dumps(
-                                        dict(fc.args), ensure_ascii=False
-                                    ),
-                                ),
-                            )
-                        ]
-                        return
-'@.Replace("`r`n", "`n")
-$CapturePatched = @'
-                    if getattr(part, "function_call", None):
-                        fc = part.function_call
-                        kadence_call_id = uuid.uuid4().hex
-                        self._kadence_tool_call_context[kadence_call_id] = {
-                            "name": fc.name,
-                            "thought_signature": getattr(
-                                part, "thought_signature", None
+        declarations = []
+        for function in functions or []:
+            declarations.append(
+                {
+                    "name": function["function"]["name"],
+                    "description": function["function"]["description"],
+                    "parameters": self._sanitize_kadence_tool_schema(
+                        function["function"]["parameters"]
+                    ),
+                }
+            )
+
+        payload = {
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": 2048},
+        }
+        if declarations:
+            payload["tools"] = [{"functionDeclarations": declarations}]
+
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.model_name}:generateContent"
+        )
+        response = requests.post(
+            url,
+            headers={
+                "x-goog-api-key": self.api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        candidates = data.get("candidates") or []
+        if not candidates:
+            yield None, None
+            return
+
+        parts = candidates[0].get("content", {}).get("parts", [])
+        for part in parts:
+            function_call = part.get("functionCall")
+            if function_call:
+                call_id = uuid.uuid4().hex
+                self._kadence_tool_call_context[call_id] = {
+                    "name": function_call.get("name"),
+                    "thought_signature": part.get("thoughtSignature"),
+                }
+                while len(self._kadence_tool_call_context) > 64:
+                    oldest_id = next(iter(self._kadence_tool_call_context))
+                    self._kadence_tool_call_context.pop(oldest_id, None)
+                yield None, [
+                    SimpleNamespace(
+                        id=call_id,
+                        type="function",
+                        function=SimpleNamespace(
+                            name=function_call.get("name"),
+                            arguments=json.dumps(
+                                function_call.get("args") or {},
+                                ensure_ascii=False,
                             ),
-                        }
-                        # Keep provider metadata bounded for a long-running
-                        # backend without persisting any of it to disk.
-                        while len(self._kadence_tool_call_context) > 64:
-                            oldest_id = next(iter(self._kadence_tool_call_context))
-                            self._kadence_tool_call_context.pop(oldest_id, None)
-                        yield None, [
-                            SimpleNamespace(
-                                id=kadence_call_id,
-                                type="function",
-                                function=SimpleNamespace(
-                                    name=fc.name,
-                                    arguments=json.dumps(
-                                        dict(fc.args), ensure_ascii=False
-                                    ),
-                                ),
-                            )
-                        ]
-                        return
+                        ),
+                    )
+                ]
+                return
+
+            text = part.get("text")
+            if text:
+                yield text, None
+
+        yield None, None
+
+    def _generate(self, dialogue, tools):
 '@.Replace("`r`n", "`n")
 
-if ($Text.Contains($CapturePatched)) {
-    Write-Host "Kadence M5 Gemini thought-signature capture: already applied."
+if ($Text.Contains($FunctionsPatched)) {
+    Write-Host "Kadence M5 Gemini REST tool round-trip: already applied."
 }
-elseif ($Text.Contains($CaptureOriginal)) {
-    $Text = $Text.Replace($CaptureOriginal, $CapturePatched)
+elseif ($Text.Contains($FunctionsOriginal)) {
+    $Text = $Text.Replace($FunctionsOriginal, $FunctionsPatched)
     $Changed = $true
-    Write-Host "Applied Kadence M5 Gemini thought-signature capture."
+    Write-Host "Applied Kadence M5 Gemini REST tool round-trip with thought signatures."
 }
 else {
-    throw "Kadence M5 Gemini thought-signature capture guard failed; refusing to modify runtime."
+    throw "Kadence M5 Gemini REST tool-roundtrip guard failed; refusing to modify runtime."
 }
 
 if (-not $Text.Contains('self._kadence_tool_call_context = {}') -or
-    -not $Text.Contains('kadence_part["thought_signature"] = kadence_signature') -or
-    -not $Text.Contains('"function_response": {') -or
-    -not $Text.Contains('"thought_signature": getattr(')) {
-    throw "Kadence M5 Gemini tool-roundtrip post-patch verification failed."
+    -not $Text.Contains('yield from self._generate_with_functions_rest(dialogue, functions)') -or
+    -not $Text.Contains('part["thoughtSignature"] = signature') -or
+    -not $Text.Contains('"functionResponse": {') -or
+    -not $Text.Contains('"x-goog-api-key": self.api_key')) {
+    throw "Kadence M5 Gemini REST tool-roundtrip post-patch verification failed."
 }
 
 if ($Changed) {
     [System.IO.File]::WriteAllText($GeminiProviderPath, $Text, $Utf8NoBom)
-    Write-Host "Kadence M5 Gemini signed tool round-trip installed."
+    Write-Host "Kadence M5 Gemini signed REST tool round-trip installed."
 }
