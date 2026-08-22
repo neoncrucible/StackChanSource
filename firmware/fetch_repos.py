@@ -66,10 +66,14 @@ def apply_project_source_overlays(script_dir):
     # Alpha 2 keeps the physically proven firmware source readable as the base
     # checkpoint. Narrow Project-owned additions are applied by guarded scripts
     # during each clean build, mirroring the pinned Windows runtime overlay model.
-    overlay = os.path.join(script_dir, "tools", "apply_m6_weather_display.py")
-    if not os.path.isfile(overlay):
-        raise RuntimeError(f"Required Kadence firmware overlay not found: {overlay}")
-    subprocess.run([sys.executable, overlay], check=True)
+    overlays = [
+        os.path.join(script_dir, "tools", "apply_m6_weather_display.py"),
+        os.path.join(script_dir, "tools", "apply_m6_pixel_weather_display.py"),
+    ]
+    for overlay in overlays:
+        if not os.path.isfile(overlay):
+            raise RuntimeError(f"Required Kadence firmware overlay not found: {overlay}")
+        subprocess.run([sys.executable, overlay], check=True)
 
 
 def generate_kade_assets(script_dir):
