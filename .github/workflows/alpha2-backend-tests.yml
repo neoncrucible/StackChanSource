@@ -31,7 +31,7 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -d '{"state":"pending","context":"kadence-alpha/backend-tests","description":"M5/M6 project tests running"}'
+            -d '{"state":"pending","context":"kadence-alpha/backend-tests","description":"M5/M6/M7 project tests running"}'
 
       - name: Check out source
         uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
       - name: Compile project-owned backend modules
         working-directory: experiments/xiaozhi-backend
         run: |
-          python -m py_compile kadence_tools.py kadence_session.py kadence_utilities.py
+          python -m py_compile kadence_tools.py kadence_session.py kadence_utilities.py kadence_behavior.py
 
       - name: Run M5 fail-closed boundary suite
         working-directory: experiments/xiaozhi-backend
@@ -54,6 +54,10 @@ jobs:
         working-directory: experiments/xiaozhi-backend
         run: python test_m6_utilities.py
 
+      - name: Run M7 deterministic behaviour suite
+        working-directory: experiments/xiaozhi-backend
+        run: python test_m7_behavior.py
+
       - name: Report backend test status
         if: always()
         env:
@@ -62,10 +66,10 @@ jobs:
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
             STATE="success"
-            DESCRIPTION="M5/M6 project tests passed"
+            DESCRIPTION="M5/M6/M7 project tests passed"
           else
             STATE="failure"
-            DESCRIPTION="M5/M6 project tests failed"
+            DESCRIPTION="M5/M6/M7 project tests failed"
           fi
           curl --fail-with-body -sS \
             -X POST \
