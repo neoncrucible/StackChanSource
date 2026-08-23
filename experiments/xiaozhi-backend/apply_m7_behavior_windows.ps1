@@ -90,27 +90,29 @@ else {
     throw "Kadence M7 app startup guard failed; refusing to modify runtime."
 }
 
-$AppStopOriginal = @'
-    finally:
-        # 停止全局GC管理器
-        await gc_manager.stop()
-'@.Replace("`r`n", "`n")
-$AppStopPatched = @'
-    finally:
-        stop_kadence_behavior_server(behavior_server)
-        # 停止全局GC管理器
-        await gc_manager.stop()
-'@.Replace("`r`n", "`n")
-if ($AppText.Contains($AppStopPatched)) {
+# The first M7 implementation matched the surrounding translated comment as
+# part of this guard. That was needlessly brittle: the executable shutdown line
+# is the real invariant. Match exactly one gc_manager.stop() call instead and
+# insert immediately before it. This tolerates harmless comment/format changes
+# while still failing closed if upstream structure becomes ambiguous.
+$AppStopMarker = "        stop_kadence_behavior_server(behavior_server)`n"
+if ($AppText.Contains($AppStopMarker)) {
     Write-Host "Kadence M7 loopback control shutdown: already applied."
 }
-elseif ($AppText.Contains($AppStopOriginal)) {
-    $AppText = $AppText.Replace($AppStopOriginal, $AppStopPatched)
+else {
+    $AppStopMatches = [regex]::Matches(
+        $AppText,
+        '(?m)^        await gc_manager\.stop\(\)\s*$'
+    )
+    if ($AppStopMatches.Count -ne 1) {
+        throw "Kadence M7 app shutdown guard failed: expected exactly one gc_manager.stop() site, found $($AppStopMatches.Count)."
+    }
+
+    $StopLine = $AppStopMatches[0].Value
+    $StopReplacement = "        stop_kadence_behavior_server(behavior_server)`n        await gc_manager.stop()"
+    $AppText = $AppText.Replace($StopLine, $StopReplacement)
     $AppChanged = $true
     Write-Host "Applied Kadence M7 loopback control shutdown."
-}
-else {
-    throw "Kadence M7 app shutdown guard failed; refusing to modify runtime."
 }
 
 if (-not $AppText.Contains("start_kadence_behavior_server") -or
