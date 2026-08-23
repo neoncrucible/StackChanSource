@@ -58,7 +58,7 @@ $ApplyText = [System.IO.File]::ReadAllText($ApplyM7,[System.Text.Encoding]::UTF8
 if (-not $ApplyText.Contains('expected exactly one gc_manager.stop() site')) {
     throw 'FAIL  M7 shutdown patch is not using the unique executable shutdown anchor'
 }
-if (-not $ApplyText.Contains("'(?m)^        await gc_manager\\.stop\\(\\)\\s*$'")) {
+if (-not $ApplyText.Contains("'(?m)^        await gc_manager\.stop\(\)\s*$'")) {
     throw 'FAIL  M7 shutdown patch regex anchor is missing'
 }
 Write-Host 'PASS  M7 shutdown patch uses formatting-tolerant executable anchor'
