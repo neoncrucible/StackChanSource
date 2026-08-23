@@ -13,35 +13,6 @@ Set-StrictMode -Version Latest
 # offline, and keep both actions visually consistent with START SERVER. Runtime
 # readiness is still enforced by the existing click handlers.
 # ---------------------------------------------------------------------------
-$UiText = $UiText.Replace(
-    '$defaultBehaviorButton.BackColor = $ColorPanel',
-    '$defaultBehaviorButton.BackColor = $ColorPanelAlt'
-)
-$UiText = $UiText.Replace(
-    '$defaultBehaviorButton.ForeColor = $ColorOffline',
-    '$defaultBehaviorButton.ForeColor = $ColorCyan'
-)
-$UiText = $UiText.Replace(
-    '$defaultBehaviorButton.Enabled = $false',
-    '$defaultBehaviorButton.Enabled = $true'
-)
-$UiText = $UiText.Replace(
-    '$applyCustomButton.BackColor = $ColorPanel',
-    '$applyCustomButton.BackColor = $ColorPanelAlt'
-)
-$UiText = $UiText.Replace(
-    '$applyCustomButton.ForeColor = $ColorOffline',
-    '$applyCustomButton.ForeColor = $ColorCyan'
-)
-$UiText = $UiText.Replace(
-    '$applyCustomButton.Enabled = $false',
-    '$applyCustomButton.Enabled = $true'
-)
-$UiText = $UiText.Replace(
-    '$customBehaviorBox.Enabled = $false',
-    '$customBehaviorBox.Enabled = $true'
-)
-
 $ReadyFunctionOriginal = @'
 function Set-BehaviorControlsReady {
     param([bool]$Ready)
@@ -81,6 +52,37 @@ $UiText = $UiText.Replace(
     $ReadyFunctionPatched.TrimEnd()
 )
 
+# Now repair the initial control properties. Do this after replacing the ready
+# function so the property substitutions cannot mutate its guard text first.
+$UiText = $UiText.Replace(
+    '$defaultBehaviorButton.BackColor = $ColorPanel',
+    '$defaultBehaviorButton.BackColor = $ColorPanelAlt'
+)
+$UiText = $UiText.Replace(
+    '$defaultBehaviorButton.ForeColor = $ColorOffline',
+    '$defaultBehaviorButton.ForeColor = $ColorCyan'
+)
+$UiText = $UiText.Replace(
+    '$defaultBehaviorButton.Enabled = $false',
+    '$defaultBehaviorButton.Enabled = $true'
+)
+$UiText = $UiText.Replace(
+    '$applyCustomButton.BackColor = $ColorPanel',
+    '$applyCustomButton.BackColor = $ColorPanelAlt'
+)
+$UiText = $UiText.Replace(
+    '$applyCustomButton.ForeColor = $ColorOffline',
+    '$applyCustomButton.ForeColor = $ColorCyan'
+)
+$UiText = $UiText.Replace(
+    '$applyCustomButton.Enabled = $false',
+    '$applyCustomButton.Enabled = $true'
+)
+$UiText = $UiText.Replace(
+    '$customBehaviorBox.Enabled = $false',
+    '$customBehaviorBox.Enabled = $true'
+)
+
 # ---------------------------------------------------------------------------
 # EYE geometry: V4 narrowed the left rail to a 280px eye panel but retained
 # geometry extending to x=290, which clipped the right edge. Scale the graphic
@@ -116,6 +118,8 @@ foreach ($RequiredMarker in @(
     '$customBehaviorBox.Enabled = $true',
     '$defaultBehaviorButton.BackColor = $ColorPanelAlt',
     '$applyCustomButton.BackColor = $ColorPanelAlt',
+    '$defaultBehaviorButton.ForeColor = $ColorCyan',
+    '$applyCustomButton.ForeColor = $ColorCyan',
     '$g.FillEllipse($glowBrush,76,31,128,128)',
     '$path.AddBezier(19,95,79,30,201,30,261,95)'
 )) {
