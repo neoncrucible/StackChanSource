@@ -1,9 +1,10 @@
 # Kadence 2.0 Alpha 2 — Locked Plan
 
-Status: **SCOPE LOCKED / IMPLEMENTATION ACTIVE / POST-M5 PROVIDER SIMPLIFICATION APPLIED**
+Status: **SCOPE LOCKED / IMPLEMENTATION ACTIVE / M6 CLOSED / M7 ACTIVE**
 
 Date locked: **20 Aug 2026**  
-Post-M5 provider amendment: **22 Aug 2026**
+Post-M5 provider amendment: **22 Aug 2026**  
+M6 closed / M7 scope locked: **23 Aug 2026**
 
 Branch: `kadence/2.0-alpha-2`
 
@@ -64,7 +65,7 @@ Core character:
 
 The canonical personality always loads by default.
 
-Future session behaviour modifiers may temporarily alter delivery (for example concise, technical, deadpan or creative modes), but they are overlays only. They do not replace the canonical personality, do not persist by default and cannot override safety or utility contracts.
+M7 permits one temporary free-text behaviour overlay from the Control Surface. It is an overlay only: it never replaces the canonical identity, never persists across a backend restart and cannot override safety/tool/utility authority.
 
 ## Expressions and physical behaviour
 
@@ -75,6 +76,8 @@ Existing robot states remain as already implemented:
 - Idle
 - Listening
 - Thinking
+
+M6's static weather icon is a bounded utility display result, not a model-controlled expression system.
 
 No model-selected facial expression, LED expression, servo motion or arbitrary physical action is in Alpha 2 scope.
 
@@ -123,7 +126,7 @@ This is **not persistent memory**.
 
 Alpha 2 establishes a Kadence-owned, explicit, schema-validated utility boundary.
 
-Initial read-only utilities:
+Accepted M6 read-only utilities:
 
 - date/time;
 - weather;
@@ -191,15 +194,35 @@ Implement and physically validate the allow-listed function/tool contract before
 
 ### Milestone 6 — First utilities
 
-Enable time/date, weather and factual web lookup through the closed M5 boundary.
+Enable time/date, weather and factual web lookup through the closed M5 boundary. Weather may emit only the trusted fixed-enum static pixel display result `clear | cloud | rain | snow`.
 
 **Gate:** repeated physical tests mix ordinary conversation and read-only utility calls without fabricated results or infrastructure leakage. Alpha 2 M6 acceptance is Luna-only.
 
-### Milestone 7 — Session behaviour overlays
+**Status: PASS / CLOSED.** Canonical record: `MILESTONE6_VALIDATION.md`. Final backend behaviour checkpoint before close-out: `6029c08cdcfbea6861daa4fb7b3cc7290a345569`. Physically accepted pixel-weather firmware: `995a2556f42e030660d6ed651b782987ac4a3d8e`.
 
-Allow optional temporary behaviour modifiers from the Control Surface while canonical Kadence always remains the base identity.
+### Milestone 7 — Session behaviour overlay
 
-**Gate:** disabling the modifier returns behaviour to canonical defaults and modifiers cannot override safety/tool rules.
+M7 has exactly two operator states:
+
+- **DEFAULT** — canonical Kadence, unchanged;
+- **CUSTOM** — one free-text behaviour overlay supplied from the Control Surface.
+
+Locked M7 behaviour:
+
+- Custom text is applied only when the operator explicitly presses **Apply Custom**; typing alone never changes live behaviour.
+- The canonical persona remains the authoritative base prompt.
+- Custom text is appended as a clearly bounded behaviour preference and may alter delivery/style only.
+- The overlay cannot override safety, tool schemas, utility authority, transport invariants or the canonical identity contract.
+- Maximum custom text length: **1,000 characters**.
+- Robot disconnect/reconnect does **not** clear the overlay while the same backend process remains alive.
+- Pressing **DEFAULT** removes the overlay immediately.
+- Stopping/restarting the backend clears the overlay and returns to DEFAULT.
+- The Custom UI field is cleared on backend start/restart so stale text cannot imply an active overlay.
+- No custom behaviour is written to config, Git, durable memory or persistent profile state.
+
+**Gate:** prove canonical Default behaviour, obvious Custom behaviour, reconnect survival, immediate Default reset and backend-restart reset. Tool/safety rules must remain unchanged throughout.
+
+**Status: SCOPE LOCKED / IMPLEMENTATION ACTIVE.**
 
 ### Milestone 8 — Physical acceptance and Alpha 2 freeze
 
@@ -217,13 +240,16 @@ Run a mixed-use physical acceptance session covering normal conversation, person
 - generic MCP access;
 - timers/reminders;
 - email/calendar/PC write control;
+- smart-home write control;
 - Pi 5 deployment;
 - local LLM deployment;
 - LOCAL/LUNA UI switching before a real local engine exists;
 - AUTO routing or silent provider fallback;
+- preset libraries or multiple named M7 personality modes;
+- persistent custom behaviour profiles;
 - Python migration unless independently required by a blocking defect;
 - transport optimisation or endpoint retuning without new physical evidence.
 
 ## Immediate implementation priority
 
-Proceed to **Milestone 6 — read-only utilities** after one Luna-only simplification smoke test confirms the retired Gemini path has not disturbed the accepted runtime.
+Proceed to **Milestone 7 — DEFAULT/CUSTOM volatile behaviour overlay**, preserving the now-closed M6 utility and pixel-display state unchanged.
