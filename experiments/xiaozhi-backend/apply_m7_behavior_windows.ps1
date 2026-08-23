@@ -90,7 +90,6 @@ else {
     throw "Kadence M7 app startup guard failed; refusing to modify runtime."
 }
 
-# Match the executable shutdown line, not translated comments around it.
 $AppStopMarker = "        stop_kadence_behavior_server(behavior_server)`n"
 if ($AppText.Contains($AppStopMarker)) {
     Write-Host "Kadence M7 loopback control shutdown: already applied."
@@ -129,9 +128,6 @@ if ($AppChanged) {
 $ConnText = [System.IO.File]::ReadAllText($ConnectionPath, $Utf8NoBom).Replace("`r`n", "`n")
 $ConnChanged = $false
 
-# Repair the exact malformed state produced by the first M7 patcher before doing
-# normal idempotence checks. The missing newline fused the new import directly to
-# the following plugins_func import and made connection.py fail Python parsing.
 $LegacyFusedImport = "from core.kadence_behavior import render_kadence_behavior_promptfrom plugins_func.loadplugins import auto_import_modules"
 if ($ConnText.Contains($LegacyFusedImport)) {
     $ConnText = $ConnText.Replace(
@@ -142,8 +138,6 @@ if ($ConnText.Contains($LegacyFusedImport)) {
     Write-Host "Repaired Kadence M7 legacy fused behaviour import."
 }
 
-# The same first patcher could also consume the newline after the M5 root-query
-# line. Repair that state proactively so one pull fixes the entire local runtime.
 $LegacyFusedRoot = "current_sentence_id = str(uuid.uuid4().hex)            self.sentence_id = current_sentence_id"
 if ($ConnText.Contains($LegacyFusedRoot)) {
     $ConnText = $ConnText.Replace(
@@ -174,9 +168,33 @@ else {
     throw "Kadence M7 connection import guard failed; M5 tool wiring was not found."
 }
 
-$RootOriginal = "        if depth == 0:`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
-$RootV1 = "        if depth == 0:`n            if self.prompt:`n                self.dialogue.update_system_message(`n                    render_kadence_behavior_prompt(self.prompt)`n                )`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
-$RootPatched = "        if depth == 0:`n            kadence_behavior_state = get_kadence_behavior_snapshot()`n            if self.prompt:`n                self.dialogue.update_system_message(`n                    render_kadence_behavior_prompt(self.prompt)`n                )`n            self.logger.bind(tag=TAG).info(`n                f\"KADENCE BEHAVIOR: turn mode={kadence_behavior_state['mode']} chars={kadence_behavior_state['chars']}\"`n            )`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
+$RootOriginal = @'
+        if depth == 0:
+            self._kadence_tool_root_query = query
+            current_sentence_id = str(uuid.uuid4().hex)
+'@.Replace("`r`n", "`n")
+$RootV1 = @'
+        if depth == 0:
+            if self.prompt:
+                self.dialogue.update_system_message(
+                    render_kadence_behavior_prompt(self.prompt)
+                )
+            self._kadence_tool_root_query = query
+            current_sentence_id = str(uuid.uuid4().hex)
+'@.Replace("`r`n", "`n")
+$RootPatched = @'
+        if depth == 0:
+            kadence_behavior_state = get_kadence_behavior_snapshot()
+            if self.prompt:
+                self.dialogue.update_system_message(
+                    render_kadence_behavior_prompt(self.prompt)
+                )
+            self.logger.bind(tag=TAG).info(
+                f"KADENCE BEHAVIOR: turn mode={kadence_behavior_state['mode']} chars={kadence_behavior_state['chars']}"
+            )
+            self._kadence_tool_root_query = query
+            current_sentence_id = str(uuid.uuid4().hex)
+'@.Replace("`r`n", "`n")
 if ($ConnText.Contains($RootPatched)) {
     Write-Host "Kadence M7 top-level prompt overlay: already applied."
 }
