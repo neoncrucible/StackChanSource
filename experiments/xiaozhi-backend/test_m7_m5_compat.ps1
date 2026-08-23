@@ -8,7 +8,10 @@ if (-not (Test-Path $Wrapper)) {
 }
 
 $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("kadence-m7-m5-compat-" + [guid]::NewGuid().ToString("N"))
-$CoreDir = Join-Path $TempRoot "xiaozhi-esp32-server/main/xiaozhi-server/core"
+$RepoDir = Join-Path $TempRoot "xiaozhi-esp32-server"
+$MainDir = Join-Path $RepoDir "main"
+$ServerDir = Join-Path $MainDir "xiaozhi-server"
+$CoreDir = Join-Path $ServerDir "core"
 New-Item -ItemType Directory -Force -Path $CoreDir | Out-Null
 $ConnectionPath = Join-Path $CoreDir "connection.py"
 
@@ -33,7 +36,9 @@ and not getattr(self.func_handler, "kadence_safe_boundary", False)
 [System.IO.File]::WriteAllText($ConnectionPath,$ConnectionText,[System.Text.UTF8Encoding]::new($false))
 
 try {
-    $Output = (& $Wrapper -RuntimeRoot $TempRoot 2>&1 | Out-String)
+    # Write-Host uses PowerShell's information stream, so merge all streams when
+    # asserting the wrapper's deliberate safe-skip message.
+    $Output = (& $Wrapper -RuntimeRoot $TempRoot *>&1 | Out-String)
     if (-not $Output.Contains("legacy patcher skipped for M7 compatibility")) {
         throw "FAIL  M7-enhanced valid M5 runtime was not preserved. Output: $Output"
     }
