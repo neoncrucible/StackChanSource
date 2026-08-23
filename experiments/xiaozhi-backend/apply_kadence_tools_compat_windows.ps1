@@ -6,7 +6,11 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $LegacyApplier = Join-Path $PSScriptRoot "apply_kadence_tools_windows.ps1"
-$ConnectionPath = Join-Path $RuntimeRoot "xiaozhi-esp32-server\main\xiaozhi-server\core\connection.py"
+$RepoDir = Join-Path $RuntimeRoot "xiaozhi-esp32-server"
+$MainDir = Join-Path $RepoDir "main"
+$ServerDir = Join-Path $MainDir "xiaozhi-server"
+$CoreDir = Join-Path $ServerDir "core"
+$ConnectionPath = Join-Path $CoreDir "connection.py"
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 foreach ($RequiredPath in @($LegacyApplier, $ConnectionPath)) {
@@ -35,7 +39,7 @@ $Missing = @($M5Markers | Where-Object { -not $ConnText.Contains($_) })
 if ($Missing.Count -eq 0) {
     $RootCaptureCount = [regex]::Matches(
         $ConnText,
-        '(?m)^            self\._kadence_tool_root_query = query\s*$'
+        '(?m)^            self\._kadence_tool_root_query = query[ \t]*$'
     ).Count
     if ($RootCaptureCount -ne 1) {
         throw "Kadence M5 compatibility guard failed: expected exactly one root-query capture, found $RootCaptureCount."
