@@ -11,9 +11,10 @@ $UiScript = Join-Path $PSScriptRoot "control_surface\KadenceControlV3.ps1"
 $PatchScript = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV4.ps1"
 $PatchScriptV41 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV41.ps1"
 $PatchScriptV43 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV43.ps1"
+$PatchScriptV44 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV44.ps1"
 $RetiredProfilePath = Join-Path $PSScriptRoot ".runtime\kadence-llm-profile.txt"
 
-foreach ($Required in @($UiScript, $PatchScript, $PatchScriptV41, $PatchScriptV43)) {
+foreach ($Required in @($UiScript, $PatchScript, $PatchScriptV41, $PatchScriptV43, $PatchScriptV44)) {
     if (-not (Test-Path $Required)) {
         throw "Kadence Control Surface dependency not found: $Required"
     }
@@ -32,17 +33,18 @@ if (-not (Test-Path $WindowsPowerShell)) {
 }
 
 # Keep the validated V3 source intact and render the current Alpha 2 operator UI
-# into a temporary UTF-8-BOM sibling copy. The retired M3 blind-provider layer is
-# no longer applied. V4.3 fixes current Alpha 2 operator state to Luna-only.
+# into a temporary UTF-8-BOM sibling copy. V4.3 fixes the Luna-only operator
+# state; V4.4 adds the narrow M7 DEFAULT/CUSTOM volatile behaviour surface.
 $TempUi = Join-Path (Split-Path $UiScript -Parent) ("KadenceControl-run-{0}.ps1" -f [guid]::NewGuid().ToString("N"))
 $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $UiText = [System.IO.File]::ReadAllText($UiScript, [System.Text.Encoding]::UTF8)
 $UiText = & $PatchScript -UiText $UiText
 $UiText = & $PatchScriptV41 -UiText $UiText
 $UiText = & $PatchScriptV43 -UiText $UiText
+$UiText = & $PatchScriptV44 -UiText $UiText
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
-Write-Host "Starting Kadence Control Surface V4.3..."
+Write-Host "Starting Kadence Control Surface V4.4..."
 try {
     & $WindowsPowerShell -STA -NoLogo -NoProfile -ExecutionPolicy Bypass -File $TempUi
     $ExitCode = $LASTEXITCODE
