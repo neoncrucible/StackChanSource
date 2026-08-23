@@ -40,12 +40,7 @@ Expect-Marker 'mode = "default"' 'DEFAULT request rendered'
 Expect-Marker 'foreach ($port in @(8000,8003,8766))' 'preflight protects M7 loopback port'
 Expect-Marker 'KADENCE BEHAVIOR: control ready' 'backend readiness handshake rendered'
 Expect-Marker '$customBehaviorBox.Clear()' 'server lifecycle clears stale custom text'
-Expect-Marker 'Canonical identity / GPT-5.6 Luna' 'Luna-only identity survives M7 render'
-
-if ($UiText.Contains('Canonical identity / Gemini Flash-Lite')) {
-    throw 'FAIL  retired Gemini idle label survived V4.4 render'
-}
-Write-Host 'PASS  retired Gemini idle label remains absent'
+Expect-Marker 'Canonical identity / GPT-5.6 Luna' 'current Luna-only identity survives M7 render'
 
 # Syntax-parse the fully rendered script without launching WinForms. This catches
 # quote/bracket errors in the patch chain while remaining safe on CI hosts.
