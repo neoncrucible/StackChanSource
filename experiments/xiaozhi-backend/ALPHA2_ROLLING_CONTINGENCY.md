@@ -1,6 +1,6 @@
 # Project Kadence 2.0 - Alpha 2 Rolling Contingency Snapshot
 
-**Status:** CURRENT THROUGH MILESTONE 6 / M7 SCOPE LOCKED / IMPLEMENTATION ACTIVE  
+**Status:** CURRENT THROUGH MILESTONE 7 / M8 ACTIVE  
 **Snapshot:** 23 Aug 2026, Europe/London  
 **Repository:** `neoncrucible/StackChanSource`  
 **Active branch:** `kadence/2.0-alpha-2`
@@ -27,6 +27,8 @@ This is the rolling recovery record for Project Kadence 2.0 Alpha 2. It exists s
 - M6 physically accepted pixel-weather firmware: `995a2556f42e030660d6ed651b782987ac4a3d8e`.
 - M6 final backend behaviour checkpoint before close-out: `6029c08cdcfbea6861daa4fb7b3cc7290a345569`.
 - M6 canonical validation record: `MILESTONE6_VALIDATION.md`.
+- M7 physically accepted implementation checkpoint: `db4db895c4bf4ae6f39e360675a52ed7d185346f`.
+- M7 canonical validation record: `MILESTONE7_VALIDATION.md`.
 
 ## Frozen transport invariants inherited from Alpha 1
 
@@ -165,6 +167,41 @@ One post-response disconnect/reconnect produced Xiaozhi chat-title `NoneType` an
 
 Canonical validation record: `MILESTONE6_VALIDATION.md`.
 
+### M7 - Volatile behaviour overlay: PASS / CLOSED
+
+Accepted operator states are exactly:
+
+- **DEFAULT** — canonical Kadence unchanged;
+- **CUSTOM** — one operator-supplied free-text behaviour preference from the Control Surface.
+
+Accepted constraints:
+
+- maximum 1,000 characters;
+- explicit **Apply Custom** action required;
+- text entry alone has no live effect;
+- canonical identity remains authoritative;
+- custom text may change delivery/style only and cannot override safety, M5 tool authority, M6 utilities, memory policy, provider selection or frozen transport;
+- robot disconnect/reconnect retains CUSTOM while the backend process remains alive;
+- pressing DEFAULT clears CUSTOM immediately;
+- backend restart resets to DEFAULT;
+- no custom behaviour is written to config, Git, durable memory or persistent profile state.
+
+Control plane:
+
+`http://127.0.0.1:8766/v1/behavior`
+
+The behaviour string is process-lifetime RAM state owned by Project code and is separate from robot transport.
+
+Physical acceptance proved DEFAULT behaviour, obvious CUSTOM delivery changes, immediate DEFAULT reset, reconnect survival and backend-restart reset. A trivial arithmetic prompt did not visibly express a personality-heavy overlay, while a changed prompt did; this is accepted because canonical Kadence remains utility-first rather than allowing CUSTOM to force performance over the answer.
+
+M7 startup validation exposed several patcher/idempotence issues before acceptance: a brittle shutdown guard, a fused Python import caused by a missing newline and an old M5 root-turn exact-text guard that did not recognise the legitimate M7-enhanced shape. Those were repaired with guarded compatibility logic and regression tests without reopening transport or tool authority.
+
+One earlier DEFAULT-mode long-answer test ended with a robot/client disconnect after TTS had completed. No CUSTOM overlay was active at that point. Treat as a separate non-blocking observation unless reproducible; it is not evidence that M7 breaks wake-word detection.
+
+Physically accepted M7 implementation checkpoint: `db4db895c4bf4ae6f39e360675a52ed7d185346f`.
+
+Canonical validation record: `MILESTONE7_VALIDATION.md`.
+
 ## Post-M5 provider simplification - ACTIVE POLICY
 
 ### Alpha 2 from M6 onward
@@ -199,47 +236,35 @@ Normal development target is the packaged Control Surface and Alpha 2 Windows ba
 - bounded volatile M4 session continuity;
 - closed M5 safe tool authority boundary;
 - closed M6 read-only utilities;
-- physically accepted M6 pixel-weather firmware.
+- physically accepted M6 pixel-weather firmware;
+- closed M7 DEFAULT/CUSTOM process-lifetime behaviour overlay.
 
-Kadence still has no persistent personal memory, vector database, arbitrary OS execution, smart-home writes or model-driven motion. Backend restart intentionally clears M4 continuity.
+Kadence still has no persistent personal memory, vector database, arbitrary OS execution, smart-home writes or model-driven motion. Backend restart intentionally clears M4 continuity and M7 CUSTOM behaviour.
 
-## CURRENT: Milestone 7 - volatile behaviour overlay
+## CURRENT: Milestone 8 - physical acceptance and Alpha 2 freeze
 
-M7 scope is now explicitly locked to **two states only**:
+M8 is a mixed-use physical acceptance run, not a feature milestone.
 
-### DEFAULT
+Required coverage:
 
-- canonical Kadence exactly as accepted;
-- no behaviour modifier active.
+1. normal factual/conversational turn in DEFAULT;
+2. recognisable canonical personality without forced performance;
+3. M4 follow-up continuity across separate wake turns;
+4. date/time utility;
+5. current weather with correct trusted pixel icon;
+6. future weather;
+7. factual web lookup;
+8. deliberate utility failure / ambiguous location handled safely without fabricated result;
+9. M7 CUSTOM apply and obvious behaviour change;
+10. DEFAULT restoration;
+11. repeated wake/listen/reply/idle cycles with no transport retuning;
+12. backend restart proves M4 continuity and M7 CUSTOM are volatile;
+13. exact model, persona hash, utility allow-list, firmware checkpoint, backend/final branch SHA and rollback anchors recorded.
 
-### CUSTOM
-
-- one operator-supplied free-text behaviour preference from the Control Surface;
-- maximum 1,000 characters;
-- applied only by an explicit **Apply Custom** action;
-- text entry alone has no live effect;
-- canonical identity remains the authoritative base;
-- custom text may change delivery/style only and cannot override safety, M5 tool rules, M6 utility rules or frozen transport;
-- robot disconnect/reconnect retains Custom while the backend process remains alive;
-- pressing **DEFAULT** clears Custom immediately;
-- backend stop/restart resets to DEFAULT;
-- Custom UI field clears on backend start/restart;
-- no custom behaviour is written to config, Git, durable memory or a persistent profile.
-
-M7 gate:
-
-1. DEFAULT behaviour is unchanged.
-2. An obvious CUSTOM instruction visibly changes delivery.
-3. Robot reconnect retains CUSTOM within the same backend process.
-4. DEFAULT removes CUSTOM immediately.
-5. Backend restart returns to DEFAULT and clears the field.
-6. M5/M6 safety/tool boundaries remain unchanged.
-
-Do not add preset mode libraries, persistent behaviour profiles, LOCAL/LUNA selection or any transport work under M7.
+M8 does not add new capability. If a defect is found, repair only the owning layer and rerun the affected acceptance slice; do not silently broaden scope.
 
 ## Remaining Alpha 2 roadmap
 
-- M7 - implement/physically validate the locked DEFAULT/CUSTOM volatile behaviour overlay.
 - M8 - mixed physical acceptance, exact-state recording and Alpha 2 freeze.
 
 ## Parked for post-Alpha-2
@@ -266,9 +291,9 @@ If Alpha 2 becomes unstable:
 4. Preserve branch history; repair forward or revert rather than rewriting validated history.
 5. Use `beta/project-kadence` only as the independent older rollback line when needed.
 6. Do not resurrect Gemini as a fallback unless the user explicitly reopens that architectural decision.
-7. Do not reopen M6 utility/weather firmware unless new physical evidence requires it.
+7. Do not reopen M6 utility/weather firmware or M7 behaviour overlay unless new physical evidence requires it.
 8. If physical evidence suggests a frozen transport invariant truly must change, stop and explicitly reopen that invariant first.
 
 ## Resume instruction for a fresh chat
 
-Read live `kadence/2.0-alpha-2`, `ALPHA2_PLAN.md`, `MILESTONE6_VALIDATION.md` and this rolling contingency snapshot. Treat **M0-M6 as closed**. Treat Luna-only operation as current architecture. Treat M7 as exactly DEFAULT plus one 1,000-character maximum volatile CUSTOM behaviour overlay from the Control Surface. Do not create another branch, reopen provider benchmarking, restore Gemini fallback, invent AUTO routing, expose generic MCP/plugin/IoT execution, add preset behaviour modes, persist custom prompts, implement LOCAL/LUNA switching, or retune frozen transport without new physical evidence.
+Read live `kadence/2.0-alpha-2`, `ALPHA2_PLAN.md`, `MILESTONE6_VALIDATION.md`, `MILESTONE7_VALIDATION.md` and this rolling contingency snapshot. Treat **M0-M7 as closed**. Treat Luna-only operation as current architecture. M8 is acceptance/freeze only: do not add features. Do not create another branch, reopen provider benchmarking, restore Gemini fallback, invent AUTO routing, expose generic MCP/plugin/IoT execution, add preset behaviour modes, persist custom prompts, implement LOCAL/LUNA switching, or retune frozen transport without new physical evidence.
