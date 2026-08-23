@@ -1,10 +1,11 @@
 # Kadence 2.0 Alpha 2 — Locked Plan
 
-Status: **SCOPE LOCKED / IMPLEMENTATION ACTIVE / M6 CLOSED / M7 ACTIVE**
+Status: **SCOPE LOCKED / IMPLEMENTATION ACTIVE / M7 CLOSED / M8 ACTIVE**
 
 Date locked: **20 Aug 2026**  
 Post-M5 provider amendment: **22 Aug 2026**  
-M6 closed / M7 scope locked: **23 Aug 2026**
+M6 closed / M7 scope locked: **23 Aug 2026**  
+M7 closed / M8 active: **23 Aug 2026**
 
 Branch: `kadence/2.0-alpha-2`
 
@@ -222,7 +223,7 @@ Locked M7 behaviour:
 
 **Gate:** prove canonical Default behaviour, obvious Custom behaviour, reconnect survival, immediate Default reset and backend-restart reset. Tool/safety rules must remain unchanged throughout.
 
-**Status: SCOPE LOCKED / IMPLEMENTATION ACTIVE.**
+**Status: PASS / CLOSED.** Canonical record: `MILESTONE7_VALIDATION.md`. Physically accepted M7 implementation checkpoint: `db4db895c4bf4ae6f39e360675a52ed7d185346f`. DEFAULT/CUSTOM switching, reconnect survival, immediate DEFAULT reset and backend-restart reset were physically accepted.
 
 ### Milestone 8 — Physical acceptance and Alpha 2 freeze
 
@@ -252,4 +253,4 @@ Run a mixed-use physical acceptance session covering normal conversation, person
 
 ## Immediate implementation priority
 
-Proceed to **Milestone 7 — DEFAULT/CUSTOM volatile behaviour overlay**, preserving the now-closed M6 utility and pixel-display state unchanged.
+Proceed to **Milestone 8 — mixed physical acceptance, exact-state recording and Alpha 2 freeze**, preserving the closed M0-M7 behaviour and all frozen transport invariants unchanged.
