@@ -90,11 +90,7 @@ else {
     throw "Kadence M7 app startup guard failed; refusing to modify runtime."
 }
 
-# The first M7 implementation matched the surrounding translated comment as
-# part of this guard. That was needlessly brittle: the executable shutdown line
-# is the real invariant. Match exactly one gc_manager.stop() call instead and
-# insert immediately before it. This tolerates harmless comment/format changes
-# while still failing closed if upstream structure becomes ambiguous.
+# Match the executable shutdown line, not translated comments around it.
 $AppStopMarker = "        stop_kadence_behavior_server(behavior_server)`n"
 if ($AppText.Contains($AppStopMarker)) {
     Write-Host "Kadence M7 loopback control shutdown: already applied."
@@ -133,11 +129,33 @@ if ($AppChanged) {
 $ConnText = [System.IO.File]::ReadAllText($ConnectionPath, $Utf8NoBom).Replace("`r`n", "`n")
 $ConnChanged = $false
 
+# Repair the exact malformed state produced by the first M7 patcher before doing
+# normal idempotence checks. The missing newline fused the new import directly to
+# the following plugins_func import and made connection.py fail Python parsing.
+$LegacyFusedImport = "from core.kadence_behavior import render_kadence_behavior_promptfrom plugins_func.loadplugins import auto_import_modules"
+if ($ConnText.Contains($LegacyFusedImport)) {
+    $ConnText = $ConnText.Replace(
+        $LegacyFusedImport,
+        "from core.kadence_behavior import render_kadence_behavior_prompt`nfrom plugins_func.loadplugins import auto_import_modules"
+    )
+    $ConnChanged = $true
+    Write-Host "Repaired Kadence M7 legacy fused behaviour import."
+}
+
+# The same first patcher could also consume the newline after the M5 root-query
+# line. Repair that state proactively so one pull fixes the entire local runtime.
+$LegacyFusedRoot = "current_sentence_id = str(uuid.uuid4().hex)            self.sentence_id = current_sentence_id"
+if ($ConnText.Contains($LegacyFusedRoot)) {
+    $ConnText = $ConnText.Replace(
+        $LegacyFusedRoot,
+        "current_sentence_id = str(uuid.uuid4().hex)`n            self.sentence_id = current_sentence_id"
+    )
+    $ConnChanged = $true
+    Write-Host "Repaired Kadence M7 legacy fused root-turn line."
+}
+
 $ConnImportOriginal = "from core.kadence_tool_runtime import build_kadence_tool_handler`n"
-$ConnImportPatched = @'
-from core.kadence_tool_runtime import build_kadence_tool_handler
-from core.kadence_behavior import render_kadence_behavior_prompt
-'@.Replace("`r`n", "`n")
+$ConnImportPatched = "from core.kadence_tool_runtime import build_kadence_tool_handler`nfrom core.kadence_behavior import render_kadence_behavior_prompt`n"
 if ($ConnText.Contains($ConnImportPatched)) {
     Write-Host "Kadence M7 behaviour prompt import: already applied."
 }
@@ -150,20 +168,8 @@ else {
     throw "Kadence M7 connection import guard failed; M5 tool wiring was not found."
 }
 
-$RootOriginal = @'
-        if depth == 0:
-            self._kadence_tool_root_query = query
-            current_sentence_id = str(uuid.uuid4().hex)
-'@.Replace("`r`n", "`n")
-$RootPatched = @'
-        if depth == 0:
-            if self.prompt:
-                self.dialogue.update_system_message(
-                    render_kadence_behavior_prompt(self.prompt)
-                )
-            self._kadence_tool_root_query = query
-            current_sentence_id = str(uuid.uuid4().hex)
-'@.Replace("`r`n", "`n")
+$RootOriginal = "        if depth == 0:`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
+$RootPatched = "        if depth == 0:`n            if self.prompt:`n                self.dialogue.update_system_message(`n                    render_kadence_behavior_prompt(self.prompt)`n                )`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
 if ($ConnText.Contains($RootPatched)) {
     Write-Host "Kadence M7 top-level prompt overlay: already applied."
 }
@@ -176,7 +182,17 @@ else {
     throw "Kadence M7 root-turn guard failed; proven M5 root-query wiring was not found."
 }
 
-if (-not $ConnText.Contains("render_kadence_behavior_prompt") -or
+foreach ($ForbiddenFusion in @(
+    'render_kadence_behavior_promptfrom ',
+    'uuid.uuid4().hex)            self.sentence_id'
+)) {
+    if ($ConnText.Contains($ForbiddenFusion)) {
+        throw "Kadence M7 connection newline verification failed: $ForbiddenFusion"
+    }
+}
+
+if (-not $ConnText.Contains($ConnImportPatched) -or
+    -not $ConnText.Contains("render_kadence_behavior_prompt") -or
     -not $ConnText.Contains("self._kadence_tool_root_query = query") -or
     -not $ConnText.Contains("self.dialogue.update_system_message(")) {
     throw "Kadence M7 connection post-patch verification failed."
