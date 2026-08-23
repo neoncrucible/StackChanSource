@@ -8,9 +8,9 @@ Set-StrictMode -Version Latest
 
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
 $LunaProfileApplier = Join-Path $PSScriptRoot "apply_luna_profile_windows.ps1"
-$ToolsApplier = Join-Path $PSScriptRoot "apply_kadence_tools_compat_windows.ps1"
+$M7Rollback = Join-Path $PSScriptRoot "remove_m7_behavior_windows.ps1"
+$ToolsApplier = Join-Path $PSScriptRoot "apply_kadence_tools_windows.ps1"
 $M6Applier = Join-Path $PSScriptRoot "apply_m6_utilities_windows.ps1"
-$M7Applier = Join-Path $PSScriptRoot "apply_m7_behavior_windows.ps1"
 $FrozenLauncher = Join-Path $PSScriptRoot "start_windows.ps1"
 $RetiredProfilePath = Join-Path $RuntimeRoot "kadence-llm-profile.txt"
 
@@ -77,9 +77,9 @@ function Enable-KadenceCondaPath {
 foreach ($Required in @(
     $PersonaInjector,
     $LunaProfileApplier,
+    $M7Rollback,
     $ToolsApplier,
     $M6Applier,
-    $M7Applier,
     $FrozenLauncher
 )) {
     if (-not (Test-Path $Required)) {
@@ -93,9 +93,9 @@ Write-Host ""
 
 & $PersonaInjector -RuntimeRoot $RuntimeRoot
 
-# M3 proved the abstraction; M5 proved the tool boundary. From M6 onward Alpha 2
-# deliberately carries one cloud cognition path: Luna. LOCAL/LUNA selection is
-# the target beta/live architecture and is not smuggled into Alpha 2 early.
+# M3 proved the abstraction; M5 proved the tool boundary. Alpha 2 deliberately
+# carries one cloud cognition path: Luna. LOCAL/LUNA selection and custom local
+# personality profiles are parked for the future local-inference milestone.
 if (Test-Path $RetiredProfilePath) {
     Remove-Item $RetiredProfilePath -Force -ErrorAction SilentlyContinue
     Write-Host "Removed retired Gemini/Luna profile selector state."
@@ -104,22 +104,19 @@ Write-Host ""
 Write-Host "Applying fixed Alpha 2 LLM profile: luna"
 & $LunaProfileApplier -RuntimeRoot $RuntimeRoot
 
-# M5 remains the authority boundary. M6 supplies exactly three read-only
+# M7 CUSTOM behaviour is intentionally abandoned for Alpha 2. Remove any prior
+# ignored-runtime hooks before restoring the proven M6 tool path.
+Write-Host ""
+Write-Host "Ensuring M7 custom behaviour overlay is removed..."
+& $M7Rollback -RuntimeRoot $RuntimeRoot
+
+# M5 remains the authority boundary. M6 advertises exactly three read-only
 # Project-owned utilities; no generic HTTP/MCP/OS tool is exposed to Luna.
-# The compatibility wrapper preserves an already-valid M5 boundary after M7 has
-# legitimately wrapped the root-turn block with volatile behaviour logic.
 $env:KADENCE_TOOL_MODE = "m6_readonly"
 Write-Host ""
 Write-Host "Applying Kadence safe tool boundary: $env:KADENCE_TOOL_MODE"
 & $ToolsApplier -RuntimeRoot $RuntimeRoot
 & $M6Applier -RuntimeRoot $RuntimeRoot
-
-# M7 adds one process-lifetime behaviour overlay controlled only from the local
-# Windows Control Surface. It does not alter transport, tool authority or the
-# canonical persona stored in the ignored runtime config.
-Write-Host ""
-Write-Host "Applying Kadence M7 volatile behaviour overlay..."
-& $M7Applier -RuntimeRoot $RuntimeRoot
 
 Write-Host ""
 Write-Host "Canonical identity ready. Preparing local runtime..."
