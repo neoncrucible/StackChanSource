@@ -10,6 +10,7 @@ from kadence_behavior import (
     KADENCE_BEHAVIOR_STATE,
     KadenceBehaviorError,
     KadenceBehaviorState,
+    get_kadence_behavior_snapshot,
     render_kadence_behavior_prompt,
     start_kadence_behavior_server,
     stop_kadence_behavior_server,
@@ -51,6 +52,10 @@ def main():
     rendered = local.render("CANONICAL")
     expect(rendered.startswith("CANONICAL\n\n## Temporary Session Behaviour Overlay"), "CUSTOM is appended after canonical prompt")
     expect("Canonical Kadence identity remains authoritative" in rendered, "overlay retains canonical-authority guard")
+    expect("This overlay is ACTIVE" in rendered, "active CUSTOM is stated explicitly")
+    expect("on every response" in rendered, "CUSTOM applies to every subsequent response")
+    expect("more authoritative than earlier assistant wording" in rendered, "CUSTOM outranks prior assistant style")
+    expect("prior conversational style" in rendered, "CUSTOM outranks dialogue-history style")
     expect("cannot change safety requirements" in rendered, "overlay explicitly cannot change safety requirements")
     expect("tool availability or schemas" in rendered, "overlay explicitly cannot change tool authority")
     expect("Be extremely terse." in rendered, "operator behaviour text is included")
@@ -88,13 +93,18 @@ def main():
         expect(status == 200, "control CUSTOM POST succeeds")
         expect(body["state"]["mode"] == "custom", "control CUSTOM POST activates overlay")
         expect(KADENCE_BEHAVIOR_STATE.get_custom() == "Answer in exactly one sentence.", "HTTP control updates process-owned state")
+        snapshot = get_kadence_behavior_snapshot()
+        expect(snapshot["mode"] == "custom", "runtime snapshot reports CUSTOM")
+        expect(snapshot["chars"] == len("Answer in exactly one sentence."), "runtime snapshot reports CUSTOM character count")
 
         global_rendered = render_kadence_behavior_prompt("BASE")
         expect(global_rendered.startswith("BASE\n\n## Temporary Session Behaviour Overlay"), "runtime renderer observes live control state")
+        expect("more authoritative than earlier assistant wording" in global_rendered, "live runtime renderer carries history-precedence rule")
 
         status, body = post_json(base, {"mode": "default"})
         expect(status == 200, "control DEFAULT POST succeeds")
         expect(body["state"]["mode"] == "default", "control DEFAULT POST clears overlay")
+        expect(get_kadence_behavior_snapshot()["mode"] == "default", "runtime snapshot returns DEFAULT after clear")
         expect(render_kadence_behavior_prompt("BASE") == "BASE", "runtime renderer returns canonical prompt after DEFAULT")
 
         try:
