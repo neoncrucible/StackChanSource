@@ -53,7 +53,9 @@ Expect-Marker '$g.FillEllipse($glowBrush,76,31,128,128)' 'EYE glow scaled and ce
 Expect-Marker '$path.AddBezier(19,95,79,30,201,30,261,95)' 'EYE outline fits 280px panel'
 Expect-Marker '[KADENCE UI] Control Surface V4.5 ready.' 'V4.5 render identified'
 
-# Keep the runtime shutdown repair from regressing to a translated-comment guard.
+# Runtime applier regressions. Physical M7 testing exposed a missing newline that
+# fused the behaviour import to the next Python import. Make newline ownership and
+# repair of the already-broken local state explicit and testable.
 $ApplyText = [System.IO.File]::ReadAllText($ApplyM7,[System.Text.Encoding]::UTF8)
 if (-not $ApplyText.Contains('expected exactly one gc_manager.stop() site')) {
     throw 'FAIL  M7 shutdown patch is not using the unique executable shutdown anchor'
@@ -62,6 +64,28 @@ if (-not $ApplyText.Contains("'(?m)^        await gc_manager\.stop\(\)\s*$'")) {
     throw 'FAIL  M7 shutdown patch regex anchor is missing'
 }
 Write-Host 'PASS  M7 shutdown patch uses formatting-tolerant executable anchor'
+
+$ExpectedImportAssignment = '$ConnImportPatched = "from core.kadence_tool_runtime import build_kadence_tool_handler`nfrom core.kadence_behavior import render_kadence_behavior_prompt`n"'
+if (-not $ApplyText.Contains($ExpectedImportAssignment)) {
+    throw 'FAIL  M7 connection import insertion does not explicitly own its trailing newline'
+}
+Write-Host 'PASS  M7 connection import insertion owns trailing newline'
+
+if (-not $ApplyText.Contains('$LegacyFusedImport = "from core.kadence_behavior import render_kadence_behavior_promptfrom plugins_func.loadplugins import auto_import_modules"')) {
+    throw 'FAIL  M7 applier does not recognise the physically observed fused-import runtime state'
+}
+if (-not $ApplyText.Contains('Repaired Kadence M7 legacy fused behaviour import.')) {
+    throw 'FAIL  M7 applier does not report fused-import repair'
+}
+Write-Host 'PASS  M7 applier repairs physically observed fused import'
+
+if (-not $ApplyText.Contains('$LegacyFusedRoot = "current_sentence_id = str(uuid.uuid4().hex)            self.sentence_id = current_sentence_id"')) {
+    throw 'FAIL  M7 applier does not recognise possible fused root-turn runtime state'
+}
+if (-not $ApplyText.Contains('uuid.uuid4().hex)            self.sentence_id')) {
+    throw 'FAIL  M7 applier does not guard residual fused root-turn state'
+}
+Write-Host 'PASS  M7 applier repairs/guards root-turn newline ownership'
 
 # Syntax-parse the fully rendered script without launching WinForms. This catches
 # quote/bracket errors in the patch chain while remaining safe on CI hosts.
