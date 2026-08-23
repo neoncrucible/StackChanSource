@@ -1,7 +1,7 @@
 # Project Kadence 2.0 - Alpha 2 Rolling Contingency Snapshot
 
-**Status:** CURRENT THROUGH MILESTONE 5 / POST-M5 PROVIDER FAT TRIM APPLIED / MILESTONE 6 NEXT  
-**Snapshot:** 22 Aug 2026, Europe/London  
+**Status:** CURRENT THROUGH MILESTONE 6 / M7 SCOPE LOCKED / IMPLEMENTATION ACTIVE  
+**Snapshot:** 23 Aug 2026, Europe/London  
 **Repository:** `neoncrucible/StackChanSource`  
 **Active branch:** `kadence/2.0-alpha-2`
 
@@ -24,7 +24,9 @@ This is the rolling recovery record for Project Kadence 2.0 Alpha 2. It exists s
 - M5 Gemini signed tool-roundtrip implementation: `9fe9e8b3c8cc61d71a1bb8ef7dd1b288dda68352`.
 - M5 closed recovery head before provider simplification: `11a7d0f6c59985a62f8e7f7618b82114c9fcef66`.
 - Post-M5 provider simplification work began at `7735ccdec5d0174c0824c139e1a1666ee71ab35d`.
-- Simplification state immediately before this snapshot update: `b9387a45bc374252545dd0db4e53aa60d300cff1`.
+- M6 physically accepted pixel-weather firmware: `995a2556f42e030660d6ed651b782987ac4a3d8e`.
+- M6 final backend behaviour checkpoint before close-out: `6029c08cdcfbea6861daa4fb7b3cc7290a345569`.
+- M6 canonical validation record: `MILESTONE6_VALIDATION.md`.
 
 ## Frozen transport invariants inherited from Alpha 1
 
@@ -134,9 +136,36 @@ Gemini was also physically tested solely to prove provider abstraction. An initi
 
 Canonical validation record: `MILESTONE5_VALIDATION.md`.
 
-## Post-M5 provider simplification - ACTIVE POLICY
+### M6 - First read-only utilities: PASS / CLOSED
 
-User explicitly chose to stop paying the time/complexity cost of dual-provider operation and testing.
+Accepted active utility allow-list:
+
+- `kadence_datetime`;
+- `kadence_weather`;
+- `kadence_web_lookup`.
+
+M6 authority remains the closed M5 boundary. There is no generic HTTP, shell, filesystem, process, MCP, IoT or smart-home executor exposed to Luna.
+
+Weather display architecture:
+
+- trusted handler derives only `clear | cloud | rain | snow`;
+- private `_kadence_ui` hint is stripped before factual result reinjection;
+- backend emits versioned `type: "kadence"` `weather_icon` event;
+- firmware renders a static local pixel-art icon;
+- no model-supplied graphic/coordinate/animation path exists;
+- normal voice lifecycle restores Idle EYE.
+
+Physically accepted firmware checkpoint: `995a2556f42e030660d6ed651b782987ac4a3d8e`.
+
+Physical acceptance proved named-place datetime, current/future weather, multiple pixel icon classes, factual web lookup, M4 continuity coexistence and normal voice lifecycle.
+
+Physical testing found one real correctness defect: broad `Florida` geocoding selected `Floridablanca, Colombia` through Open-Meteo prefix matching. M6 remained open until this was repaired. Final backend checkpoint `6029c08cdcfbea6861daa4fb7b3cc7290a345569` now inspects a bounded candidate set, prefers exact names and rejects administrative regions/countries as too broad for point weather. Physical retest correctly asked for a city/town and did not fetch a bogus state forecast.
+
+One post-response disconnect/reconnect produced Xiaozhi chat-title `NoneType` and audio close-frame warnings. The server immediately reconnected and hydrated retained exchanges. Record as non-blocking teardown noise; do not reopen transport unless it becomes reproducible or user-visible.
+
+Canonical validation record: `MILESTONE6_VALIDATION.md`.
+
+## Post-M5 provider simplification - ACTIVE POLICY
 
 ### Alpha 2 from M6 onward
 
@@ -158,30 +187,6 @@ No `AUTO` mode. No silent LOCAL -> LUNA escalation. No hidden fallback. The sele
 
 LOCAL does not exist yet and must not be faked into Alpha 2. This remains post-Alpha-2 work.
 
-### Runtime fat removed/retired
-
-The active Alpha 2 path now uses:
-
-- `apply_luna_profile_windows.ps1`;
-- `patch_runtime_luna_windows.ps1`;
-- `apply_kadence_tools_windows.ps1`;
-- Luna-only `kadence.config.example.yaml`;
-- Luna-only Alpha 2 launcher/Control Surface state.
-
-Retired from the active tree after M5:
-
-- dual-provider `apply_llm_profile_windows.ps1`;
-- provider-specific `apply_m5_tools_windows.ps1`;
-- `apply_m5_gemini_tool_roundtrip_windows.ps1`;
-- Gemini-bearing `patch_runtime_windows.ps1`;
-- `set_llm_profile_windows.ps1`;
-- runnable M3 benchmark scripts/prompt pack;
-- M3 blind-provider Control Surface V4.2 layer.
-
-Historical M3/M5 validation documents remain. Git history remains the recovery source for retired benchmark code.
-
-The pinned Xiaozhi checkout itself is not vandalised to delete dormant upstream Gemini source. It remains pinned/immutable for provenance; Kadence simply no longer selects, configures or patches Gemini.
-
 ## Current Alpha 2 operating state
 
 Normal development target is the packaged Control Surface and Alpha 2 Windows backend with:
@@ -192,38 +197,49 @@ Normal development target is the packaged Control Surface and Alpha 2 Windows ba
 - Sonia Edge TTS;
 - frozen Silero/transport settings;
 - bounded volatile M4 session continuity;
-- closed M5 safe tool authority boundary.
-
-Until M6 replaces the probe registry, `KADENCE_TOOL_MODE=m5_probe` remains a temporary inert development mode.
+- closed M5 safe tool authority boundary;
+- closed M6 read-only utilities;
+- physically accepted M6 pixel-weather firmware.
 
 Kadence still has no persistent personal memory, vector database, arbitrary OS execution, smart-home writes or model-driven motion. Backend restart intentionally clears M4 continuity.
 
-## NEXT: Milestone 6 - Read-only utilities
+## CURRENT: Milestone 7 - volatile behaviour overlay
 
-M6 planned user-visible scope:
+M7 scope is now explicitly locked to **two states only**:
 
-- date/time;
-- weather;
-- factual web lookup.
+### DEFAULT
 
-M6 requirements:
+- canonical Kadence exactly as accepted;
+- no behaviour modifier active.
 
-- every utility registers through the closed M5 Kadence boundary;
-- read-only only;
-- Luna-only acceptance; no Gemini duplicate test;
-- no generic MCP/plugin/IoT exposure;
-- no shell, filesystem, process or arbitrary network execution granted to the model;
-- failures bounded and spoken cleanly;
-- external lookup results treated as untrusted data, never instructions;
-- canonical identity and M4 continuity survive utility use;
-- no frozen transport invariant changes.
+### CUSTOM
 
-Do not implement M7 behaviour overlays or LOCAL/LUNA switching under M6.
+- one operator-supplied free-text behaviour preference from the Control Surface;
+- maximum 1,000 characters;
+- applied only by an explicit **Apply Custom** action;
+- text entry alone has no live effect;
+- canonical identity remains the authoritative base;
+- custom text may change delivery/style only and cannot override safety, M5 tool rules, M6 utility rules or frozen transport;
+- robot disconnect/reconnect retains Custom while the backend process remains alive;
+- pressing **DEFAULT** clears Custom immediately;
+- backend stop/restart resets to DEFAULT;
+- Custom UI field clears on backend start/restart;
+- no custom behaviour is written to config, Git, durable memory or a persistent profile.
+
+M7 gate:
+
+1. DEFAULT behaviour is unchanged.
+2. An obvious CUSTOM instruction visibly changes delivery.
+3. Robot reconnect retains CUSTOM within the same backend process.
+4. DEFAULT removes CUSTOM immediately.
+5. Backend restart returns to DEFAULT and clears the field.
+6. M5/M6 safety/tool boundaries remain unchanged.
+
+Do not add preset mode libraries, persistent behaviour profiles, LOCAL/LUNA selection or any transport work under M7.
 
 ## Remaining Alpha 2 roadmap
 
-- M6 - first read-only utilities: date/time, weather and factual web lookup.
-- M7 - temporary session behaviour overlays from the Control Surface, layered over canonical Kadence.
+- M7 - implement/physically validate the locked DEFAULT/CUSTOM volatile behaviour overlay.
 - M8 - mixed physical acceptance, exact-state recording and Alpha 2 freeze.
 
 ## Parked for post-Alpha-2
@@ -232,18 +248,27 @@ Future architecture: **LOCAL / LUNA** with explicit operator selection. Kadence 
 
 There is no accepted AUTO router and no automatic fallback policy.
 
+Also parked:
+
+- Tapo/Home Assistant/device writes;
+- timers/reminders;
+- persistent memory/SD identity;
+- continuous conversation/barge-in;
+- arbitrary robot expressions/motion.
+
 ## Recovery rules
 
 If Alpha 2 becomes unstable:
 
-1. Identify whether regression is Alpha 2 server work or frozen transport.
+1. Identify whether regression is current Alpha 2 server work or frozen transport.
 2. Do not modify the frozen Alpha 1 branch to fix Alpha 2.
 3. Compare against Alpha 1 and accepted Alpha 2 validation records.
 4. Preserve branch history; repair forward or revert rather than rewriting validated history.
 5. Use `beta/project-kadence` only as the independent older rollback line when needed.
 6. Do not resurrect Gemini as a fallback unless the user explicitly reopens that architectural decision.
-7. If physical evidence suggests a frozen transport invariant truly must change, stop and explicitly reopen that invariant first.
+7. Do not reopen M6 utility/weather firmware unless new physical evidence requires it.
+8. If physical evidence suggests a frozen transport invariant truly must change, stop and explicitly reopen that invariant first.
 
 ## Resume instruction for a fresh chat
 
-Read live `kadence/2.0-alpha-2`, `ALPHA2_PLAN.md`, M1-M5 validation records and this rolling contingency snapshot. Treat **M0-M5 as closed**. Treat the post-M5 Luna-only simplification as current architecture. Run one Luna-only simplification smoke if not yet physically recorded, then proceed to M6. Do not create another branch, reopen provider benchmarking, restore Gemini fallback, invent AUTO routing, expose generic MCP/plugin/IoT execution, implement M7 early, or retune frozen transport without new physical evidence.
+Read live `kadence/2.0-alpha-2`, `ALPHA2_PLAN.md`, `MILESTONE6_VALIDATION.md` and this rolling contingency snapshot. Treat **M0-M6 as closed**. Treat Luna-only operation as current architecture. Treat M7 as exactly DEFAULT plus one 1,000-character maximum volatile CUSTOM behaviour overlay from the Control Surface. Do not create another branch, reopen provider benchmarking, restore Gemini fallback, invent AUTO routing, expose generic MCP/plugin/IoT execution, add preset behaviour modes, persist custom prompts, implement LOCAL/LUNA switching, or retune frozen transport without new physical evidence.
