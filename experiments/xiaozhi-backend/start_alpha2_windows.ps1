@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
 $LunaProfileApplier = Join-Path $PSScriptRoot "apply_luna_profile_windows.ps1"
-$ToolsApplier = Join-Path $PSScriptRoot "apply_kadence_tools_windows.ps1"
+$ToolsApplier = Join-Path $PSScriptRoot "apply_kadence_tools_compat_windows.ps1"
 $M6Applier = Join-Path $PSScriptRoot "apply_m6_utilities_windows.ps1"
 $M7Applier = Join-Path $PSScriptRoot "apply_m7_behavior_windows.ps1"
 $FrozenLauncher = Join-Path $PSScriptRoot "start_windows.ps1"
@@ -106,6 +106,8 @@ Write-Host "Applying fixed Alpha 2 LLM profile: luna"
 
 # M5 remains the authority boundary. M6 supplies exactly three read-only
 # Project-owned utilities; no generic HTTP/MCP/OS tool is exposed to Luna.
+# The compatibility wrapper preserves an already-valid M5 boundary after M7 has
+# legitimately wrapped the root-turn block with volatile behaviour logic.
 $env:KADENCE_TOOL_MODE = "m6_readonly"
 Write-Host ""
 Write-Host "Applying Kadence safe tool boundary: $env:KADENCE_TOOL_MODE"
