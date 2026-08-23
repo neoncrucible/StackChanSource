@@ -155,9 +155,15 @@ if ($ConnText.Contains($LegacyFusedRoot)) {
 }
 
 $ConnImportOriginal = "from core.kadence_tool_runtime import build_kadence_tool_handler`n"
-$ConnImportPatched = "from core.kadence_tool_runtime import build_kadence_tool_handler`nfrom core.kadence_behavior import render_kadence_behavior_prompt`n"
+$ConnImportV1 = "from core.kadence_tool_runtime import build_kadence_tool_handler`nfrom core.kadence_behavior import render_kadence_behavior_prompt`n"
+$ConnImportPatched = "from core.kadence_tool_runtime import build_kadence_tool_handler`nfrom core.kadence_behavior import render_kadence_behavior_prompt, get_kadence_behavior_snapshot`n"
 if ($ConnText.Contains($ConnImportPatched)) {
     Write-Host "Kadence M7 behaviour prompt import: already applied."
+}
+elseif ($ConnText.Contains($ConnImportV1)) {
+    $ConnText = $ConnText.Replace($ConnImportV1, $ConnImportPatched)
+    $ConnChanged = $true
+    Write-Host "Upgraded Kadence M7 behaviour prompt import with turn-state tracing."
 }
 elseif ($ConnText.Contains($ConnImportOriginal)) {
     $ConnText = $ConnText.Replace($ConnImportOriginal, $ConnImportPatched)
@@ -169,9 +175,15 @@ else {
 }
 
 $RootOriginal = "        if depth == 0:`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
-$RootPatched = "        if depth == 0:`n            if self.prompt:`n                self.dialogue.update_system_message(`n                    render_kadence_behavior_prompt(self.prompt)`n                )`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
+$RootV1 = "        if depth == 0:`n            if self.prompt:`n                self.dialogue.update_system_message(`n                    render_kadence_behavior_prompt(self.prompt)`n                )`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
+$RootPatched = "        if depth == 0:`n            kadence_behavior_state = get_kadence_behavior_snapshot()`n            if self.prompt:`n                self.dialogue.update_system_message(`n                    render_kadence_behavior_prompt(self.prompt)`n                )`n            self.logger.bind(tag=TAG).info(`n                f\"KADENCE BEHAVIOR: turn mode={kadence_behavior_state['mode']} chars={kadence_behavior_state['chars']}\"`n            )`n            self._kadence_tool_root_query = query`n            current_sentence_id = str(uuid.uuid4().hex)`n"
 if ($ConnText.Contains($RootPatched)) {
     Write-Host "Kadence M7 top-level prompt overlay: already applied."
+}
+elseif ($ConnText.Contains($RootV1)) {
+    $ConnText = $ConnText.Replace($RootV1, $RootPatched)
+    $ConnChanged = $true
+    Write-Host "Upgraded Kadence M7 top-level prompt overlay with turn-state tracing."
 }
 elseif ($ConnText.Contains($RootOriginal)) {
     $ConnText = $ConnText.Replace($RootOriginal, $RootPatched)
@@ -193,6 +205,8 @@ foreach ($ForbiddenFusion in @(
 
 if (-not $ConnText.Contains($ConnImportPatched) -or
     -not $ConnText.Contains("render_kadence_behavior_prompt") -or
+    -not $ConnText.Contains("get_kadence_behavior_snapshot") -or
+    -not $ConnText.Contains("KADENCE BEHAVIOR: turn mode=") -or
     -not $ConnText.Contains("self._kadence_tool_root_query = query") -or
     -not $ConnText.Contains("self.dialogue.update_system_message(")) {
     throw "Kadence M7 connection post-patch verification failed."
