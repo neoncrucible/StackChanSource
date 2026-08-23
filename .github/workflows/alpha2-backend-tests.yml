@@ -58,6 +58,11 @@ jobs:
         working-directory: experiments/xiaozhi-backend
         run: python test_m7_behavior.py
 
+      - name: Render and syntax-check M7 Control Surface
+        shell: pwsh
+        working-directory: experiments/xiaozhi-backend
+        run: ./test_m7_control_surface_patch.ps1
+
       - name: Report backend test status
         if: always()
         env:
