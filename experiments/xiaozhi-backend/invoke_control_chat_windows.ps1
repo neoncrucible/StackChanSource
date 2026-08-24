@@ -155,10 +155,6 @@ if ($OpenAiBlock.Groups['body'].Value -notmatch '(?m)^    reasoning_effort:\s*"?
     throw "Configured LUNA profile does not use reasoning_effort=none. Refusing to alter the accepted profile."
 }
 
-$Headers = @{
-    Authorization = "Bearer $ApiKey"
-}
-
 $Body = [ordered]@{
     model = "gpt-5.6-luna"
     messages = $Dialogue.ToArray()
@@ -167,13 +163,30 @@ $Body = [ordered]@{
 }
 
 $Json = $Body | ConvertTo-Json -Depth 12 -Compress
-$Response = Invoke-RestMethod `
-    -Method Post `
-    -Uri "https://api.openai.com/v1/chat/completions" `
-    -Headers $Headers `
-    -ContentType "application/json" `
-    -Body $Json `
-    -TimeoutSec 300
+
+# Windows PowerShell 5.1 can mojibake UTF-8 JSON returned without an explicit
+# response charset (for example an em dash becoming "â€”"). Read the raw response
+# bytes and decode them as UTF-8, which is the JSON wire encoding used here.
+Add-Type -AssemblyName System.Net.Http
+$HttpClient = New-Object System.Net.Http.HttpClient
+$HttpClient.Timeout = [TimeSpan]::FromSeconds(300)
+$HttpClient.DefaultRequestHeaders.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", $ApiKey)
+$HttpContent = New-Object System.Net.Http.StringContent($Json, [System.Text.Encoding]::UTF8, "application/json")
+try {
+    $HttpResponse = $HttpClient.PostAsync("https://api.openai.com/v1/chat/completions", $HttpContent).GetAwaiter().GetResult()
+    $ResponseBytes = $HttpResponse.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+    $ResponseText = [System.Text.Encoding]::UTF8.GetString($ResponseBytes)
+
+    if (-not $HttpResponse.IsSuccessStatusCode) {
+        throw ("LUNA chat request failed: HTTP {0} {1}" -f [int]$HttpResponse.StatusCode, $ResponseText)
+    }
+
+    $Response = $ResponseText | ConvertFrom-Json
+}
+finally {
+    if ($null -ne $HttpContent) { $HttpContent.Dispose() }
+    if ($null -ne $HttpClient) { $HttpClient.Dispose() }
+}
 
 $Wall.Stop()
 
