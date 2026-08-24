@@ -14,9 +14,10 @@ $PatchScriptV43 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV4
 $EyeFixPatch = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchEyeFix.ps1"
 $Alpha3EnginePatch = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchAlpha3Engine.ps1"
 $Alpha3EnginePatchRunner = Join-Path $PSScriptRoot "control_surface\InvokeKadenceControlPatchAlpha3Engine.ps1"
+$QuietChatPatch = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchAlpha3QuietChat.ps1"
 $RetiredProfilePath = Join-Path $PSScriptRoot ".runtime\kadence-llm-profile.txt"
 
-foreach ($Required in @($UiScript, $PatchScript, $PatchScriptV41, $PatchScriptV43, $EyeFixPatch, $Alpha3EnginePatch, $Alpha3EnginePatchRunner)) {
+foreach ($Required in @($UiScript, $PatchScript, $PatchScriptV41, $PatchScriptV43, $EyeFixPatch, $Alpha3EnginePatch, $Alpha3EnginePatchRunner, $QuietChatPatch)) {
     if (-not (Test-Path $Required)) {
         throw "Kadence Control Surface dependency not found: $Required"
     }
@@ -53,6 +54,7 @@ if ($Alpha3PatchText.Contains("`r`n")) {
 }
 
 $UiText = & $Alpha3EnginePatchRunner -UiText $UiText
+$UiText = & $QuietChatPatch -UiText $UiText
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
 Write-Host "Starting Kadence Control Surface / Alpha 3 LOCAL-LUNA overlay..."
