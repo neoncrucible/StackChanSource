@@ -11,13 +11,14 @@ $PatchV43 = Join-Path $Root "control_surface\KadenceControlPatchV43.ps1"
 $EyeFix = Join-Path $Root "control_surface\KadenceControlPatchEyeFix.ps1"
 $Alpha3Patch = Join-Path $Root "control_surface\KadenceControlPatchAlpha3Engine.ps1"
 $Alpha3PatchRunner = Join-Path $Root "control_surface\InvokeKadenceControlPatchAlpha3Engine.ps1"
+$QuietChatPatch = Join-Path $Root "control_surface\KadenceControlPatchAlpha3QuietChat.ps1"
 $Launcher = Join-Path $Root "start_control_surface.ps1"
 $ChatBridge = Join-Path $Root "invoke_control_chat_windows.ps1"
 $LocalStart = Join-Path $Root "start_local_windows.ps1"
 $LocalStop = Join-Path $Root "stop_local_windows.ps1"
 $LunaStart = Join-Path $Root "start_alpha2_windows.ps1"
 
-foreach ($Path in @($UiScript,$PatchV4,$PatchV41,$PatchV43,$EyeFix,$Alpha3Patch,$Alpha3PatchRunner,$Launcher,$ChatBridge,$LocalStart,$LocalStop,$LunaStart)) {
+foreach ($Path in @($UiScript,$PatchV4,$PatchV41,$PatchV43,$EyeFix,$Alpha3Patch,$Alpha3PatchRunner,$QuietChatPatch,$Launcher,$ChatBridge,$LocalStart,$LocalStop,$LunaStart)) {
     if (-not (Test-Path $Path)) {
         throw "FAIL missing Alpha 3 Control Surface dependency: $Path"
     }
@@ -32,7 +33,8 @@ foreach ($RequiredLauncherMarker in @(
     'KadenceControlPatchV43.ps1',
     'KadenceControlPatchEyeFix.ps1',
     'KadenceControlPatchAlpha3Engine.ps1',
-    'InvokeKadenceControlPatchAlpha3Engine.ps1'
+    'InvokeKadenceControlPatchAlpha3Engine.ps1',
+    'KadenceControlPatchAlpha3QuietChat.ps1'
 )) {
     if (-not $LauncherText.Contains($RequiredLauncherMarker)) {
         throw "FAIL launcher is missing patch-chain marker: $RequiredLauncherMarker"
@@ -65,6 +67,7 @@ if ($Alpha3PatchText.Contains("`r`n")) {
 }
 
 $Rendered = & $Alpha3PatchRunner -UiText $Rendered
+$Rendered = & $QuietChatPatch -UiText $Rendered
 
 foreach ($RequiredUiMarker in @(
     '$milestoneBadge.Text = "ALPHA 3"',
@@ -82,10 +85,8 @@ foreach ($RequiredUiMarker in @(
     '$History = $script:ChatMessages.ToArray()',
     '$script:ChatControlScriptPath = $ControlChatScript',
     '$script:ChatSendAction = {',
-    '$script:ChatKeyDownAction = {',
     '$sendButton.add_Click($script:ChatSendAction)',
-    '$chatInput.add_KeyDown($script:ChatKeyDownAction)',
-    '& $script:ChatSendAction',
+    '$chatForm.AcceptButton = $sendButton',
     '$g.FillEllipse($glowBrush,76,31,128,128)'
 )) {
     if (-not $Rendered.Contains($RequiredUiMarker)) {
@@ -103,7 +104,9 @@ foreach ($ForbiddenUiMarker in @(
     '$SendAction = {',
     '}.GetNewClosure()',
     '$sendButton.add_Click($SendAction)',
-    '& $SendAction'
+    '& $SendAction',
+    '$script:ChatKeyDownAction = {',
+    '$chatInput.add_KeyDown($script:ChatKeyDownAction)'
 )) {
     if ($Rendered.Contains($ForbiddenUiMarker)) {
         throw "FAIL forbidden retired/automatic/incompatible UI marker present: $ForbiddenUiMarker"
@@ -129,7 +132,9 @@ foreach ($RequiredChatMarker in @(
     'LUNA backend is not listening on TCP 8000',
     'LOCAL ownership verification failed',
     '$History = $Normalized.ToArray()',
-    'messages = $Dialogue.ToArray()'
+    'messages = $Dialogue.ToArray()',
+    '$ResponseBytes = $HttpResponse.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()',
+    '$ResponseText = [System.Text.Encoding]::UTF8.GetString($ResponseBytes)'
 )) {
     if (-not $ChatText.Contains($RequiredChatMarker)) {
         throw "FAIL chat bridge missing fail-closed/compatibility marker: $RequiredChatMarker"
@@ -138,10 +143,11 @@ foreach ($RequiredChatMarker in @(
 
 foreach ($ForbiddenChatMarker in @(
     '$History = @($Normalized)',
-    'messages = @($Dialogue)'
+    'messages = @($Dialogue)',
+    'Invoke-RestMethod'
 )) {
     if ($ChatText.Contains($ForbiddenChatMarker)) {
-        throw "FAIL chat bridge retains WinPS-incompatible Generic.List conversion: $ForbiddenChatMarker"
+        throw "FAIL chat bridge retains WinPS-incompatible chat behaviour: $ForbiddenChatMarker"
     }
 }
 
@@ -170,6 +176,8 @@ Write-Host "PASS LUNA path: frozen start_alpha2_windows.ps1"
 Write-Host "PASS Control Surface chat bridge: selected engine only / no fallback"
 Write-Host "PASS Windows PowerShell Generic.List chat compatibility guards"
 Write-Host "PASS Windows PowerShell chat event-scope guards"
+Write-Host "PASS quiet Enter-to-send routing via WinForms AcceptButton"
+Write-Host "PASS explicit UTF-8 decode for LUNA chat responses"
 Write-Host "PASS rendered UI and chat bridge parse cleanly"
 Write-Host "PASS no committed firmware delta from frozen Alpha 2 closure"
 Write-Host ""
