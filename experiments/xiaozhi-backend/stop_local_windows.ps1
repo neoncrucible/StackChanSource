@@ -46,12 +46,18 @@ if (Test-KadenceOllamaApi) {
 }
 
 Write-Host "Stopping Kadence LOCAL PID $ProcessId..."
-& taskkill.exe /PID $ProcessId /T /F *> $null
-if ($LASTEXITCODE -ne 0) {
-    $StillThere = Get-KadenceProcessInfo -ProcessId $ProcessId
-    if ($null -ne $StillThere) {
-        throw "Failed to stop Kadence LOCAL PID $ProcessId (taskkill exit code $LASTEXITCODE)."
-    }
+$TaskkillPath = Join-Path $env:SystemRoot "System32\taskkill.exe"
+$KillProcess = Start-Process -FilePath $TaskkillPath `
+    -ArgumentList @("/PID", [string]$ProcessId, "/T", "/F") `
+    -WindowStyle Hidden -Wait -PassThru
+$KillExitCode = $KillProcess.ExitCode
+
+$StillThere = Get-KadenceProcessInfo -ProcessId $ProcessId
+if ($null -ne $StillThere) {
+    throw "Failed to stop Kadence LOCAL PID $ProcessId (taskkill exit code $KillExitCode)."
+}
+if ($KillExitCode -ne 0) {
+    Write-Warning "taskkill returned exit code $KillExitCode after Kadence LOCAL PID $ProcessId exited; continuing to explicit port verification."
 }
 
 $PortReleased = $false
