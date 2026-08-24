@@ -13,9 +13,10 @@ $PatchScriptV41 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV4
 $PatchScriptV43 = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchV43.ps1"
 $EyeFixPatch = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchEyeFix.ps1"
 $Alpha3EnginePatch = Join-Path $PSScriptRoot "control_surface\KadenceControlPatchAlpha3Engine.ps1"
+$Alpha3EnginePatchRunner = Join-Path $PSScriptRoot "control_surface\InvokeKadenceControlPatchAlpha3Engine.ps1"
 $RetiredProfilePath = Join-Path $PSScriptRoot ".runtime\kadence-llm-profile.txt"
 
-foreach ($Required in @($UiScript, $PatchScript, $PatchScriptV41, $PatchScriptV43, $EyeFixPatch, $Alpha3EnginePatch)) {
+foreach ($Required in @($UiScript, $PatchScript, $PatchScriptV41, $PatchScriptV43, $EyeFixPatch, $Alpha3EnginePatch, $Alpha3EnginePatchRunner)) {
     if (-not (Test-Path $Required)) {
         throw "Kadence Control Surface dependency not found: $Required"
     }
@@ -32,7 +33,7 @@ if (-not (Test-Path $WindowsPowerShell)) {
 
 # Preserve the physically accepted M6 operator surface and EYE geometry, then
 # apply the Alpha 3-only engine/chat overlay. Retired M7 DEFAULT/CUSTOM controls
-# remain excluded and there is no AUTO routing mode.
+# remain excluded and there is no automatic engine-routing mode.
 $TempUi = Join-Path (Split-Path $UiScript -Parent) ("KadenceControl-run-{0}.ps1" -f [guid]::NewGuid().ToString("N"))
 $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $UiText = [System.IO.File]::ReadAllText($UiScript, [System.Text.Encoding]::UTF8)
@@ -51,7 +52,7 @@ if ($Alpha3PatchText.Contains("`r`n")) {
     $UiText = $UiText.Replace("`n", "`r`n")
 }
 
-$UiText = & $Alpha3EnginePatch -UiText $UiText
+$UiText = & $Alpha3EnginePatchRunner -UiText $UiText
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
 Write-Host "Starting Kadence Control Surface / Alpha 3 LOCAL-LUNA overlay..."
