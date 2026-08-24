@@ -10,13 +10,14 @@ $PatchV41 = Join-Path $Root "control_surface\KadenceControlPatchV41.ps1"
 $PatchV43 = Join-Path $Root "control_surface\KadenceControlPatchV43.ps1"
 $EyeFix = Join-Path $Root "control_surface\KadenceControlPatchEyeFix.ps1"
 $Alpha3Patch = Join-Path $Root "control_surface\KadenceControlPatchAlpha3Engine.ps1"
+$Alpha3PatchRunner = Join-Path $Root "control_surface\InvokeKadenceControlPatchAlpha3Engine.ps1"
 $Launcher = Join-Path $Root "start_control_surface.ps1"
 $ChatBridge = Join-Path $Root "invoke_control_chat_windows.ps1"
 $LocalStart = Join-Path $Root "start_local_windows.ps1"
 $LocalStop = Join-Path $Root "stop_local_windows.ps1"
 $LunaStart = Join-Path $Root "start_alpha2_windows.ps1"
 
-foreach ($Path in @($UiScript,$PatchV4,$PatchV41,$PatchV43,$EyeFix,$Alpha3Patch,$Launcher,$ChatBridge,$LocalStart,$LocalStop,$LunaStart)) {
+foreach ($Path in @($UiScript,$PatchV4,$PatchV41,$PatchV43,$EyeFix,$Alpha3Patch,$Alpha3PatchRunner,$Launcher,$ChatBridge,$LocalStart,$LocalStop,$LunaStart)) {
     if (-not (Test-Path $Path)) {
         throw "FAIL missing Alpha 3 Control Surface dependency: $Path"
     }
@@ -30,7 +31,8 @@ foreach ($RequiredLauncherMarker in @(
     'KadenceControlPatchV41.ps1',
     'KadenceControlPatchV43.ps1',
     'KadenceControlPatchEyeFix.ps1',
-    'KadenceControlPatchAlpha3Engine.ps1'
+    'KadenceControlPatchAlpha3Engine.ps1',
+    'InvokeKadenceControlPatchAlpha3Engine.ps1'
 )) {
     if (-not $LauncherText.Contains($RequiredLauncherMarker)) {
         throw "FAIL launcher is missing patch-chain marker: $RequiredLauncherMarker"
@@ -62,7 +64,7 @@ if ($Alpha3PatchText.Contains("`r`n")) {
     $Rendered = $Rendered.Replace("`n", "`r`n")
 }
 
-$Rendered = & $Alpha3Patch -UiText $Rendered
+$Rendered = & $Alpha3PatchRunner -UiText $Rendered
 
 foreach ($RequiredUiMarker in @(
     '$milestoneBadge.Text = "ALPHA 3"',
@@ -86,7 +88,9 @@ foreach ($RequiredUiMarker in @(
 foreach ($ForbiddenUiMarker in @(
     'DEFAULT / CUSTOM',
     'CUSTOM BEHAVIOUR',
-    'AUTO'
+    '$autoEngineButton',
+    'Set-SelectedEngine -Engine "AUTO"',
+    '$script:SelectedEngine = "AUTO"'
 )) {
     if ($Rendered.Contains($ForbiddenUiMarker)) {
         throw "FAIL forbidden retired/automatic UI marker present: $ForbiddenUiMarker"
@@ -135,7 +139,7 @@ if ($FirmwareDelta.Count -ne 0) {
 
 Write-Host "PASS patch chain: accepted M6 + EYE -> Alpha 3 overlay"
 Write-Host "PASS explicit engine selection: LOCAL / LUNA only"
-Write-Host "PASS no AUTO and no retired M7 behaviour controls"
+Write-Host "PASS no automatic engine selector and no retired M7 behaviour controls"
 Write-Host "PASS LOCAL path: start_local_windows.ps1 / stop_local_windows.ps1"
 Write-Host "PASS LUNA path: frozen start_alpha2_windows.ps1"
 Write-Host "PASS Control Surface chat bridge: selected engine only / no fallback"
