@@ -80,6 +80,12 @@ foreach ($RequiredUiMarker in @(
     'Control Surface text context is separate from the robot voice session.',
     'foreach ($HistoryItem in $script:ChatMessages)',
     '$History = $script:ChatMessages.ToArray()',
+    '$script:ChatControlScriptPath = $ControlChatScript',
+    '$script:ChatSendAction = {',
+    '$script:ChatKeyDownAction = {',
+    '$sendButton.add_Click($script:ChatSendAction)',
+    '$chatInput.add_KeyDown($script:ChatKeyDownAction)',
+    '& $script:ChatSendAction',
     '$g.FillEllipse($glowBrush,76,31,128,128)'
 )) {
     if (-not $Rendered.Contains($RequiredUiMarker)) {
@@ -93,7 +99,11 @@ foreach ($ForbiddenUiMarker in @(
     '$autoEngineButton',
     'Set-SelectedEngine -Engine "AUTO"',
     '$script:SelectedEngine = "AUTO"',
-    'foreach ($HistoryItem in @($script:ChatMessages))'
+    'foreach ($HistoryItem in @($script:ChatMessages))',
+    '$SendAction = {',
+    '}.GetNewClosure()',
+    '$sendButton.add_Click($SendAction)',
+    '& $SendAction'
 )) {
     if ($Rendered.Contains($ForbiddenUiMarker)) {
         throw "FAIL forbidden retired/automatic/incompatible UI marker present: $ForbiddenUiMarker"
@@ -159,6 +169,7 @@ Write-Host "PASS LOCAL path: start_local_windows.ps1 / stop_local_windows.ps1"
 Write-Host "PASS LUNA path: frozen start_alpha2_windows.ps1"
 Write-Host "PASS Control Surface chat bridge: selected engine only / no fallback"
 Write-Host "PASS Windows PowerShell Generic.List chat compatibility guards"
+Write-Host "PASS Windows PowerShell chat event-scope guards"
 Write-Host "PASS rendered UI and chat bridge parse cleanly"
 Write-Host "PASS no committed firmware delta from frozen Alpha 2 closure"
 Write-Host ""
