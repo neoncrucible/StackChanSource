@@ -44,7 +44,9 @@ if ($MaxHistoryMessages -lt 2) {
     throw "MaxHistoryMessages must be at least 2."
 }
 
-$History = @($Normalized)
+# Windows PowerShell 5.1 can throw "Argument types do not match" when a
+# Generic.List[object] is forced through @(...). Convert explicitly instead.
+$History = $Normalized.ToArray()
 if ($History.Count -gt $MaxHistoryMessages) {
     $History = @($History | Select-Object -Last $MaxHistoryMessages)
 }
@@ -80,7 +82,7 @@ if ($Engine -eq "LOCAL") {
 
     $Body = [ordered]@{
         model = [string]$State.model
-        messages = @($Dialogue)
+        messages = $Dialogue.ToArray()
         stream = $false
         think = $false
         keep_alive = -1
@@ -159,7 +161,7 @@ $Headers = @{
 
 $Body = [ordered]@{
     model = "gpt-5.6-luna"
-    messages = @($Dialogue)
+    messages = $Dialogue.ToArray()
     stream = $false
     reasoning_effort = "none"
 }
