@@ -52,6 +52,16 @@ $Rendered = & $PatchV4 -UiText $Rendered
 $Rendered = & $PatchV41 -UiText $Rendered
 $Rendered = & $PatchV43 -UiText $Rendered
 $Rendered = & $EyeFix -UiText $Rendered
+
+# Match the launcher: strict multiline Alpha 3 guards must see the same newline
+# convention as the Alpha 3 overlay file itself. This avoids false failures when
+# older accepted files remain LF but newly pulled files are CRLF on Windows.
+$Alpha3PatchText = [System.IO.File]::ReadAllText($Alpha3Patch,[System.Text.Encoding]::UTF8)
+$Rendered = $Rendered.Replace("`r`n", "`n")
+if ($Alpha3PatchText.Contains("`r`n")) {
+    $Rendered = $Rendered.Replace("`n", "`r`n")
+}
+
 $Rendered = & $Alpha3Patch -UiText $Rendered
 
 foreach ($RequiredUiMarker in @(
