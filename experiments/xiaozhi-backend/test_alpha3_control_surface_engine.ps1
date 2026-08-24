@@ -108,7 +108,8 @@ if (@($ParseErrors).Count -gt 0) {
 $ChatText = [System.IO.File]::ReadAllText($ChatBridge,[System.Text.Encoding]::UTF8)
 foreach ($RequiredChatMarker in @(
     '[ValidateSet("LOCAL","LUNA")]',
-    'qwen3.5:4b',
+    'model = [string]$State.model',
+    'canonical_persona_sha256',
     'gpt-5.6-luna',
     'reasoning_effort = "none"',
     'Get-KadenceCanonicalPersona',
