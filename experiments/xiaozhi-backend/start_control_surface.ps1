@@ -40,6 +40,17 @@ $UiText = & $PatchScript -UiText $UiText
 $UiText = & $PatchScriptV41 -UiText $UiText
 $UiText = & $PatchScriptV43 -UiText $UiText
 $UiText = & $EyeFixPatch -UiText $UiText
+
+# Older accepted Control Surface files may retain LF while newly pulled Alpha 3
+# patch files are checked out as CRLF on Windows. The Alpha 3 overlay has strict
+# multiline guards, so normalize the rendered text to the overlay file's own
+# newline convention before applying it. This changes formatting only.
+$Alpha3PatchText = [System.IO.File]::ReadAllText($Alpha3EnginePatch, [System.Text.Encoding]::UTF8)
+$UiText = $UiText.Replace("`r`n", "`n")
+if ($Alpha3PatchText.Contains("`r`n")) {
+    $UiText = $UiText.Replace("`n", "`r`n")
+}
+
 $UiText = & $Alpha3EnginePatch -UiText $UiText
 [System.IO.File]::WriteAllText($TempUi, $UiText, $Utf8Bom)
 
