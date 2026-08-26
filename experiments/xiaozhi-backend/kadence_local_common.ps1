@@ -83,7 +83,7 @@ function Assert-KadenceOwnedOllamaProcess {
     $ExpectedFull = [System.IO.Path]::GetFullPath($ExpectedExecutable)
     $ActualFull = if ([string]::IsNullOrWhiteSpace($ExecutablePath)) { "" } else { [System.IO.Path]::GetFullPath($ExecutablePath) }
 
-    if ($Name -ine "ollama.exe" -or $ActualFull -ine $ExpectedFull -or $CommandLine -notmatch '(?i)(^|[\s\"])serve(?:[\s\"]|$)') {
+    if ($Name -ine "ollama.exe" -or $ActualFull -ine $ExpectedFull -or $CommandLine -notmatch '(?i)(^|[\s"])serve(?:[\s"]|$)') {
         throw "PID $ProcessId does not match the Project-owned Ollama 'serve' signature. Refusing to control it."
     }
 
