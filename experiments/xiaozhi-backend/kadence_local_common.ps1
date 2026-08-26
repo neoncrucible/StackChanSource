@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$script:KadenceExpectedPersonaSha256 = "7871c8453b3cf679c915c04220eef9bba14db535526d8e5bab666dbc66009aa1"
+$script:KadenceExpectedPersonaSha256 = "f70578920b8360db5a902f417cec426991ea88c0f632cd052b408b4301458166"
 $script:KadenceLocalHost = "127.0.0.1:11434"
 $script:KadenceLocalApiBase = "http://127.0.0.1:11434/api"
 
@@ -83,7 +83,7 @@ function Assert-KadenceOwnedOllamaProcess {
     $ExpectedFull = [System.IO.Path]::GetFullPath($ExpectedExecutable)
     $ActualFull = if ([string]::IsNullOrWhiteSpace($ExecutablePath)) { "" } else { [System.IO.Path]::GetFullPath($ExecutablePath) }
 
-    if ($Name -ine "ollama.exe" -or $ActualFull -ine $ExpectedFull -or $CommandLine -notmatch '(?i)(^|[\s"])serve(?:[\s"]|$)') {
+    if ($Name -ine "ollama.exe" -or $ActualFull -ine $ExpectedFull -or $CommandLine -notmatch '(?i)(^|[\s\"])serve(?:[\s\"]|$)') {
         throw "PID $ProcessId does not match the Project-owned Ollama 'serve' signature. Refusing to control it."
     }
 
