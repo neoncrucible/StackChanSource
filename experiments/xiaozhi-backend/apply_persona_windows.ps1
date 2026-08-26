@@ -82,5 +82,5 @@ else {
 }
 
 $PersonaHash = (Get-FileHash -Path $PersonaPath -Algorithm SHA256).Hash.ToLowerInvariant()
-Write-Host "Kadence canonical identity: v1 / sha256 $PersonaHash"
+Write-Host "Kadence canonical identity: v2 / sha256 $PersonaHash"
 Write-Host "Persona source: $PersonaPath"
