@@ -78,7 +78,12 @@ foreach ($Marker in @(
     'Reply only in English.',
     'normally no more than three short sentences',
     'prepared = [dict(message) for message in dialogue]',
-    'params["extra_body"] = {"think": False}',
+    'int(config.get("max_voice_tokens", 96))',
+    '"max_tokens": self.max_voice_tokens',
+    '"reasoning_effort": "none"',
+    '"stream_options": {"include_usage": True}',
+    'timeout=20.0',
+    'KADENCE LOCAL request complete:',
     'english_voice_guard=true',
     'def response_with_functions(self, session_id, dialogue, functions=None):'
 )) {
@@ -96,6 +101,8 @@ foreach ($Marker in @(
     'LLM: OllamaLLM',
     'type: ollama',
     'model_name: "$Model"',
+    '[ValidateRange(32, 192)][int]$MaxVoiceTokens = 96',
+    'max_voice_tokens: $MaxVoiceTokens',
     'http://127.0.0.1:11434',
     'No LUNA cognition fallback is configured for this startup path.'
 )) {
@@ -116,6 +123,8 @@ foreach ($Marker in @(
     'apply_m6_utilities_windows.ps1',
     '$env:KADENCE_TOOL_MODE = "m6_readonly"',
     '$LocalStarted = $true',
+    '[ValidateRange(32, 192)][int]$MaxVoiceTokens = 96',
+    '-MaxVoiceTokens $MaxVoiceTokens',
     '& $LocalRuntimePatch -RuntimeRoot $RuntimeRoot',
     '-ExpectedLlm "OllamaLLM"',
     '& $LocalStop -RuntimeRoot $LocalRuntimeRoot'
@@ -192,6 +201,7 @@ if ($FirmwareDelta.Count -ne 0) {
 
 Write-Host "PASS bundled Ollama provider selected through existing provider boundary"
 Write-Host "PASS LOCAL Ollama adapter enforces concise English without mutating session history"
+Write-Host "PASS LOCAL voice output is capped with reasoning disabled and timing telemetry"
 Write-Host "PASS English TTS punctuation and 140-character playback bounds are installed"
 Write-Host "PASS Project-owned Ollama process and TCP 11434 ownership guards"
 Write-Host "PASS blank Windows CIM metadata requires start-time/API/model corroboration"
