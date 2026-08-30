@@ -12,6 +12,7 @@ Set-StrictMode -Version Latest
 $PersonaInjector = Join-Path $PSScriptRoot "apply_persona_windows.ps1"
 $LocalStart = Join-Path $PSScriptRoot "start_local_windows.ps1"
 $LocalStop = Join-Path $PSScriptRoot "stop_local_windows.ps1"
+$LocalRuntimePatch = Join-Path $PSScriptRoot "apply_local_robot_runtime_windows.ps1"
 $LocalProfileApplier = Join-Path $PSScriptRoot "apply_local_robot_profile_windows.ps1"
 $M7Rollback = Join-Path $PSScriptRoot "remove_m7_behavior_windows.ps1"
 $ToolsApplier = Join-Path $PSScriptRoot "apply_kadence_tools_windows.ps1"
@@ -85,6 +86,7 @@ foreach ($Required in @(
     $PersonaInjector,
     $LocalStart,
     $LocalStop,
+    $LocalRuntimePatch,
     $LocalProfileApplier,
     $M7Rollback,
     $ToolsApplier,
@@ -130,6 +132,10 @@ try {
         -PullIfMissing $PullIfMissing `
         -ContextLength $ContextLength
     $LocalStarted = $true
+
+    Write-Host ""
+    Write-Host "Applying LOCAL robot runtime compatibility..."
+    & $LocalRuntimePatch -RuntimeRoot $RuntimeRoot
 
     Write-Host ""
     Write-Host "Applying explicit LOCAL robot cognition profile..."
