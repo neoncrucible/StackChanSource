@@ -1,7 +1,8 @@
 param(
     [string]$RuntimeRoot = (Join-Path $PSScriptRoot ".runtime"),
     [string]$Model = "qwen3.5:4b",
-    [string]$BaseUrl = "http://127.0.0.1:11434"
+    [string]$BaseUrl = "http://127.0.0.1:11434",
+    [ValidateRange(32, 192)][int]$MaxVoiceTokens = 96
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,6 +79,7 @@ $OllamaBlock = @"
     type: ollama
     model_name: "$Model"
     base_url: $($BaseUrl.TrimEnd('/'))
+    max_voice_tokens: $MaxVoiceTokens
 "@.Replace("`r`n", "`n")
 
 $ExistingBlock = [regex]::Match(
@@ -114,7 +116,8 @@ if ($SelectedAfter.Count -ne 1 -or $BlocksAfter.Count -ne 1) {
     throw "LOCAL robot profile post-write verification failed before runtime config write."
 }
 if ($ConfigText -notmatch ('(?m)^    model_name:[ \t]+"?' + [regex]::Escape($Model) + '"?[ \t]*$') -or
-    $ConfigText -notmatch '(?m)^    base_url:[ \t]+http://127\.0\.0\.1:11434[ \t]*$') {
+    $ConfigText -notmatch '(?m)^    base_url:[ \t]+http://127\.0\.0\.1:11434[ \t]*$' -or
+    $ConfigText -notmatch ('(?m)^    max_voice_tokens:[ \t]+' + $MaxVoiceTokens + '[ \t]*$')) {
     throw "LOCAL robot model or loopback endpoint verification failed before runtime config write."
 }
 
@@ -126,5 +129,6 @@ if ($ConfigText -notmatch ('(?m)^    model_name:[ \t]+"?' + [regex]::Escape($Mod
 
 Write-Host "Kadence robot cognition: LOCAL / Ollama / $Model"
 Write-Host "Ollama endpoint: http://127.0.0.1:11434 (Project-owned PID $ProcessId)"
+Write-Host "LOCAL voice ceiling: $MaxVoiceTokens tokens / reasoning disabled"
 Write-Host "Canonical identity: v2 / sha256 $($Persona.Sha256)"
 Write-Host "No LUNA cognition fallback is configured for this startup path."
