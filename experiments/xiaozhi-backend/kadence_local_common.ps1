@@ -80,14 +80,33 @@ function Assert-KadenceOwnedOllamaProcess {
     $ExecutablePath = [string]$Info.ExecutablePath
     $CommandLine = [string]$Info.CommandLine
 
-    $ExpectedFull = [System.IO.Path]::GetFullPath($ExpectedExecutable)
-    $ActualFull = if ([string]::IsNullOrWhiteSpace($ExecutablePath)) { "" } else { [System.IO.Path]::GetFullPath($ExecutablePath) }
-
-    if ($Name -ine "ollama.exe" -or $ActualFull -ine $ExpectedFull -or $CommandLine -notmatch '(?i)(^|[\s"])serve(?:[\s"]|$)') {
+    if ($Name -ine "ollama.exe") {
         throw "PID $ProcessId does not match the Project-owned Ollama 'serve' signature. Refusing to control it."
     }
 
-    return $Info
+    $ExpectedFull = [System.IO.Path]::GetFullPath($ExpectedExecutable)
+    $PathVisible = -not [string]::IsNullOrWhiteSpace($ExecutablePath)
+    $CommandVisible = -not [string]::IsNullOrWhiteSpace($CommandLine)
+
+    if ($PathVisible) {
+        $ActualFull = [System.IO.Path]::GetFullPath($ExecutablePath)
+        if ($ActualFull -ine $ExpectedFull) {
+            throw "PID $ProcessId executable does not match the recorded Project-owned Ollama path. Refusing to control it."
+        }
+    }
+    if ($CommandVisible -and $CommandLine -notmatch '(?i)(^|[\s"])serve(?:[\s"]|$)') {
+        throw "PID $ProcessId command line does not match Ollama 'serve'. Refusing to control it."
+    }
+
+    $MetadataComplete = $PathVisible -and $CommandVisible
+    if (-not $MetadataComplete) {
+        Write-Warning "Windows withheld Ollama executable/command metadata for PID $ProcessId; caller must corroborate ownership with recorded start time, TCP 11434 and the Ollama API."
+    }
+
+    return [pscustomobject]@{
+        ProcessInfo = $Info
+        MetadataComplete = $MetadataComplete
+    }
 }
 
 function Test-KadenceOllamaApi {
