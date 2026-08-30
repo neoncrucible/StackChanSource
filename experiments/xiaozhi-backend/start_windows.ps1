@@ -138,7 +138,7 @@ if (-not (Test-Path $RealtimeInstaller)) {
 $ConfigText = [System.IO.File]::ReadAllText($ConfigPath, $Utf8NoBom)
 $SelectedLlmMatches = [regex]::Matches(
     $ConfigText,
-    '(?m)^  LLM:[ \t]+(?<name>\S+)[ \t]*$'
+    '(?m)^  LLM:[ \t]+(?<name>\S+)[ \t]*\r?$'
 )
 if ($SelectedLlmMatches.Count -ne 1) {
     throw "Kadence selected_module LLM preflight expected exactly one selection; found $($SelectedLlmMatches.Count)."
@@ -252,4 +252,3 @@ finally {
         Remove-Job $DiscoveryJob -Force -ErrorAction SilentlyContinue
     }
 }
-
