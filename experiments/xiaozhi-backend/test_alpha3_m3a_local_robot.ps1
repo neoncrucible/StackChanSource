@@ -87,6 +87,7 @@ $FrozenText = [System.IO.File]::ReadAllText($FrozenLauncher, [System.Text.Encodi
 foreach ($Marker in @(
     '[ValidateSet("OpenAILLM","OllamaLLM")]',
     '[string]$ExpectedLlm = "OpenAILLM"',
+    '''(?m)^  LLM:[ \t]+(?<name>\S+)[ \t]*\r?$''',
     'selected_module LLM preflight',
     'does not match required provider',
     'Kadence cognition preflight: selected_module.LLM='
@@ -94,6 +95,14 @@ foreach ($Marker in @(
     if (-not $FrozenText.Contains($Marker)) {
         throw "FAIL frozen transport launcher missing provider guard marker: $Marker"
     }
+}
+
+$SelectionPattern = '(?m)^  LLM:[ \t]+(?<name>\S+)[ \t]*\r?$'
+$CrLfFixture = "selected_module:`r`n  LLM: OllamaLLM`r`nTTS:`r`n"
+$FixtureMatches = [regex]::Matches($CrLfFixture, $SelectionPattern)
+if ($FixtureMatches.Count -ne 1 -or
+    $FixtureMatches[0].Groups['name'].Value -ne "OllamaLLM") {
+    throw "FAIL selected_module LLM preflight does not handle Windows CRLF config text."
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $Root "..\..")).Path
@@ -109,6 +118,7 @@ Write-Host "PASS bundled Ollama provider selected through existing provider boun
 Write-Host "PASS Project-owned Ollama process and TCP 11434 ownership guards"
 Write-Host "PASS canonical persona v2 guard"
 Write-Host "PASS frozen robot transport launcher requires explicit expected provider"
+Write-Host "PASS provider preflight handles Windows CRLF runtime YAML"
 Write-Host "PASS LOCAL startup fails closed instead of selecting OpenAILLM"
 Write-Host "PASS accepted M6 safe tool boundary retained"
 Write-Host "PASS LOCAL cleanup is wired through finally"
