@@ -5,12 +5,22 @@ Set-StrictMode -Version Latest
 
 $Root = $PSScriptRoot
 $Profile = Join-Path $Root "apply_local_robot_profile_windows.ps1"
+$RuntimePatch = Join-Path $Root "apply_local_robot_runtime_windows.ps1"
+$ProviderSource = Join-Path $Root "kadence_ollama_provider.py"
 $Launcher = Join-Path $Root "start_alpha3_local_robot_windows.ps1"
 $FrozenLauncher = Join-Path $Root "start_windows.ps1"
 $LocalCommon = Join-Path $Root "kadence_local_common.ps1"
 $LocalStop = Join-Path $Root "stop_local_windows.ps1"
 
-foreach ($Path in @($Profile, $Launcher, $FrozenLauncher, $LocalCommon, $LocalStop)) {
+foreach ($Path in @(
+    $Profile,
+    $RuntimePatch,
+    $ProviderSource,
+    $Launcher,
+    $FrozenLauncher,
+    $LocalCommon,
+    $LocalStop
+)) {
     if (-not (Test-Path $Path)) {
         throw "FAIL missing Alpha 3 M3A dependency: $Path"
     }
@@ -36,8 +46,43 @@ function Assert-PowerShellParses {
     }
 }
 
-foreach ($Path in @($Profile, $Launcher, $FrozenLauncher, $LocalCommon, $LocalStop)) {
+foreach ($Path in @($Profile, $RuntimePatch, $Launcher, $FrozenLauncher, $LocalCommon, $LocalStop)) {
     Assert-PowerShellParses -Path $Path
+}
+
+$RuntimePatchText = [System.IO.File]::ReadAllText(
+    $RuntimePatch,
+    [System.Text.Encoding]::UTF8
+)
+foreach ($Marker in @(
+    'e1876f1ce19cad6e7bfd7c80e41dc56b2e858dd5',
+    'kadence_ollama_provider.py',
+    'Project-owned LOCAL Ollama adapter for Kadence robot voice turns.',
+    'self.kadence_max_segment_chars = 140',
+    'while True:',
+    'punctuations_to_use.update((".", ":", "\n"))',
+    'Kadence LOCAL robot runtime compatibility ready'
+)) {
+    if (-not $RuntimePatchText.Contains($Marker)) {
+        throw "FAIL LOCAL runtime patch missing evidence marker: $Marker"
+    }
+}
+
+$ProviderSourceText = [System.IO.File]::ReadAllText(
+    $ProviderSource,
+    [System.Text.Encoding]::UTF8
+)
+foreach ($Marker in @(
+    'Reply only in English.',
+    'normally no more than three short sentences',
+    'prepared = [dict(message) for message in dialogue]',
+    'params["extra_body"] = {"think": False}',
+    'english_voice_guard=true',
+    'def response_with_functions(self, session_id, dialogue, functions=None):'
+)) {
+    if (-not $ProviderSourceText.Contains($Marker)) {
+        throw "FAIL LOCAL Ollama adapter missing voice guard marker: $Marker"
+    }
 }
 
 $ProfileText = [System.IO.File]::ReadAllText($Profile, [System.Text.Encoding]::UTF8)
@@ -62,12 +107,14 @@ foreach ($Marker in @(
     'apply_persona_windows.ps1',
     'start_local_windows.ps1',
     'stop_local_windows.ps1',
+    'apply_local_robot_runtime_windows.ps1',
     'apply_local_robot_profile_windows.ps1',
     'remove_m7_behavior_windows.ps1',
     'apply_kadence_tools_windows.ps1',
     'apply_m6_utilities_windows.ps1',
     '$env:KADENCE_TOOL_MODE = "m6_readonly"',
     '$LocalStarted = $true',
+    '& $LocalRuntimePatch -RuntimeRoot $RuntimeRoot',
     '-ExpectedLlm "OllamaLLM"',
     '& $LocalStop -RuntimeRoot $LocalRuntimeRoot'
 )) {
@@ -142,6 +189,8 @@ if ($FirmwareDelta.Count -ne 0) {
 }
 
 Write-Host "PASS bundled Ollama provider selected through existing provider boundary"
+Write-Host "PASS LOCAL Ollama adapter enforces concise English without mutating session history"
+Write-Host "PASS English TTS punctuation and 140-character playback bounds are installed"
 Write-Host "PASS Project-owned Ollama process and TCP 11434 ownership guards"
 Write-Host "PASS blank Windows CIM metadata requires start-time/API/model corroboration"
 Write-Host "PASS canonical persona v2 guard"
