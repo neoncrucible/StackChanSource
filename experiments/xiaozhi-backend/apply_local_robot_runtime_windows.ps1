@@ -173,7 +173,8 @@ if ($ExistingMethod.Contains(
     )) {
     Write-Host "Kadence English TTS segmenter: already applied."
 }
-elseif ($ExistingMethod.Contains('        # 合并当前全部文本并处理未分割部分') -and
+elseif ($ExistingMethod.Contains('        last_punct_pos = -1') -and
+        $ExistingMethod.Contains('        for punct in punctuations_to_use:') -and
         $ExistingMethod.Contains('            self.first_sentence_punctuations') -and
         $ExistingMethod.Contains('            return segment_text')) {
     $TtsText = $TtsText.Remove($MethodStart, $MethodEnd - $MethodStart).Insert(
