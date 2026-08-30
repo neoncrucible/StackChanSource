@@ -60,6 +60,8 @@ foreach ($Marker in @(
     'Project-owned LOCAL Ollama adapter for Kadence robot voice turns.',
     'self.kadence_max_segment_chars = 140',
     'while True:',
+    'last_punct_pos = -1',
+    'for punct in punctuations_to_use:',
     'punctuations_to_use.update((".", ":", "\n"))',
     'Kadence LOCAL robot runtime compatibility ready'
 )) {
