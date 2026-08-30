@@ -3,7 +3,8 @@ param(
     [string]$CondaEnv = "kadence2-xiaozhi",
     [string]$Model = "qwen3.5:4b",
     [bool]$PullIfMissing = $true,
-    [int]$ContextLength = 8192
+    [int]$ContextLength = 8192,
+    [ValidateRange(32, 192)][int]$MaxVoiceTokens = 96
 )
 
 $ErrorActionPreference = "Stop"
@@ -139,7 +140,10 @@ try {
 
     Write-Host ""
     Write-Host "Applying explicit LOCAL robot cognition profile..."
-    & $LocalProfileApplier -RuntimeRoot $RuntimeRoot -Model $Model
+    & $LocalProfileApplier `
+        -RuntimeRoot $RuntimeRoot `
+        -Model $Model `
+        -MaxVoiceTokens $MaxVoiceTokens
 
     Write-Host ""
     Write-Host "Starting frozen robot transport with LOCAL cognition..."
