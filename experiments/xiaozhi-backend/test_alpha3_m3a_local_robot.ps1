@@ -7,8 +7,10 @@ $Root = $PSScriptRoot
 $Profile = Join-Path $Root "apply_local_robot_profile_windows.ps1"
 $Launcher = Join-Path $Root "start_alpha3_local_robot_windows.ps1"
 $FrozenLauncher = Join-Path $Root "start_windows.ps1"
+$LocalCommon = Join-Path $Root "kadence_local_common.ps1"
+$LocalStop = Join-Path $Root "stop_local_windows.ps1"
 
-foreach ($Path in @($Profile, $Launcher, $FrozenLauncher)) {
+foreach ($Path in @($Profile, $Launcher, $FrozenLauncher, $LocalCommon, $LocalStop)) {
     if (-not (Test-Path $Path)) {
         throw "FAIL missing Alpha 3 M3A dependency: $Path"
     }
@@ -34,7 +36,7 @@ function Assert-PowerShellParses {
     }
 }
 
-foreach ($Path in @($Profile, $Launcher, $FrozenLauncher)) {
+foreach ($Path in @($Profile, $Launcher, $FrozenLauncher, $LocalCommon, $LocalStop)) {
     Assert-PowerShellParses -Path $Path
 }
 
@@ -105,6 +107,31 @@ if ($FixtureMatches.Count -ne 1 -or
     throw "FAIL selected_module LLM preflight does not handle Windows CRLF config text."
 }
 
+$CommonText = [System.IO.File]::ReadAllText($LocalCommon, [System.Text.Encoding]::UTF8)
+foreach ($Marker in @(
+    '$PathVisible = -not [string]::IsNullOrWhiteSpace($ExecutablePath)',
+    '$CommandVisible = -not [string]::IsNullOrWhiteSpace($CommandLine)',
+    '$MetadataComplete = $PathVisible -and $CommandVisible',
+    'caller must corroborate ownership with recorded start time, TCP 11434 and the Ollama API'
+)) {
+    if (-not $CommonText.Contains($Marker)) {
+        throw "FAIL LOCAL ownership helper missing blank-CIM guard marker: $Marker"
+    }
+}
+
+$StopText = [System.IO.File]::ReadAllText($LocalStop, [System.Text.Encoding]::UTF8)
+foreach ($Marker in @(
+    '$Owners -notcontains $ProcessId',
+    '$LiveProcess.StartTime.ToUniversalTime()',
+    '$ActualStartedUtc -gt $RecordedStartedUtc.AddSeconds(5)',
+    'Invoke-KadenceOllamaApi -Method Get -Path "ps"',
+    '$RunningModels -notcontains ([string]$State.model)'
+)) {
+    if (-not $StopText.Contains($Marker)) {
+        throw "FAIL LOCAL stop script missing corroborated-ownership marker: $Marker"
+    }
+}
+
 $RepoRoot = (Resolve-Path (Join-Path $Root "..\..")).Path
 $FirmwareDelta = @(git -C $RepoRoot diff --name-only c74d8949f33c6dea1d7df2bea248cad9e82d5dd1..HEAD -- firmware)
 if ($LASTEXITCODE -ne 0) {
@@ -116,6 +143,7 @@ if ($FirmwareDelta.Count -ne 0) {
 
 Write-Host "PASS bundled Ollama provider selected through existing provider boundary"
 Write-Host "PASS Project-owned Ollama process and TCP 11434 ownership guards"
+Write-Host "PASS blank Windows CIM metadata requires start-time/API/model corroboration"
 Write-Host "PASS canonical persona v2 guard"
 Write-Host "PASS frozen robot transport launcher requires explicit expected provider"
 Write-Host "PASS provider preflight handles Windows CRLF runtime YAML"
