@@ -24,25 +24,42 @@ if (-not (Test-Path $Paths.PidPath) -or -not (Test-Path $Paths.StatePath)) {
 
 $State = Get-Content $Paths.StatePath -Raw | ConvertFrom-Json
 $ProcessId = [int]$State.pid
-$null = Assert-KadenceOwnedOllamaProcess -ProcessId $ProcessId -ExpectedExecutable ([string]$State.executable)
+$Ownership = Assert-KadenceOwnedOllamaProcess -ProcessId $ProcessId -ExpectedExecutable ([string]$State.executable)
 
 if ($Owners -notcontains $ProcessId) {
     throw "Recorded Kadence LOCAL PID $ProcessId does not own TCP 11434. Refusing destructive cleanup."
 }
 
-if (Test-KadenceOllamaApi) {
-    try {
-        $UnloadBody = [ordered]@{
-            model = [string]$State.model
-            prompt = ""
-            stream = $false
-            keep_alive = 0
-        }
-        $null = Invoke-KadenceOllamaApi -Method Post -Path "generate" -Body $UnloadBody -TimeoutSec 30
+$LiveProcess = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+if ($null -eq $LiveProcess) {
+    throw "Recorded Kadence LOCAL PID $ProcessId exited during ownership verification."
+}
+$RecordedStartedUtc = [DateTimeOffset]::Parse([string]$State.started_utc).UtcDateTime
+$ActualStartedUtc = $LiveProcess.StartTime.ToUniversalTime()
+if ($ActualStartedUtc -gt $RecordedStartedUtc.AddSeconds(5)) {
+    throw "PID $ProcessId started after the recorded Kadence LOCAL state; the PID may have been recycled. Refusing destructive cleanup."
+}
+
+if (-not (Test-KadenceOllamaApi)) {
+    throw "PID $ProcessId owns TCP 11434 but the Ollama API identity check failed. Refusing destructive cleanup."
+}
+$Running = Invoke-KadenceOllamaApi -Method Get -Path "ps" -TimeoutSec 10
+$RunningModels = @($Running.models | ForEach-Object { [string]$_.name })
+if ($RunningModels -notcontains ([string]$State.model)) {
+    throw "Ollama on TCP 11434 is not serving the recorded Kadence model '$($State.model)'. Refusing destructive cleanup."
+}
+
+try {
+    $UnloadBody = [ordered]@{
+        model = [string]$State.model
+        prompt = ""
+        stream = $false
+        keep_alive = 0
     }
-    catch {
-        Write-Warning "LOCAL model unload request failed; process-tree shutdown will continue: $($_.Exception.Message)"
-    }
+    $null = Invoke-KadenceOllamaApi -Method Post -Path "generate" -Body $UnloadBody -TimeoutSec 30
+}
+catch {
+    Write-Warning "LOCAL model unload request failed; process-tree shutdown will continue: $($_.Exception.Message)"
 }
 
 Write-Host "Stopping Kadence LOCAL PID $ProcessId..."
