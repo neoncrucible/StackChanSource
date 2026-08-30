@@ -1,6 +1,8 @@
 param(
     [string]$RuntimeRoot = (Join-Path $PSScriptRoot ".runtime"),
-    [string]$CondaEnv = "kadence2-xiaozhi"
+    [string]$CondaEnv = "kadence2-xiaozhi",
+    [ValidateSet("OpenAILLM","OllamaLLM")]
+    [string]$ExpectedLlm = "OpenAILLM"
 )
 
 $ErrorActionPreference = "Stop"
@@ -129,6 +131,24 @@ if (-not (Test-Path $RealtimeInstaller)) {
 }
 & $RealtimeInstaller -RuntimeRoot $RuntimeRoot
 
+# Provider selection is configuration-driven, but every launcher must declare
+# which cognition provider it expects. Re-read after all runtime repair/config
+# steps so LOCAL cannot silently fall back to OpenAILLM and LUNA cannot silently
+# route to OllamaLLM.
+$ConfigText = [System.IO.File]::ReadAllText($ConfigPath, $Utf8NoBom)
+$SelectedLlmMatches = [regex]::Matches(
+    $ConfigText,
+    '(?m)^  LLM:[ \t]+(?<name>\S+)[ \t]*$'
+)
+if ($SelectedLlmMatches.Count -ne 1) {
+    throw "Kadence selected_module LLM preflight expected exactly one selection; found $($SelectedLlmMatches.Count)."
+}
+$SelectedLlm = $SelectedLlmMatches[0].Groups['name'].Value
+if ($SelectedLlm -ne $ExpectedLlm) {
+    throw "Kadence selected_module LLM '$SelectedLlm' does not match required provider '$ExpectedLlm'. Refusing to start the robot server."
+}
+Write-Host "Kadence cognition preflight: selected_module.LLM=$SelectedLlm"
+
 $FfmpegBin = Resolve-KadenceFfmpegBin
 if ($null -ne $FfmpegBin) {
     $FfmpegExe = Join-Path $FfmpegBin "ffmpeg.exe"
@@ -232,3 +252,4 @@ finally {
         Remove-Job $DiscoveryJob -Force -ErrorAction SilentlyContinue
     }
 }
+
