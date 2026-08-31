@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kade:protocol:envelope:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "ts", "kind", "name", "payload"],
+  "properties": {
+    "v": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "ts": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["hello", "ready", "heartbeat", "event", "command", "ack", "error"]},
+    "name": {"type": "string", "minLength": 1},
+    "payload": {"type": "object"}
+  }
+}
