@@ -1,5 +1,6 @@
 #include "body_contract.h"
 
+#include <algorithm>
 #include <array>
 #include <cinttypes>
 #include <cstdio>
@@ -22,12 +23,15 @@ namespace {
 
 constexpr const char* kLogTag = "KADE-BODY";
 constexpr uint32_t kHeartbeatMs = 5000;
+constexpr uint32_t kTouchPollMs = 20;
+constexpr uint32_t kTouchMoveLogMs = 100;
 constexpr int kI2cTimeoutMs = 250;
 
 constexpr gpio_num_t kI2cSda = GPIO_NUM_12;
 constexpr gpio_num_t kI2cScl = GPIO_NUM_11;
 constexpr uint8_t kAxp2101Address = 0x34;
 constexpr uint8_t kAw9523Address = 0x58;
+constexpr uint8_t kFt6336Address = 0x38;
 
 constexpr gpio_num_t kLcdMosi = GPIO_NUM_37;
 constexpr gpio_num_t kLcdClock = GPIO_NUM_36;
@@ -43,7 +47,19 @@ struct DisplayHardware {
     esp_lcd_panel_handle_t panel = nullptr;
 };
 
+struct TouchHardware {
+    i2c_master_dev_handle_t controller = nullptr;
+    bool available = false;
+    bool down = false;
+    int x = -1;
+    int y = -1;
+    uint64_t last_move_log_ms = 0;
+    uint64_t last_error_log_ms = 0;
+    uint32_t consecutive_failures = 0;
+};
+
 DisplayHardware g_display;
+TouchHardware g_touch;
 
 const char* reset_reason_name(esp_reset_reason_t reason)
 {
@@ -90,6 +106,12 @@ uint8_t read_reg(i2c_master_dev_handle_t device, uint8_t reg)
     return value;
 }
 
+esp_err_t try_read_reg(i2c_master_dev_handle_t device, uint8_t reg, uint8_t* value)
+{
+    if (value == nullptr) return ESP_ERR_INVALID_ARG;
+    return i2c_master_transmit_receive(device, &reg, 1, value, 1, kI2cTimeoutMs);
+}
+
 i2c_master_dev_handle_t add_i2c_device(uint8_t address)
 {
     i2c_device_config_t config{};
@@ -131,7 +153,7 @@ void initialise_display_power()
     rail = read_reg(g_display.pmic, 0x90);
     write_reg(g_display.pmic, 0x90, rail & 0x7F);
 
-    // Proven AW9523 setup. No audio, servo or touch services are enabled here.
+    // Proven AW9523 setup. Audio and motion remain disabled.
     write_reg(g_display.io_expander, 0x02, 0x07);
     write_reg(g_display.io_expander, 0x03, 0x8F);
     write_reg(g_display.io_expander, 0x04, 0x18);
@@ -209,10 +231,10 @@ void initialise_panel()
 void draw_display_probe()
 {
     constexpr std::array<uint16_t, 4> colours = {
-        0xF800,  // primary 1
-        0x07E0,  // primary 2
-        0x001F,  // primary 3
-        0xFFFF,  // white
+        0xF800,
+        0x07E0,
+        0x001F,
+        0xFFFF,
     };
 
     std::array<uint16_t, kade_body_contract::kDisplayWidth> scanline{};
@@ -239,6 +261,110 @@ void draw_display_probe()
     ESP_LOGI(kLogTag, "DISPLAY_PROBE status=ready pattern=four-bars backlight=65");
 }
 
+void draw_touch_marker(int x, int y)
+{
+    constexpr int kMarkerSize = 9;
+    constexpr int kHalf = kMarkerSize / 2;
+    static const std::array<uint16_t, kMarkerSize * kMarkerSize> marker{};
+
+    const int cx = std::clamp(x, kHalf, kade_body_contract::kDisplayWidth - kHalf - 1);
+    const int cy = std::clamp(y, kHalf, kade_body_contract::kDisplayHeight - kHalf - 1);
+
+    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(
+        g_display.panel,
+        cx - kHalf,
+        cy - kHalf,
+        cx + kHalf + 1,
+        cy + kHalf + 1,
+        marker.data()));
+}
+
+void initialise_touch()
+{
+    g_touch.controller = add_i2c_device(kFt6336Address);
+
+    uint8_t chip_id = 0;
+    const esp_err_t err = try_read_reg(g_touch.controller, 0xA3, &chip_id);
+    if (err != ESP_OK) {
+        ESP_LOGE(kLogTag, "TOUCH_PROBE status=unavailable address=0x%02X err=%s",
+                 kFt6336Address, esp_err_to_name(err));
+        return;
+    }
+
+    g_touch.available = true;
+    ESP_LOGI(kLogTag,
+             "TOUCH_PROBE status=ready controller=FT6336 address=0x%02X chip_id=0x%02X poll_ms=%" PRIu32,
+             kFt6336Address, chip_id, kTouchPollMs);
+}
+
+void poll_touch(uint64_t now_ms)
+{
+    if (!g_touch.available) return;
+
+    const uint8_t start_register = 0x02;
+    uint8_t data[6]{};
+    const esp_err_t err = i2c_master_transmit_receive(
+        g_touch.controller,
+        &start_register,
+        1,
+        data,
+        sizeof(data),
+        kI2cTimeoutMs);
+
+    if (err != ESP_OK) {
+        ++g_touch.consecutive_failures;
+        if (g_touch.last_error_log_ms == 0 || now_ms - g_touch.last_error_log_ms >= 1000) {
+            ESP_LOGW(kLogTag,
+                     "TOUCH_PROBE read_error err=%s skipped=%" PRIu32,
+                     esp_err_to_name(err),
+                     g_touch.consecutive_failures);
+            g_touch.last_error_log_ms = now_ms;
+        }
+        return;
+    }
+
+    g_touch.consecutive_failures = 0;
+    const int points = data[0] & 0x0F;
+    const int x = ((data[1] & 0x0F) << 8) | data[2];
+    const int y = ((data[3] & 0x0F) << 8) | data[4];
+    const bool down = points > 0;
+
+    if (down && !g_touch.down) {
+        g_touch.down = true;
+        g_touch.x = x;
+        g_touch.y = y;
+        g_touch.last_move_log_ms = now_ms;
+        ESP_LOGI(kLogTag, "TOUCH_EVENT type=press points=%d x=%d y=%d", points, x, y);
+        if (x >= 0 && x < kade_body_contract::kDisplayWidth &&
+            y >= 0 && y < kade_body_contract::kDisplayHeight) {
+            draw_touch_marker(x, y);
+        }
+        return;
+    }
+
+    if (down) {
+        const bool moved = x != g_touch.x || y != g_touch.y;
+        g_touch.x = x;
+        g_touch.y = y;
+        if (moved && now_ms - g_touch.last_move_log_ms >= kTouchMoveLogMs) {
+            ESP_LOGI(kLogTag, "TOUCH_EVENT type=move points=%d x=%d y=%d", points, x, y);
+            g_touch.last_move_log_ms = now_ms;
+            if (x >= 0 && x < kade_body_contract::kDisplayWidth &&
+                y >= 0 && y < kade_body_contract::kDisplayHeight) {
+                draw_touch_marker(x, y);
+            }
+        }
+        return;
+    }
+
+    if (g_touch.down) {
+        ESP_LOGI(kLogTag, "TOUCH_EVENT type=release x=%d y=%d", g_touch.x, g_touch.y);
+        g_touch.down = false;
+        g_touch.x = -1;
+        g_touch.y = -1;
+    }
+}
+
 void log_contract()
 {
     using namespace kade_body_contract;
@@ -248,7 +374,7 @@ void log_contract()
              kSafeYawMinTenths, kSafeYawMaxTenths, kSafePitchMinTenths, kSafePitchMaxTenths,
              kMinMotionSpeed, kMaxMotionSpeed, kPositionToleranceTenths);
     ESP_LOGI(kLogTag,
-             "BODY_POLICY preserve_zero=%d release_torque=%d motion_driver=off audio_driver=off display_driver=probe network=off",
+             "BODY_POLICY preserve_zero=%d release_torque=%d motion_driver=off audio_driver=off display_driver=probe touch_driver=probe network=off",
              kPreserveStoredZeroCalibration ? 1 : 0,
              kReleaseTorqueAfterMotion ? 1 : 0);
 }
@@ -276,13 +402,24 @@ extern "C" void app_main(void)
     ESP_LOGI(kLogTag, "DISPLAY_PROBE phase=draw");
     draw_display_probe();
 
+    ESP_LOGI(kLogTag, "TOUCH_PROBE phase=controller");
+    initialise_touch();
+
     uint32_t sequence = 0;
+    uint64_t next_heartbeat_ms = 0;
+
     while (true) {
-        const uint64_t uptime_ms = static_cast<uint64_t>(esp_timer_get_time()) / 1000ULL;
-        const uint32_t free_heap = esp_get_free_heap_size();
-        ESP_LOGI(kLogTag,
-                 "BODY_HEARTBEAT seq=%" PRIu32 " uptime_ms=%" PRIu64 " free_heap=%" PRIu32,
-                 sequence++, uptime_ms, free_heap);
-        vTaskDelay(pdMS_TO_TICKS(kHeartbeatMs));
+        const uint64_t now_ms = static_cast<uint64_t>(esp_timer_get_time()) / 1000ULL;
+        poll_touch(now_ms);
+
+        if (now_ms >= next_heartbeat_ms) {
+            const uint32_t free_heap = esp_get_free_heap_size();
+            ESP_LOGI(kLogTag,
+                     "BODY_HEARTBEAT seq=%" PRIu32 " uptime_ms=%" PRIu64 " free_heap=%" PRIu32,
+                     sequence++, now_ms, free_heap);
+            next_heartbeat_ms = now_ms + kHeartbeatMs;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(kTouchPollMs));
     }
 }
