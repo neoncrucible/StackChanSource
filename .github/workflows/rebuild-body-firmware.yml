@@ -1,0 +1,62 @@
+name: Rebuild body firmware
+
+on:
+  push:
+    branches:
+      - kadence/rebuild-kade
+    paths:
+      - "rebuild/firmware/**"
+      - ".github/workflows/rebuild-body-firmware.yml"
+  pull_request:
+    paths:
+      - "rebuild/firmware/**"
+      - ".github/workflows/rebuild-body-firmware.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.4
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build inert ESP32-S3 body probe
+        shell: bash
+        run: |
+          set -o pipefail
+          source "$IDF_PATH/export.sh"
+          cd rebuild/firmware
+          idf.py build 2>&1 | tee body-build.log
+
+      - name: Collect flashable files
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p body-firmware-artifacts
+          cp rebuild/firmware/build/bootloader/bootloader.bin body-firmware-artifacts/
+          cp rebuild/firmware/build/partition_table/partition-table.bin body-firmware-artifacts/
+          cp rebuild/firmware/build/*.bin body-firmware-artifacts/
+          cp rebuild/firmware/build/flasher_args.json body-firmware-artifacts/
+          cp rebuild/firmware/build/flash_args body-firmware-artifacts/
+
+      - name: Upload firmware artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kadence-rebuild-body-probe
+          path: body-firmware-artifacts/
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kadence-rebuild-body-build-log
+          path: rebuild/firmware/body-build.log
+          if-no-files-found: warn
