@@ -11,6 +11,20 @@ def test_normal_conversation_cycle():
     assert state.sequence == 5
 
 
+def test_disconnect_is_valid_from_active_states():
+    for active in (Presence.LISTENING, Presence.THINKING, Presence.SPEAKING):
+        state = RuntimeState(Presence.IDLE)
+        if active is Presence.LISTENING:
+            state.transition(active)
+        elif active is Presence.THINKING:
+            state.transition(active)
+        else:
+            state.transition(Presence.THINKING)
+            state.transition(active)
+        state.transition(Presence.OFFLINE)
+        assert state.presence is Presence.OFFLINE
+
+
 def test_invalid_transition_fails_closed():
     state = RuntimeState()
     with pytest.raises(ValueError, match="invalid transition"):

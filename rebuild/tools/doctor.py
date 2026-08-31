@@ -7,10 +7,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 from kcore.config import load_runtime_config
 from kcore.protocol import Envelope, MessageKind
 from kcore.state import Presence, RuntimeState
+from loopback import run_probe
 
 
 def main() -> int:
@@ -21,6 +23,7 @@ def main() -> int:
     checks: list[tuple[str, bool, str]] = []
     checks.append(("python", sys.version_info >= (3, 12), platform.python_version()))
 
+    cfg = None
     try:
         cfg = load_runtime_config(args.config)
         checks.append(("config", True, f"{cfg.host}:{cfg.port}"))
@@ -36,6 +39,13 @@ def main() -> int:
         checks.append(("core", True, f"protocol-v{env.version}"))
     except Exception as exc:
         checks.append(("core", False, str(exc)))
+
+    if cfg is not None:
+        try:
+            probe = run_probe(cfg)
+            checks.append(("loopback", True, f"{probe.address} seq={probe.sequence}"))
+        except Exception as exc:
+            checks.append(("loopback", False, str(exc)))
 
     for name, ok, detail in checks:
         print(f"{'PASS' if ok else 'FAIL'}  {name:<8} {detail}")

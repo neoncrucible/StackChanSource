@@ -17,9 +17,9 @@ class Presence(StrEnum):
 _ALLOWED: dict[Presence, frozenset[Presence]] = {
     Presence.BOOTING: frozenset({Presence.IDLE, Presence.OFFLINE, Presence.FAULT}),
     Presence.IDLE: frozenset({Presence.LISTENING, Presence.THINKING, Presence.OFFLINE, Presence.FAULT}),
-    Presence.LISTENING: frozenset({Presence.THINKING, Presence.IDLE, Presence.FAULT}),
-    Presence.THINKING: frozenset({Presence.SPEAKING, Presence.IDLE, Presence.FAULT}),
-    Presence.SPEAKING: frozenset({Presence.LISTENING, Presence.IDLE, Presence.FAULT}),
+    Presence.LISTENING: frozenset({Presence.THINKING, Presence.IDLE, Presence.OFFLINE, Presence.FAULT}),
+    Presence.THINKING: frozenset({Presence.SPEAKING, Presence.IDLE, Presence.OFFLINE, Presence.FAULT}),
+    Presence.SPEAKING: frozenset({Presence.LISTENING, Presence.IDLE, Presence.OFFLINE, Presence.FAULT}),
     Presence.OFFLINE: frozenset({Presence.IDLE, Presence.FAULT}),
     Presence.FAULT: frozenset({Presence.BOOTING, Presence.OFFLINE}),
 }
