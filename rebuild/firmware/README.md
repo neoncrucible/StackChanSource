@@ -1,19 +1,31 @@
 # Clean body firmware
 
 This is a standalone ESP-IDF 5.5.4 project for the rebuilt physical endpoint.
-It does not compile or link the legacy Kadence application, Xiaozhi runtime, LLM logic, Wi-Fi stack, audio pipeline, display UI, or motion controller.
+It does not compile or link the legacy Kadence application, Xiaozhi runtime, LLM logic, Wi-Fi stack, audio pipeline, avatar UI, or motion controller.
 
-## Probe 0
+## Probe 0 — inert body
 
-The first hardware image is deliberately inert. It only:
+Signed off on physical CoreS3 hardware:
 
-- boots the ESP32-S3;
-- derives a stable device ID from the factory MAC;
-- reports the reset reason;
-- prints the frozen body contract and hardware safety policy;
-- emits a five-second heartbeat with uptime and free heap.
+- stable ESP32-S3 boot;
+- reset/reconnect survives the board's manual-reset USB behaviour;
+- five-second heartbeat;
+- stable free heap across repeated boots;
+- no motion, audio, display or network driver.
 
-Motion, audio, display and network drivers remain disabled. Stored servo zero calibration is never touched.
+## Probe 1 — display ownership
+
+Adds only the minimum physically proven CoreS3 display path:
+
+- I2C1 on SDA 12 / SCL 11;
+- AXP2101 display/backlight rail setup;
+- AW9523 panel reset path;
+- SPI3 on MOSI 37 / SCLK 36, CS 3, DC 35;
+- ILI9341-compatible panel driver at 40 MHz;
+- direct four-band RGB565 test frame;
+- backlight enabled only after the complete frame is drawn.
+
+LVGL, touch, audio, servos, Wi-Fi and personality/presentation layers remain disabled. Stored servo zero calibration is never touched.
 
 ## Build
 
