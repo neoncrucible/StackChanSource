@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "tools"))
 
+from body_probe import run_body_probe
 from kcore.config import load_runtime_config
 from kcore.protocol import Envelope, MessageKind
 from kcore.state import Presence, RuntimeState
@@ -46,6 +47,13 @@ def main() -> int:
             checks.append(("loopback", True, f"{probe.address} seq={probe.sequence}"))
         except Exception as exc:
             checks.append(("loopback", False, str(exc)))
+
+        try:
+            body = run_body_probe(cfg)
+            ok = body.host_presence == "offline" and "heartbeat" in body.events
+            checks.append(("body-sim", ok, f"{body.device_id} -> {body.host_presence}"))
+        except Exception as exc:
+            checks.append(("body-sim", False, str(exc)))
 
     for name, ok, detail in checks:
         print(f"{'PASS' if ok else 'FAIL'}  {name:<8} {detail}")
