@@ -24,8 +24,8 @@ constexpr const char* kLogTag = "KADE-BODY";
 constexpr uint32_t kHeartbeatMs = 5000;
 constexpr int kI2cTimeoutMs = 250;
 constexpr int kOpenAttempts = 3;
-constexpr int kOutputVolume = 30;
-constexpr int kToneSamples = 4800;
+constexpr int kOutputVolume = 65;
+constexpr int kToneSamples = 16000;
 constexpr int kSilenceSamples = 800;
 
 constexpr gpio_num_t kI2cSda = GPIO_NUM_12;
@@ -285,13 +285,13 @@ void build_probe_signal()
         const int phase = i % 40;
         int value = 0;
         if (phase < 10) {
-            value = phase * 250;
+            value = phase * 1200;
         } else if (phase < 20) {
-            value = (19 - phase) * 250;
+            value = (19 - phase) * 1200;
         } else if (phase < 30) {
-            value = -(phase - 20) * 250;
+            value = -(phase - 20) * 1200;
         } else {
-            value = -(39 - phase) * 250;
+            value = -(39 - phase) * 1200;
         }
         g_tone[static_cast<std::size_t>(i)] = static_cast<int16_t>(value);
     }
