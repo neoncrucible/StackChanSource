@@ -1,6 +1,6 @@
-#define app_main app_main_original
+#define KADE_PROBE9_NO_APP_MAIN 1
 #include "probe9.cpp"
-#undef app_main
+#undef KADE_PROBE9_NO_APP_MAIN
 
 namespace {
 
