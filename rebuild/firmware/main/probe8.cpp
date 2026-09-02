@@ -294,6 +294,7 @@ void probe8_log_contract()
 
 }  // namespace
 
+#ifndef KADE_PROBE8_NO_APP_MAIN
 extern "C" void app_main(void)
 {
     char device_id[32]{};
@@ -322,3 +323,4 @@ extern "C" void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(kHeartbeatMs));
     }
 }
+#endif
