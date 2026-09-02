@@ -6,10 +6,14 @@ on:
       - kadence/rebuild-kade
     paths:
       - "rebuild/firmware/**"
+      - "rebuild/backend/kcore/body_contract.py"
+      - "rebuild/tools/checkpoint10_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   pull_request:
     paths:
       - "rebuild/firmware/**"
+      - "rebuild/backend/kcore/body_contract.py"
+      - "rebuild/tools/checkpoint10_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   workflow_dispatch:
 
@@ -25,6 +29,12 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Run checkpoint host safety gate
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint10_gate.py
 
       - name: Build inert ESP32-S3 body probe
         shell: bash
