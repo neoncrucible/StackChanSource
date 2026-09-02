@@ -1,3 +1,6 @@
+#ifndef KADE_PROBE8_SYNC_CPP_INCLUDED
+#define KADE_PROBE8_SYNC_CPP_INCLUDED 1
+
 #include "esp_err.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
@@ -99,3 +102,5 @@ static esp_err_t probe8_sync_draw_bitmap(esp_lcd_panel_handle_t panel,
 
     return ESP_OK;
 }
+
+#endif  // KADE_PROBE8_SYNC_CPP_INCLUDED
