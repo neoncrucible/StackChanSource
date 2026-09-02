@@ -1,6 +1,10 @@
-#define KADE_PROBE9_NO_APP_MAIN 1
+#define KADE_PROBE8_NO_APP_MAIN 1
+#include "probe8_sync.cpp"
+#undef KADE_PROBE8_NO_APP_MAIN
+
+#define app_main app_main_original
 #include "probe9.cpp"
-#undef KADE_PROBE9_NO_APP_MAIN
+#undef app_main
 
 namespace {
 
