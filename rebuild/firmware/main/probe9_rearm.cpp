@@ -2,7 +2,7 @@
 #include "probe8_sync.cpp"
 #undef KADE_PROBE8_NO_APP_MAIN
 
-#define app_main app_main_original
+#define app_main app_main_probe9_original
 #include "probe9.cpp"
 #undef app_main
 
