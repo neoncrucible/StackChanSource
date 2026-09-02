@@ -174,6 +174,7 @@ bool p9_run_integrated_gate_rearm()
 
 }  // namespace
 
+#ifndef KADE_PROBE9_NO_APP_MAIN
 extern "C" void app_main(void)
 {
     char device_id[32]{};
@@ -204,3 +205,4 @@ extern "C" void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(kHeartbeatMs));
     }
 }
+#endif
