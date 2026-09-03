@@ -7,13 +7,17 @@ on:
     paths:
       - "rebuild/firmware/**"
       - "rebuild/backend/kcore/body_contract.py"
+      - "rebuild/backend/kcore/commands.py"
       - "rebuild/tools/checkpoint10_gate.py"
+      - "rebuild/tools/checkpoint11_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   pull_request:
     paths:
       - "rebuild/firmware/**"
       - "rebuild/backend/kcore/body_contract.py"
+      - "rebuild/backend/kcore/commands.py"
       - "rebuild/tools/checkpoint10_gate.py"
+      - "rebuild/tools/checkpoint11_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   workflow_dispatch:
 
@@ -30,11 +34,12 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Run checkpoint host safety gate
+      - name: Run checkpoint host safety gates
         shell: bash
         run: |
           set -o pipefail
           PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint10_gate.py
+          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint11_gate.py
 
       - name: Build inert ESP32-S3 body probe
         shell: bash
