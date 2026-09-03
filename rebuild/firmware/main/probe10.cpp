@@ -1,3 +1,8 @@
+#ifdef app_main
+#define KADE_PROBE10_EMBEDDED 1
+#undef app_main
+#endif
+
 #define KADE_PROBE9_NO_APP_MAIN 1
 #include "probe9_rearm.cpp"
 #undef KADE_PROBE9_NO_APP_MAIN
@@ -316,6 +321,7 @@ bool run_probe10()
 
 }  // namespace
 
+#ifndef KADE_PROBE10_EMBEDDED
 extern "C" void app_main(void)
 {
     char device_id[32]{};
@@ -346,3 +352,4 @@ extern "C" void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(kHeartbeatMs));
     }
 }
+#endif
