@@ -33,6 +33,7 @@ class HostServer:
         self._client_done = asyncio.Event()
         self._client_done.set()
         self._write_lock = asyncio.Lock()
+        self._command_lock = asyncio.Lock()
         self._pending: dict[str, asyncio.Future[Envelope]] = {}
         self._retired_order: deque[str] = deque()
         self._retired: set[str] = set()
@@ -82,52 +83,54 @@ class HostServer:
         timeout: float = 2.0,
     ) -> Envelope:
         """Send one bounded body pose command and require a correlated ACK."""
-        writer = self._active_writer
-        session = self._active_session
-        if writer is None or session is None or not session.hello_seen:
-            raise RuntimeError("body endpoint is not ready")
         if timeout <= 0:
             raise ValueError("timeout must be positive")
 
-        candidate = Envelope(
-            MessageKind.COMMAND,
-            "body.pose",
-            {"yaw": yaw, "pitch": pitch},
-        )
-        safe = decode_body_command(candidate)
-        command = Envelope(
-            MessageKind.COMMAND,
-            "body.pose",
-            {"yaw": safe.yaw, "pitch": safe.pitch},
-            request_id=candidate.request_id,
-        )
+        async with self._command_lock:
+            writer = self._active_writer
+            session = self._active_session
+            if writer is None or session is None or not session.hello_seen:
+                raise RuntimeError("body endpoint is not ready")
 
-        loop = asyncio.get_running_loop()
-        pending: asyncio.Future[Envelope] = loop.create_future()
-        if command.request_id in self._pending:
-            raise RuntimeError("duplicate pending request id")
-        self._pending[command.request_id] = pending
-        try:
-            await self._send(writer, command)
-            response = await asyncio.wait_for(pending, timeout=timeout)
-        except TimeoutError:
-            self._retire_request(command.request_id)
-            raise
-        except asyncio.CancelledError:
-            self._retire_request(command.request_id)
-            raise
-        finally:
-            self._pending.pop(command.request_id, None)
-
-        if response.kind is not MessageKind.ACK:
-            raise RuntimeError(f"body command expected ACK, got {response.kind.value}")
-        if response.name != command.name:
-            raise RuntimeError(
-                f"body command ACK name mismatch: expected {command.name}, got {response.name}"
+            candidate = Envelope(
+                MessageKind.COMMAND,
+                "body.pose",
+                {"yaw": yaw, "pitch": pitch},
             )
-        if response.payload.get("ok") is not True:
-            raise RuntimeError("body command was not acknowledged as successful")
-        return response
+            safe = decode_body_command(candidate)
+            command = Envelope(
+                MessageKind.COMMAND,
+                "body.pose",
+                {"yaw": safe.yaw, "pitch": safe.pitch},
+                request_id=candidate.request_id,
+            )
+
+            loop = asyncio.get_running_loop()
+            pending: asyncio.Future[Envelope] = loop.create_future()
+            if command.request_id in self._pending:
+                raise RuntimeError("duplicate pending request id")
+            self._pending[command.request_id] = pending
+            try:
+                await self._send(writer, command)
+                response = await asyncio.wait_for(pending, timeout=timeout)
+            except TimeoutError:
+                self._retire_request(command.request_id)
+                raise
+            except asyncio.CancelledError:
+                self._retire_request(command.request_id)
+                raise
+            finally:
+                self._pending.pop(command.request_id, None)
+
+            if response.kind is not MessageKind.ACK:
+                raise RuntimeError(f"body command expected ACK, got {response.kind.value}")
+            if response.name != command.name:
+                raise RuntimeError(
+                    f"body command ACK name mismatch: expected {command.name}, got {response.name}"
+                )
+            if response.payload.get("ok") is not True:
+                raise RuntimeError("body command was not acknowledged as successful")
+            return response
 
     async def _send(self, writer: asyncio.StreamWriter, envelope: Envelope) -> None:
         async with self._write_lock:
