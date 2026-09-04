@@ -9,7 +9,15 @@ import serial
 
 PORT = "COM4"
 BAUD = 115200
-TIMEOUT_S = 8.0
+READY_TIMEOUT_S = 30.0
+ACK_TIMEOUT_S = 8.0
+
+
+def _decode_line(raw: bytes) -> str:
+    try:
+        return raw.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError:
+        return ""
 
 
 def main() -> int:
@@ -23,10 +31,27 @@ def main() -> int:
         "payload": {"yaw": 0, "pitch": 450},
     }
 
-    with serial.Serial(PORT, BAUD, timeout=0.25, write_timeout=1.0) as ser:
+    with serial.Serial(PORT, BAUD, timeout=0.25, write_timeout=3.0) as ser:
         ser.dtr = False
         ser.rts = False
-        time.sleep(0.25)
+
+        ready_deadline = time.monotonic() + READY_TIMEOUT_S
+        ready = False
+        while time.monotonic() < ready_deadline:
+            text = _decode_line(ser.readline())
+            if not text:
+                continue
+            if "PROBE19 status=ready" in text or (
+                "BODY_HEARTBEAT" in text and "status=ok" in text
+            ):
+                ready = True
+                break
+
+        if not ready:
+            print("CP19_LIVE FAIL device did not reach transport-ready state")
+            return 1
+
+        print(f"CP19_LIVE device-ready port={PORT}")
         ser.reset_input_buffer()
 
         raw = (json.dumps(command, separators=(",", ":")) + "\n").encode("utf-8")
@@ -34,16 +59,10 @@ def main() -> int:
         ser.flush()
         print(f"CP19_LIVE sent id={request_id} port={PORT}")
 
-        deadline = time.monotonic() + TIMEOUT_S
+        deadline = time.monotonic() + ACK_TIMEOUT_S
         while time.monotonic() < deadline:
-            line = ser.readline()
-            if not line:
-                continue
-            try:
-                text = line.decode("utf-8", errors="strict").strip()
-            except UnicodeDecodeError:
-                continue
-            if not text.startswith("{"):
+            text = _decode_line(ser.readline())
+            if not text or not text.startswith("{"):
                 continue
             try:
                 incoming = json.loads(text)
