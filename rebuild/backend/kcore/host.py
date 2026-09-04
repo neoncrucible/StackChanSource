@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 
 from .commands import decode_body_command
@@ -33,6 +34,9 @@ class HostServer:
         self._client_done.set()
         self._write_lock = asyncio.Lock()
         self._pending: dict[str, asyncio.Future[Envelope]] = {}
+        self._retired_order: deque[str] = deque()
+        self._retired: set[str] = set()
+        self._retired_limit = 64
 
     @property
     def address(self) -> tuple[str, int]:
@@ -106,6 +110,12 @@ class HostServer:
         try:
             await self._send(writer, command)
             response = await asyncio.wait_for(pending, timeout=timeout)
+        except TimeoutError:
+            self._retire_request(command.request_id)
+            raise
+        except asyncio.CancelledError:
+            self._retire_request(command.request_id)
+            raise
         finally:
             self._pending.pop(command.request_id, None)
 
@@ -123,9 +133,21 @@ class HostServer:
         async with self._write_lock:
             await write_envelope(writer, envelope)
 
+    def _retire_request(self, request_id: str) -> None:
+        if request_id in self._retired:
+            return
+        if len(self._retired_order) >= self._retired_limit:
+            oldest = self._retired_order.popleft()
+            self._retired.discard(oldest)
+        self._retired_order.append(request_id)
+        self._retired.add(request_id)
+
     def _resolve_pending(self, incoming: Envelope) -> None:
         pending = self._pending.get(incoming.request_id)
         if pending is None:
+            if incoming.request_id in self._retired:
+                self._retired.discard(incoming.request_id)
+                return
             raise ValueError(f"unexpected correlated response: {incoming.request_id}")
         if pending.done():
             raise ValueError(f"duplicate correlated response: {incoming.request_id}")
@@ -182,6 +204,8 @@ class HostServer:
                 pass
         finally:
             self._fail_pending(PeerClosed("body endpoint disconnected"))
+            self._retired_order.clear()
+            self._retired.clear()
             if self.state.presence not in {Presence.OFFLINE, Presence.FAULT}:
                 self.state.transition(Presence.OFFLINE)
             self._active_session = None
