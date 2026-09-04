@@ -18,6 +18,7 @@ on:
       - "rebuild/tools/checkpoint16_gate.py"
       - "rebuild/tools/checkpoint17_gate.py"
       - "rebuild/tools/checkpoint18_gate.py"
+      - "rebuild/tools/checkpoint19_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   pull_request:
     paths:
@@ -34,6 +35,7 @@ on:
       - "rebuild/tools/checkpoint16_gate.py"
       - "rebuild/tools/checkpoint17_gate.py"
       - "rebuild/tools/checkpoint18_gate.py"
+      - "rebuild/tools/checkpoint19_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   workflow_dispatch:
 
@@ -63,6 +65,7 @@ jobs:
           PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint16_gate.py
           PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint17_gate.py
           PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint18_gate.py
+          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint19_gate.py
 
       - name: Build inert ESP32-S3 body probe
         shell: bash
