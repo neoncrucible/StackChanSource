@@ -8,18 +8,22 @@ on:
       - "rebuild/firmware/**"
       - "rebuild/backend/kcore/body_contract.py"
       - "rebuild/backend/kcore/commands.py"
+      - "rebuild/backend/kcore/host.py"
       - "rebuild/tools/checkpoint10_gate.py"
       - "rebuild/tools/checkpoint11_gate.py"
       - "rebuild/tools/checkpoint12_gate.py"
+      - "rebuild/tools/checkpoint13_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   pull_request:
     paths:
       - "rebuild/firmware/**"
       - "rebuild/backend/kcore/body_contract.py"
       - "rebuild/backend/kcore/commands.py"
+      - "rebuild/backend/kcore/host.py"
       - "rebuild/tools/checkpoint10_gate.py"
       - "rebuild/tools/checkpoint11_gate.py"
       - "rebuild/tools/checkpoint12_gate.py"
+      - "rebuild/tools/checkpoint13_gate.py"
       - ".github/workflows/rebuild-body-firmware.yml"
   workflow_dispatch:
 
@@ -43,6 +47,7 @@ jobs:
           PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint10_gate.py
           PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint11_gate.py
           PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint12_gate.py
+          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint13_gate.py
 
       - name: Build inert ESP32-S3 body probe
         shell: bash
