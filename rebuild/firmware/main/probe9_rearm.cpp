@@ -15,6 +15,26 @@ bool p9_prepare_verify_transition()
         return false;
     }
 
+    // The transition can be reached more than once in a composed checkpoint.
+    // Normalise both channels first so re-arming is safe whether they arrived
+    // here enabled or disabled. ESP_ERR_INVALID_STATE from disable means the
+    // channel was already disabled; that is an acceptable precondition.
+    const esp_err_t tx_disable_err = i2s_channel_disable(g_audio.tx);
+    if (tx_disable_err != ESP_OK && tx_disable_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(kLogTag,
+                 "PROBE9 verify-transition status=failed stage=tx-normalize err=%s",
+                 esp_err_to_name(tx_disable_err));
+        return false;
+    }
+
+    const esp_err_t rx_disable_err = i2s_channel_disable(g_audio.rx);
+    if (rx_disable_err != ESP_OK && rx_disable_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(kLogTag,
+                 "PROBE9 verify-transition status=failed stage=rx-normalize err=%s",
+                 esp_err_to_name(rx_disable_err));
+        return false;
+    }
+
     const esp_err_t tx_err = i2s_channel_enable(g_audio.tx);
     if (tx_err != ESP_OK) {
         ESP_LOGE(kLogTag,
