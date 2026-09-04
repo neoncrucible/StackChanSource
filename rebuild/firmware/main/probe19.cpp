@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "driver/usb_serial_jtag.h"
+
 namespace {
 
 constexpr size_t kP19LineBytes = kP16FrameBytes;
@@ -54,6 +56,19 @@ bool run_probe19()
         return false;
     }
 
+    const usb_serial_jtag_driver_config_t usb_cfg = {
+        .tx_buffer_size = 1024,
+        .rx_buffer_size = 1024,
+    };
+    const esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);
+    if (usb_err != ESP_OK && usb_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(kLogTag,
+                 "PROBE19 status=failed stage=usb-driver-install err=%s",
+                 esp_err_to_name(usb_err));
+        return false;
+    }
+    usb_serial_jtag_vfs_use_driver();
+
     const BaseType_t created = xTaskCreate(
         p19_protocol_task,
         "kade-p19-rx",
@@ -67,7 +82,7 @@ bool run_probe19()
     }
 
     ESP_LOGI(kLogTag,
-             "PROBE19 status=ready transport=usb-serial-jtag primary=1 bidirectional=1 torque=released");
+             "PROBE19 status=ready transport=usb-serial-jtag primary=1 bidirectional=1 blocking_rx=1 torque=released");
     return true;
 }
 
