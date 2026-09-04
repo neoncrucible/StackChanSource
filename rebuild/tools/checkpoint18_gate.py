@@ -20,9 +20,9 @@ def _config() -> RuntimeConfig:
 def _require_firmware_contract() -> None:
     source = FIRMWARE.read_text(encoding="utf-8")
     for marker in (
-        '"v":1',
-        '"kind":"command"',
-        '"name":"body.pose"',
+        '\\"v\\":1',
+        '\\"kind\\":\\"command\\"',
+        '\\"name\\":\\"body.pose\\"',
         '"executed"',
         '"torque_released"',
         "p11_decode_pose(raw, &target)",
