@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "driver/uart_vfs.h"
 #include "driver/usb_serial_jtag.h"
 
 namespace {
@@ -56,7 +57,7 @@ bool run_probe19()
         return false;
     }
 
-    const usb_serial_jtag_driver_config_t usb_cfg = {
+    usb_serial_jtag_driver_config_t usb_cfg = {
         .tx_buffer_size = 1024,
         .rx_buffer_size = 1024,
     };
@@ -67,7 +68,7 @@ bool run_probe19()
                  esp_err_to_name(usb_err));
         return false;
     }
-    usb_serial_jtag_vfs_use_driver();
+    esp_vfs_usb_serial_jtag_use_driver();
 
     const BaseType_t created = xTaskCreate(
         p19_protocol_task,
