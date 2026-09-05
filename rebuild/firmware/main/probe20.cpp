@@ -1,18 +1,157 @@
-#define p19_protocol_task p19_protocol_task_original
-#define run_probe19 run_probe19_original
-#define app_main app_main_probe19_original
-#include "probe19.cpp"
+#define app_main app_main_probe16_original
+#include "probe16.cpp"
 #undef app_main
-#undef run_probe19
-#undef p19_protocol_task
 
+#include <utility>
+
+#include "presentation.cpp"
+#include "presence_engine.cpp"
 #include "device_audio.cpp"
+
+#include <cstdio>
+#include <cstring>
+
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 
 namespace {
 
+constexpr size_t kP20LineBytes = kP16FrameBytes;
+
+enum class P20PresentationResult : uint8_t {
+    NotPresentation = 0,
+    Accepted,
+    Rejected,
+};
+
+bool p20_presentation_state_from_name(const char* name, PresentationState* state)
+{
+    if (name == nullptr || state == nullptr) return false;
+    if (std::strcmp(name, "idle") == 0) *state = PresentationState::Idle;
+    else if (std::strcmp(name, "attentive") == 0) *state = PresentationState::Attentive;
+    else if (std::strcmp(name, "listening") == 0) *state = PresentationState::Listening;
+    else if (std::strcmp(name, "thinking") == 0) *state = PresentationState::Thinking;
+    else if (std::strcmp(name, "speaking") == 0) *state = PresentationState::Speaking;
+    else if (std::strcmp(name, "tool-working") == 0) *state = PresentationState::ToolWorking;
+    else if (std::strcmp(name, "offline") == 0) *state = PresentationState::Offline;
+    else if (std::strcmp(name, "degraded") == 0) *state = PresentationState::Degraded;
+    else if (std::strcmp(name, "fault") == 0) *state = PresentationState::Fault;
+    else if (std::strcmp(name, "recovery") == 0) *state = PresentationState::Recovery;
+    else return false;
+    return true;
+}
+
+bool p20_make_presentation_ack(const char* request_id,
+                               const char* state,
+                               char* output,
+                               size_t output_size)
+{
+    if (request_id == nullptr || request_id[0] == '\0' ||
+        state == nullptr || state[0] == '\0' || output == nullptr || output_size == 0) {
+        return false;
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON* payload = cJSON_CreateObject();
+    if (root == nullptr || payload == nullptr) {
+        cJSON_Delete(payload);
+        cJSON_Delete(root);
+        return false;
+    }
+
+    bool built = true;
+    built = built && cJSON_AddNumberToObject(root, "v", 1) != nullptr;
+    built = built && cJSON_AddStringToObject(root, "id", request_id) != nullptr;
+    built = built && cJSON_AddStringToObject(root, "ts", "device") != nullptr;
+    built = built && cJSON_AddStringToObject(root, "kind", "ack") != nullptr;
+    built = built && cJSON_AddStringToObject(root, "name", "presentation.state") != nullptr;
+    built = built && cJSON_AddBoolToObject(payload, "ok", true) != nullptr;
+    built = built && cJSON_AddStringToObject(payload, "state", state) != nullptr;
+    if (built) {
+        cJSON_AddItemToObject(root, "payload", payload);
+        payload = nullptr;
+    }
+
+    char* rendered = built ? cJSON_PrintUnformatted(root) : nullptr;
+    if (rendered == nullptr || std::strlen(rendered) >= output_size) {
+        cJSON_free(rendered);
+        cJSON_Delete(payload);
+        cJSON_Delete(root);
+        return false;
+    }
+
+    std::snprintf(output, output_size, "%s", rendered);
+    cJSON_free(rendered);
+    cJSON_Delete(root);
+    return true;
+}
+
+P20PresentationResult p20_execute_presentation_command(const char* raw,
+                                                       char* ack,
+                                                       size_t ack_size)
+{
+    if (raw == nullptr) return P20PresentationResult::NotPresentation;
+    cJSON* root = cJSON_Parse(raw);
+    if (root == nullptr || !cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        return P20PresentationResult::NotPresentation;
+    }
+
+    const cJSON* name = cJSON_GetObjectItemCaseSensitive(root, "name");
+    if (!cJSON_IsString(name) || name->valuestring == nullptr ||
+        std::strcmp(name->valuestring, "presentation.state") != 0) {
+        cJSON_Delete(root);
+        return P20PresentationResult::NotPresentation;
+    }
+
+    const cJSON* version = cJSON_GetObjectItemCaseSensitive(root, "v");
+    const cJSON* request_id = cJSON_GetObjectItemCaseSensitive(root, "id");
+    const cJSON* kind = cJSON_GetObjectItemCaseSensitive(root, "kind");
+    const cJSON* payload = cJSON_GetObjectItemCaseSensitive(root, "payload");
+    const cJSON* state_item = payload ? cJSON_GetObjectItemCaseSensitive(payload, "state") : nullptr;
+
+    PresentationState target{};
+    const bool valid = cJSON_IsNumber(version) && version->valuedouble == 1.0 &&
+                       cJSON_IsString(request_id) && request_id->valuestring != nullptr &&
+                       request_id->valuestring[0] != '\0' &&
+                       cJSON_IsString(kind) && kind->valuestring != nullptr &&
+                       std::strcmp(kind->valuestring, "command") == 0 &&
+                       cJSON_IsObject(payload) &&
+                       cJSON_IsString(state_item) && state_item->valuestring != nullptr &&
+                       p20_presentation_state_from_name(state_item->valuestring, &target);
+    if (!valid) {
+        cJSON_Delete(root);
+        return P20PresentationResult::Rejected;
+    }
+
+    char request_copy[48]{};
+    char state_copy[24]{};
+    if (std::strlen(request_id->valuestring) >= sizeof(request_copy) ||
+        std::strlen(state_item->valuestring) >= sizeof(state_copy)) {
+        cJSON_Delete(root);
+        return P20PresentationResult::Rejected;
+    }
+    std::snprintf(request_copy, sizeof(request_copy), "%s", request_id->valuestring);
+    std::snprintf(state_copy, sizeof(state_copy), "%s", state_item->valuestring);
+    cJSON_Delete(root);
+
+    if (target == PresentationState::Idle) {
+        presentation_set_state(target, "host-state");
+        presence_interaction_end();
+    } else {
+        presence_interaction_begin();
+        presentation_set_state(target, "host-state");
+    }
+
+    if (!p20_make_presentation_ack(request_copy, state_copy, ack, ack_size)) {
+        return P20PresentationResult::Rejected;
+    }
+    return P20PresentationResult::Accepted;
+}
+
 void p20_protocol_task(void*)
 {
-    char line[kP19LineBytes]{};
+    char line[kP20LineBytes]{};
     while (true) {
         if (std::fgets(line, sizeof(line), stdin) == nullptr) {
             clearerr(stdin);
@@ -45,15 +184,15 @@ void p20_protocol_task(void*)
             continue;
         }
 
-        const P19PresentationResult presentation_result =
-            p19_execute_presentation_command(line, ack, sizeof(ack));
-        if (presentation_result == P19PresentationResult::Accepted) {
+        const P20PresentationResult presentation_result =
+            p20_execute_presentation_command(line, ack, sizeof(ack));
+        if (presentation_result == P20PresentationResult::Accepted) {
             std::printf("%s\n", ack);
             std::fflush(stdout);
             ESP_LOGI(kLogTag, "PROBE20 presentation=ack-sent correlated=1");
             continue;
         }
-        if (presentation_result == P19PresentationResult::Rejected) {
+        if (presentation_result == P20PresentationResult::Rejected) {
             ESP_LOGE(kLogTag, "PROBE20 presentation=rejected");
             continue;
         }
