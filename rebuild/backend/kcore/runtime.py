@@ -71,6 +71,25 @@ class RuntimeBody:
     ):
         return await self.host.send_voice_audio_check(timeout=timeout)
 
+    async def send_voice_turn(
+        self,
+        *,
+        ssid: str,
+        password: str,
+        host: str,
+        port: int,
+        capture_ms: int = 4800,
+        timeout: float = 90.0,
+    ):
+        return await self.host.send_voice_turn(
+            ssid=ssid,
+            password=password,
+            host=host,
+            port=port,
+            capture_ms=capture_ms,
+            timeout=timeout,
+        )
+
     async def __aenter__(self) -> "RuntimeBody":
         return self
 
