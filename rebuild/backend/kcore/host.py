@@ -132,6 +132,72 @@ class HostServer:
                 raise RuntimeError("body command was not acknowledged as successful")
             return response
 
+    async def send_presentation_state(
+        self,
+        state: str,
+        *,
+        timeout: float = 2.0,
+    ) -> Envelope:
+        """Send one provider-independent presentation state over the v1 protocol."""
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        allowed = {
+            "idle",
+            "attentive",
+            "listening",
+            "thinking",
+            "speaking",
+            "tool-working",
+            "offline",
+            "degraded",
+            "fault",
+            "recovery",
+        }
+        if state not in allowed:
+            raise ValueError(f"unsupported presentation state: {state}")
+
+        writer = self._active_writer
+        session = self._active_session
+        if writer is None or session is None or not session.hello_seen:
+            raise RuntimeError("body endpoint is not ready")
+
+        command = Envelope(
+            MessageKind.COMMAND,
+            "presentation.state",
+            {"state": state},
+        )
+        loop = asyncio.get_running_loop()
+        pending: asyncio.Future[Envelope] = loop.create_future()
+        if command.request_id in self._pending:
+            raise RuntimeError("duplicate pending request id")
+        self._pending[command.request_id] = pending
+        try:
+            await self._send(writer, command)
+            response = await asyncio.wait_for(pending, timeout=timeout)
+        except TimeoutError:
+            self._retire_request(command.request_id)
+            raise
+        except asyncio.CancelledError:
+            self._retire_request(command.request_id)
+            raise
+        finally:
+            self._pending.pop(command.request_id, None)
+
+        if response.kind is not MessageKind.ACK:
+            raise RuntimeError(
+                f"presentation command expected ACK, got {response.kind.value}"
+            )
+        if response.name != command.name:
+            raise RuntimeError(
+                "presentation command ACK name mismatch: "
+                f"expected {command.name}, got {response.name}"
+            )
+        if response.payload.get("ok") is not True:
+            raise RuntimeError("presentation state was not acknowledged")
+        if response.payload.get("state") != state:
+            raise RuntimeError("presentation state ACK did not confirm requested state")
+        return response
+
     async def _send(self, writer: asyncio.StreamWriter, envelope: Envelope) -> None:
         async with self._write_lock:
             await write_envelope(writer, envelope)
