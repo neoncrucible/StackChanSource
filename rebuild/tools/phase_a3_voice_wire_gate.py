@@ -44,6 +44,9 @@ def main() -> None:
     firmware = (ROOT / "firmware" / "main" / "voice_lan.cpp").read_text(encoding="utf-8")
     probe = (ROOT / "firmware" / "main" / "probe21.cpp").read_text(encoding="utf-8")
     cmake = (ROOT / "firmware" / "main" / "CMakeLists.txt").read_text(encoding="utf-8")
+    project_cmake = (ROOT / "firmware" / "CMakeLists.txt").read_text(encoding="utf-8")
+    defaults = (ROOT / "firmware" / "sdkconfig.defaults").read_text(encoding="utf-8")
+    partitions = (ROOT / "firmware" / "partitions.csv").read_text(encoding="utf-8")
     manifest = (ROOT / "firmware" / "main" / "idf_component.yml").read_text(encoding="utf-8")
     host = (BACKEND / "kcore" / "host.py").read_text(encoding="utf-8")
     runtime = (BACKEND / "kcore" / "runtime.py").read_text(encoding="utf-8")
@@ -75,10 +78,21 @@ def main() -> None:
     require("usb_serial_jtag" not in firmware.lower(), "raw audio leaked onto COM control implementation")
     require("COM4" not in wire and "serial_transport" not in wire, "host voice wire depends on COM control transport")
 
+    require("SDKCONFIG" in project_cmake and "kadence-sdkconfig" in project_cmake,
+            "firmware config is not isolated from stale local sdkconfig")
+    require("CONFIG_PARTITION_TABLE_CUSTOM=y" in defaults,
+            "custom partition layout is not selected")
+    require("factory,    app,  factory, 0x10000,  0x400000" in partitions,
+            "factory app partition is not 4 MiB")
+    require("ota_0" in partitions and "ota_1" in partitions,
+            "future OTA slots are missing")
+    require("storage" in partitions and "coredump" in partitions,
+            "future storage/coredump partitions are missing")
+
     print(
         "PHASE_A3_VOICE_WIRE_GATE PASS "
         "opus=60ms ogg=1 ram_wifi=1 control_separate=1 correlated=1 "
-        "single_serial_owner=1 provider_independent=1"
+        "single_serial_owner=1 provider_independent=1 app_slot=4MiB ota_ready=1"
     )
 
 
