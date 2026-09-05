@@ -71,8 +71,10 @@ class SerialBodySession:
             text = _decode_line(raw)
             if not text:
                 continue
-            if "PROBE19 status=ready" in text or (
-                "BODY_HEARTBEAT" in text and "status=ok" in text
+            if (
+                "PROBE20 status=ready" in text
+                or "PROBE19 status=ready" in text
+                or ("BODY_HEARTBEAT" in text and "status=ok" in text)
             ):
                 break
         else:
