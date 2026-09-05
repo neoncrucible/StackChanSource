@@ -11,6 +11,10 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+voice = [
+    "httpx>=0.28,<1",
+    "edge-tts>=7,<8",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
