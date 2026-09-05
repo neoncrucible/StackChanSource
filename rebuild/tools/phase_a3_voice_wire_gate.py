@@ -89,10 +89,14 @@ def main() -> None:
             "Probe21 staged playback layer is missing")
     require("#define esp_codec_dev_write voice_lan_buffered_write" in probe,
             "LAN playback writes are not staged")
-    require("MALLOC_CAP_SPIRAM" in playback and "kVoicePlaybackPsramBytes" in playback,
-            "playback is not backed by PSRAM")
-    require("network_during_playback=0" in playback,
-            "buffered playback proof marker missing")
+    require("MALLOC_CAP_SPIRAM" in playback and "heap_caps_realloc" in playback,
+            "playback PSRAM buffer is not demand-grown")
+    require("g_voice_playback_dma_scratch" in playback,
+            "DMA-safe internal playback scratch buffer is missing")
+    require("g_voice_playback_dma_scratch.data()" in playback,
+            "codec write is not sourced from internal DMA-safe scratch")
+    require("network_during_playback=0" in playback and "dma_safe=1" in playback,
+            "buffered playback proof markers missing")
     require("open_output()" in playback and "close_output()" in playback,
             "buffer layer does not reuse proven speaker ownership path")
 
@@ -115,7 +119,7 @@ def main() -> None:
         "PHASE_A3_VOICE_WIRE_GATE PASS "
         "opus=60ms ogg=1 ram_wifi=1 control_separate=1 correlated=1 "
         "single_serial_owner=1 provider_independent=1 app_slot=4MiB ota_ready=1 "
-        "psram=1 staged_playback=1 network_during_playback=0"
+        "psram=1 staged_playback=1 dma_safe=1 network_during_playback=0"
     )
 
 
