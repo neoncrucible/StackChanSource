@@ -2,11 +2,19 @@
 #include "probe20.cpp"
 #undef app_main
 
+#include "freertos/semphr.h"
+
+#include "voice_cancel_io.cpp"
 #include "voice_playback_buffer.cpp"
 
-// Probe21 alone stages network-delivered PCM before touching the speaker. The
-// proven lower-level codec functions remain unchanged; these aliases exist only
-// while compiling voice_lan.cpp in this translation unit.
+// Probe21 alone stages network-delivered PCM before touching the speaker and
+// wraps the LAN socket operations with a cancellation hook. The proven lower-
+// level codec functions remain unchanged; these aliases exist only while
+// compiling voice_lan.cpp in this translation unit.
+#define connect voice_cancel_connect
+#define send voice_cancel_send
+#define recv voice_cancel_recv
+#define close voice_cancel_close
 #define open_output voice_lan_buffered_open_output
 #define close_output voice_lan_buffered_close_output
 #define esp_codec_dev_set_out_mute voice_lan_buffered_set_out_mute
@@ -16,11 +24,31 @@
 #undef esp_codec_dev_set_out_mute
 #undef close_output
 #undef open_output
+#undef close
+#undef recv
+#undef send
+#undef connect
+
+#include "voice_turn_lane.cpp"
 
 namespace {
 
 constexpr size_t kP21LineBytes = kP16FrameBytes;
 constexpr uint32_t kP21TaskStackBytes = 32768;
+SemaphoreHandle_t g_p21_tx_lock = nullptr;
+
+void p21_emit_ack(const char* ack)
+{
+    if (ack == nullptr || ack[0] == '\0') return;
+    if (g_p21_tx_lock != nullptr) {
+        xSemaphoreTake(g_p21_tx_lock, portMAX_DELAY);
+    }
+    std::printf("%s\n", ack);
+    std::fflush(stdout);
+    if (g_p21_tx_lock != nullptr) {
+        xSemaphoreGive(g_p21_tx_lock);
+    }
+}
 
 void p21_protocol_task(void*)
 {
@@ -40,28 +68,21 @@ void p21_protocol_task(void*)
 
         ESP_LOGI(kLogTag, "PROBE21 phase=rx bytes=%u", static_cast<unsigned>(len));
 
-        char ack[kP16FrameBytes]{};
-        const VoiceLanCommandResult voice_result =
-            voice_lan_execute_command(line, ack, sizeof(ack));
-        if (voice_result == VoiceLanCommandResult::Accepted) {
-            std::printf("%s\n", ack);
-            std::fflush(stdout);
-            ESP_LOGI(kLogTag, "PROBE21 voice-turn=ack-sent correlated=1");
+        const VoiceLaneRouteResult voice_result = voice_lane_route_command(line);
+        if (voice_result == VoiceLaneRouteResult::Consumed) {
             continue;
         }
-        if (voice_result == VoiceLanCommandResult::Rejected) {
+        if (voice_result == VoiceLaneRouteResult::Rejected) {
             p9_release_torque();
-            presentation_set_state(PresentationState::Idle, "voice-turn-rejected");
-            presence_interaction_end();
-            ESP_LOGE(kLogTag, "PROBE21 voice-turn=rejected torque=released");
+            ESP_LOGE(kLogTag, "PROBE21 voice-lane=rejected torque=released");
             continue;
         }
 
+        char ack[kP16FrameBytes]{};
         const DeviceAudioCommandResult audio_result =
             device_audio_execute_command(line, ack, sizeof(ack));
         if (audio_result == DeviceAudioCommandResult::Accepted) {
-            std::printf("%s\n", ack);
-            std::fflush(stdout);
+            p21_emit_ack(ack);
             ESP_LOGI(kLogTag, "PROBE21 device-audio=ack-sent correlated=1");
             continue;
         }
@@ -76,8 +97,7 @@ void p21_protocol_task(void*)
         const P20PresentationResult presentation_result =
             p20_execute_presentation_command(line, ack, sizeof(ack));
         if (presentation_result == P20PresentationResult::Accepted) {
-            std::printf("%s\n", ack);
-            std::fflush(stdout);
+            p21_emit_ack(ack);
             ESP_LOGI(kLogTag, "PROBE21 presentation=ack-sent correlated=1");
             continue;
         }
@@ -97,8 +117,7 @@ void p21_protocol_task(void*)
             continue;
         }
 
-        std::printf("%s\n", ack);
-        std::fflush(stdout);
+        p21_emit_ack(ack);
         presentation_set_state(PresentationState::Idle, "body-complete");
         presence_interaction_end();
         ESP_LOGI(kLogTag, "PROBE21 status=ack-sent executed=1 torque=released");
@@ -110,8 +129,8 @@ bool run_probe21()
     ESP_LOGI(kLogTag, "PROBE21 phase=baseline");
 
     // Do not call run_probe20(): it owns its own serial reader. Reuse the same
-    // proven Probe16 baseline and the duplex audio objects inherited through
-    // Probe20, then create exactly one Probe21 serial command task.
+    // proven Probe16 baseline and duplex audio objects, then keep exactly one
+    // Probe21 control reader while voice work runs on its own worker lane.
     if (!run_probe16()) {
         ESP_LOGE(kLogTag, "PROBE21 status=failed stage=baseline");
         return false;
@@ -140,6 +159,17 @@ bool run_probe21()
     }
     usb_serial_jtag_vfs_use_driver();
 
+    g_p21_tx_lock = xSemaphoreCreateMutex();
+    if (g_p21_tx_lock == nullptr) {
+        ESP_LOGE(kLogTag, "PROBE21 status=failed stage=tx-lock");
+        return false;
+    }
+
+    if (!voice_lane_start(p21_emit_ack)) {
+        ESP_LOGE(kLogTag, "PROBE21 status=failed stage=voice-worker");
+        return false;
+    }
+
     const BaseType_t created = xTaskCreate(
         p21_protocol_task,
         "kade-p21-rx",
@@ -153,7 +183,7 @@ bool run_probe21()
     }
 
     ESP_LOGI(kLogTag,
-             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms buffered-playback=psram handoff=1 torque=released");
+             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms async=1 cancellable=1 buffered-playback=psram handoff=1 torque=released");
     return true;
 }
 
@@ -188,7 +218,7 @@ extern "C" void app_main(void)
     while (true) {
         const int64_t uptime_ms = (esp_timer_get_time() - heartbeat_epoch_us) / 1000;
         ESP_LOGI(kLogTag,
-                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s presence=%s audio=%s voice=lan-opus-60ms buffered-playback=psram",
+                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s presence=%s audio=%s voice=lan-opus-60ms async=1 cancellable=1 buffered-playback=psram",
                  static_cast<unsigned>(heartbeat_seq++),
                  static_cast<long long>(uptime_ms),
                  static_cast<unsigned>(esp_get_free_heap_size()),
