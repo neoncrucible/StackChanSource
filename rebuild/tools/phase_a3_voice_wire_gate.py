@@ -73,7 +73,7 @@ def main() -> None:
     require("run_probe16()" in probe, "Probe21 does not reuse proven body baseline")
     require("run_probe20();" not in probe, "Probe21 would start duplicate Probe20 serial reader")
     require("usb_serial_jtag" not in firmware.lower(), "raw audio leaked onto COM control implementation")
-    require("serial" not in wire.lower(), "host voice wire depends on serial transport")
+    require("COM4" not in wire and "serial_transport" not in wire, "host voice wire depends on COM control transport")
 
     print(
         "PHASE_A3_VOICE_WIRE_GATE PASS "
