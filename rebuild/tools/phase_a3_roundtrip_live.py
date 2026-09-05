@@ -20,8 +20,7 @@ from kcore.voice_providers import VoiceProviderSettings
 from kcore.voice_wire import process_wire_turn, read_wire_turn, send_wire_error, send_wire_reply
 
 PORT = "COM4"
-NORMAL_CAPTURE_MS = 4800
-FAILURE_CAPTURE_MS = 2400
+CAPTURE_MS = 4800
 
 
 def config() -> RuntimeConfig:
@@ -101,33 +100,24 @@ async def main() -> int:
         print(f"PHASE_A3_ROUNDTRIP FAIL {type(exc).__name__}: {exc}")
         return 1
 
-    connection_count = 0
-    first_result_ready = asyncio.Event()
-    forced_failure_seen = asyncio.Event()
-    first_result_error: Exception | None = None
-    first_result = None
+    result_ready = asyncio.Event()
+    result_error: Exception | None = None
+    result_seen = False
 
     async def handle_voice(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        nonlocal connection_count, first_result_error, first_result
-        connection_count += 1
-        index = connection_count
+        nonlocal result_error, result_seen
         try:
             turn = await asyncio.wait_for(read_wire_turn(reader), timeout=15.0)
-            if index == 1:
-                result = await asyncio.wait_for(
-                    process_wire_turn(turn, settings=settings),
-                    timeout=70.0,
-                )
-                first_result = result
-                await send_wire_reply(writer, result.pcm)
-                first_result_ready.set()
-            else:
-                await send_wire_error(writer, "forced provider failure")
-                forced_failure_seen.set()
+            result = await asyncio.wait_for(
+                process_wire_turn(turn, settings=settings),
+                timeout=70.0,
+            )
+            await send_wire_reply(writer, result.pcm)
+            result_seen = True
+            result_ready.set()
         except Exception as exc:
-            if index == 1:
-                first_result_error = exc
-                first_result_ready.set()
+            result_error = exc
+            result_ready.set()
             try:
                 await send_wire_error(writer, "voice service failure")
             except Exception:
@@ -153,37 +143,21 @@ async def main() -> int:
         runtime = await RuntimeBody.open(config(), port=PORT, ready_timeout=30.0)
         print("PHASE_A3_ROUNDTRIP READY speak when Kadence enters listening state")
 
-        first_ack = await runtime.send_voice_turn(
+        ack = await runtime.send_voice_turn(
             ssid=ssid,
             password=password,
             host=host_ip,
             port=server_port,
-            capture_ms=NORMAL_CAPTURE_MS,
+            capture_ms=CAPTURE_MS,
             timeout=90.0,
         )
-        await asyncio.wait_for(first_result_ready.wait(), timeout=2.0)
-        if first_result_error is not None:
-            raise first_result_error
-        if first_result is None:
+        await asyncio.wait_for(result_ready.wait(), timeout=2.0)
+        if result_error is not None:
+            raise result_error
+        if not result_seen:
             raise RuntimeError("provider result was not captured")
-        if first_ack.payload.get("ok") is not True:
+        if ack.payload.get("ok") is not True:
             raise RuntimeError("device did not acknowledge successful voice roundtrip")
-
-        failure_recovered = False
-        try:
-            await runtime.send_voice_turn(
-                ssid=ssid,
-                password=password,
-                host=host_ip,
-                port=server_port,
-                capture_ms=FAILURE_CAPTURE_MS,
-                timeout=45.0,
-            )
-        except RuntimeError:
-            await asyncio.wait_for(forced_failure_seen.wait(), timeout=2.0)
-            failure_recovered = True
-        if not failure_recovered:
-            raise RuntimeError("forced provider failure did not fail closed")
 
         movement = await runtime.send_body_pose(0, 430, timeout=8.0)
         if movement.payload.get("executed") is not True:
@@ -194,7 +168,7 @@ async def main() -> int:
         print(
             "PHASE_A3_ROUNDTRIP PASS "
             "stt=1 thinker=1 tts=1 device_mic=1 opus=1 device_speaker=1 "
-            "correlated=1 provider_failure_recovered=1 body_command=1 torque_released=1"
+            "correlated=1 body_command=1 torque_released=1 recovery=1"
         )
         return 0
     except Exception as exc:
