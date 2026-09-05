@@ -69,6 +69,7 @@ bool voice_playback_reserve(std::size_t required)
 bool voice_lan_buffered_open_output()
 {
     voice_playback_buffer_reset();
+    if (voice_cancel_is_requested()) return false;
     if (!voice_playback_reserve(kVoicePlaybackInitialPsramBytes)) {
         return false;
     }
@@ -90,6 +91,7 @@ esp_err_t voice_lan_buffered_set_out_mute(esp_codec_dev_handle_t dev, bool mute)
 
 esp_err_t voice_lan_buffered_write(esp_codec_dev_handle_t dev, void* data, int len)
 {
+    if (voice_cancel_is_requested()) return ESP_ERR_INVALID_STATE;
     if (!g_voice_playback_buffering) {
         return static_cast<esp_err_t>(esp_codec_dev_write(dev, data, len));
     }
@@ -120,6 +122,12 @@ bool voice_lan_buffered_close_output()
         return false;
     }
 
+    if (voice_cancel_is_requested()) {
+        voice_playback_buffer_reset();
+        ESP_LOGI(kLogTag, "VOICE_PLAYBACK status=cancelled stage=before-hardware");
+        return false;
+    }
+
     const std::size_t audio_bytes = g_voice_playback_length;
     g_voice_playback_buffering = false;
 
@@ -130,6 +138,7 @@ bool voice_lan_buffered_close_output()
     }
 
     bool ok = true;
+    bool cancelled = false;
     const esp_err_t unmute_err = static_cast<esp_err_t>(
         esp_codec_dev_set_out_mute(g_audio.output_dev, false));
     if (unmute_err != ESP_OK) {
@@ -141,6 +150,12 @@ bool voice_lan_buffered_close_output()
 
     std::size_t offset = 0;
     while (ok && offset < audio_bytes) {
+        if (voice_cancel_is_requested()) {
+            cancelled = true;
+            ok = false;
+            break;
+        }
+
         const std::size_t chunk =
             std::min(kVoicePlaybackDrainChunk, audio_bytes - offset);
 
@@ -173,8 +188,8 @@ bool voice_lan_buffered_close_output()
     if (!close_output()) ok = false;
 
     ESP_LOGI(kLogTag,
-             "VOICE_PLAYBACK status=%s buffered=1 bytes=%u dma_safe=1 network_during_playback=0",
-             ok ? "complete" : "failed",
+             "VOICE_PLAYBACK status=%s buffered=1 bytes=%u dma_safe=1 network_during_playback=0 cancellable=1",
+             cancelled ? "cancelled" : (ok ? "complete" : "failed"),
              static_cast<unsigned>(audio_bytes));
     voice_playback_buffer_reset();
     return ok;
