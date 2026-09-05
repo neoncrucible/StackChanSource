@@ -16,6 +16,13 @@ voice = [
     "edge-tts>=7,<8",
 ]
 
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["kcore*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
 testpaths = ["tests"]
