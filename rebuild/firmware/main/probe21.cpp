@@ -2,7 +2,20 @@
 #include "probe20.cpp"
 #undef app_main
 
+#include "voice_playback_buffer.cpp"
+
+// Probe21 alone stages network-delivered PCM before touching the speaker. The
+// proven lower-level codec functions remain unchanged; these aliases exist only
+// while compiling voice_lan.cpp in this translation unit.
+#define open_output voice_lan_buffered_open_output
+#define close_output voice_lan_buffered_close_output
+#define esp_codec_dev_set_out_mute voice_lan_buffered_set_out_mute
+#define esp_codec_dev_write voice_lan_buffered_write
 #include "voice_lan.cpp"
+#undef esp_codec_dev_write
+#undef esp_codec_dev_set_out_mute
+#undef close_output
+#undef open_output
 
 namespace {
 
@@ -140,7 +153,7 @@ bool run_probe21()
     }
 
     ESP_LOGI(kLogTag,
-             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms handoff=1 torque=released");
+             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms buffered-playback=psram handoff=1 torque=released");
     return true;
 }
 
@@ -175,7 +188,7 @@ extern "C" void app_main(void)
     while (true) {
         const int64_t uptime_ms = (esp_timer_get_time() - heartbeat_epoch_us) / 1000;
         ESP_LOGI(kLogTag,
-                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s presence=%s audio=%s voice=lan-opus-60ms",
+                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s presence=%s audio=%s voice=lan-opus-60ms buffered-playback=psram",
                  static_cast<unsigned>(heartbeat_seq++),
                  static_cast<long long>(uptime_ms),
                  static_cast<unsigned>(esp_get_free_heap_size()),
