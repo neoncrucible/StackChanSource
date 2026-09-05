@@ -248,6 +248,88 @@ class HostServer:
                 )
             return response
 
+    async def send_voice_turn(
+        self,
+        *,
+        ssid: str,
+        password: str,
+        host: str,
+        port: int,
+        capture_ms: int = 4800,
+        timeout: float = 90.0,
+    ) -> Envelope:
+        """Run one exclusive robot-mic -> LAN -> robot-speaker voice turn.
+
+        Wi-Fi credentials are carried only in the live command payload. Firmware
+        uses RAM-only Wi-Fi storage; this host method never persists them.
+        """
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        if not ssid or len(ssid.encode("utf-8")) > 32:
+            raise ValueError("ssid must contain 1-32 UTF-8 bytes")
+        if len(password.encode("utf-8")) > 64:
+            raise ValueError("Wi-Fi password exceeds 64 UTF-8 bytes")
+        if not host or len(host) > 45:
+            raise ValueError("host address is invalid")
+        if port < 1 or port > 65535:
+            raise ValueError("port must be in 1..65535")
+        if capture_ms < 2400 or capture_ms > 8000:
+            raise ValueError("capture_ms must be in 2400..8000")
+
+        async with self._command_lock:
+            writer = self._active_writer
+            session = self._active_session
+            if writer is None or session is None or not session.hello_seen:
+                raise RuntimeError("body endpoint is not ready")
+
+            command = Envelope(
+                MessageKind.COMMAND,
+                "voice.turn",
+                {
+                    "ssid": ssid,
+                    "password": password,
+                    "host": host,
+                    "port": port,
+                    "capture_ms": capture_ms,
+                },
+            )
+            loop = asyncio.get_running_loop()
+            pending: asyncio.Future[Envelope] = loop.create_future()
+            if command.request_id in self._pending:
+                raise RuntimeError("duplicate pending request id")
+            self._pending[command.request_id] = pending
+            try:
+                await self._send(writer, command)
+                response = await asyncio.wait_for(pending, timeout=timeout)
+            except TimeoutError:
+                self._retire_request(command.request_id)
+                raise
+            except asyncio.CancelledError:
+                self._retire_request(command.request_id)
+                raise
+            finally:
+                self._pending.pop(command.request_id, None)
+
+            if response.kind is not MessageKind.ACK:
+                raise RuntimeError(f"voice turn expected ACK, got {response.kind.value}")
+            if response.name != command.name:
+                raise RuntimeError(
+                    f"voice turn ACK name mismatch: expected {command.name}, got {response.name}"
+                )
+            required = (
+                "ok",
+                "network",
+                "capture",
+                "opus",
+                "playback",
+                "handoff",
+                "torque_released",
+            )
+            missing = [key for key in required if response.payload.get(key) is not True]
+            if missing:
+                raise RuntimeError("voice turn proof missing: " + ",".join(missing))
+            return response
+
     async def _send(self, writer: asyncio.StreamWriter, envelope: Envelope) -> None:
         async with self._write_lock:
             await write_envelope(writer, envelope)
