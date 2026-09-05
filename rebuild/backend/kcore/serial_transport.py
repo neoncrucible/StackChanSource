@@ -72,7 +72,8 @@ class SerialBodySession:
             if not text:
                 continue
             if (
-                "PROBE20 status=ready" in text
+                "PROBE21 status=ready" in text
+                or "PROBE20 status=ready" in text
                 or "PROBE19 status=ready" in text
                 or ("BODY_HEARTBEAT" in text and "status=ok" in text)
             ):
