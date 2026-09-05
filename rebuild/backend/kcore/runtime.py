@@ -64,6 +64,13 @@ class RuntimeBody:
     ):
         return await self.host.send_presentation_state(state, timeout=timeout)
 
+    async def send_voice_audio_check(
+        self,
+        *,
+        timeout: float = 8.0,
+    ):
+        return await self.host.send_voice_audio_check(timeout=timeout)
+
     async def __aenter__(self) -> "RuntimeBody":
         return self
 
