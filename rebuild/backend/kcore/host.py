@@ -198,6 +198,56 @@ class HostServer:
             raise RuntimeError("presentation state ACK did not confirm requested state")
         return response
 
+    async def send_voice_audio_check(
+        self,
+        *,
+        timeout: float = 8.0,
+    ) -> Envelope:
+        """Run one exclusive device microphone-to-speaker ownership check."""
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+
+        async with self._command_lock:
+            writer = self._active_writer
+            session = self._active_session
+            if writer is None or session is None or not session.hello_seen:
+                raise RuntimeError("body endpoint is not ready")
+
+            command = Envelope(MessageKind.COMMAND, "voice.audio-check", {})
+            loop = asyncio.get_running_loop()
+            pending: asyncio.Future[Envelope] = loop.create_future()
+            if command.request_id in self._pending:
+                raise RuntimeError("duplicate pending request id")
+            self._pending[command.request_id] = pending
+            try:
+                await self._send(writer, command)
+                response = await asyncio.wait_for(pending, timeout=timeout)
+            except TimeoutError:
+                self._retire_request(command.request_id)
+                raise
+            except asyncio.CancelledError:
+                self._retire_request(command.request_id)
+                raise
+            finally:
+                self._pending.pop(command.request_id, None)
+
+            if response.kind is not MessageKind.ACK:
+                raise RuntimeError(
+                    f"voice audio check expected ACK, got {response.kind.value}"
+                )
+            if response.name != command.name:
+                raise RuntimeError(
+                    "voice audio check ACK name mismatch: "
+                    f"expected {command.name}, got {response.name}"
+                )
+            required = ("ok", "capture", "playback", "handoff", "torque_released")
+            missing = [key for key in required if response.payload.get(key) is not True]
+            if missing:
+                raise RuntimeError(
+                    "voice audio check proof missing: " + ",".join(missing)
+                )
+            return response
+
     async def _send(self, writer: asyncio.StreamWriter, envelope: Envelope) -> None:
         async with self._write_lock:
             await write_envelope(writer, envelope)
