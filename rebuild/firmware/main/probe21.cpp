@@ -7,6 +7,7 @@
 namespace {
 
 constexpr size_t kP21LineBytes = kP16FrameBytes;
+constexpr uint32_t kP21TaskStackBytes = 32768;
 
 void p21_protocol_task(void*)
 {
@@ -129,7 +130,7 @@ bool run_probe21()
     const BaseType_t created = xTaskCreate(
         p21_protocol_task,
         "kade-p21-rx",
-        4096,
+        kP21TaskStackBytes,
         nullptr,
         5,
         nullptr);
