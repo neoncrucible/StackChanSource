@@ -114,9 +114,18 @@ async def main() -> int:
             )
             await send_wire_reply(writer, result.pcm)
             result_seen = True
+            print(
+                "PHASE_A3_ROUNDTRIP PROVIDERS PASS "
+                f"transcript_chars={len(result.transcript)} "
+                f"reply_chars={len(result.reply)} pcm_bytes={len(result.pcm)}"
+            )
             result_ready.set()
         except Exception as exc:
             result_error = exc
+            print(
+                "PHASE_A3_ROUNDTRIP PROVIDERS FAIL "
+                f"{type(exc).__name__}: {exc}"
+            )
             result_ready.set()
             try:
                 await send_wire_error(writer, "voice service failure")
@@ -141,22 +150,45 @@ async def main() -> int:
     runtime: RuntimeBody | None = None
     try:
         runtime = await RuntimeBody.open(config(), port=PORT, ready_timeout=30.0)
-        print("PHASE_A3_ROUNDTRIP READY speak when Kadence enters listening state")
-
-        ack = await runtime.send_voice_turn(
-            ssid=ssid,
-            password=password,
-            host=host_ip,
-            port=server_port,
-            capture_ms=CAPTURE_MS,
-            timeout=90.0,
+        print(
+            "PHASE_A3_ROUNDTRIP READY the changed mouth IS the listening state; "
+            "start speaking when it changes and finish within 4.8 seconds"
         )
-        await asyncio.wait_for(result_ready.wait(), timeout=2.0)
+
+        ack = None
+        device_error: Exception | None = None
+        try:
+            ack = await runtime.send_voice_turn(
+                ssid=ssid,
+                password=password,
+                host=host_ip,
+                port=server_port,
+                capture_ms=CAPTURE_MS,
+                timeout=90.0,
+            )
+        except Exception as exc:
+            device_error = exc
+
+        try:
+            await asyncio.wait_for(result_ready.wait(), timeout=3.0)
+        except TimeoutError:
+            pass
+
         if result_error is not None:
-            raise result_error
+            raise RuntimeError(
+                "provider pipeline failed: "
+                f"{type(result_error).__name__}: {result_error}"
+            ) from result_error
+        if device_error is not None:
+            if result_seen:
+                raise RuntimeError(
+                    "provider pipeline completed but device playback/handoff failed: "
+                    f"{device_error}"
+                ) from device_error
+            raise device_error
         if not result_seen:
             raise RuntimeError("provider result was not captured")
-        if ack.payload.get("ok") is not True:
+        if ack is None or ack.payload.get("ok") is not True:
             raise RuntimeError("device did not acknowledge successful voice roundtrip")
 
         movement = await runtime.send_body_pose(0, 430, timeout=8.0)
