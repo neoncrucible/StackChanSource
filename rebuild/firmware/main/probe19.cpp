@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "presentation.cpp"
+#include "presence_engine.cpp"
 
 #include <cstdio>
 #include <cstring>
@@ -35,12 +36,14 @@ void p19_protocol_task(void*)
         }
 
         ESP_LOGI(kLogTag, "PROBE19 phase=rx bytes=%u", static_cast<unsigned>(len));
+        presence_interaction_begin();
         presentation_set_state(PresentationState::Attentive, "body-command");
 
         char ack[kP16FrameBytes]{};
         if (!p16_execute_pose_command(line, ack, sizeof(ack))) {
             p9_release_torque();
             presentation_set_state(PresentationState::Idle, "body-rejected");
+            presence_interaction_end();
             ESP_LOGE(kLogTag, "PROBE19 status=rejected torque=released");
             continue;
         }
@@ -48,6 +51,7 @@ void p19_protocol_task(void*)
         std::printf("%s\n", ack);
         std::fflush(stdout);
         presentation_set_state(PresentationState::Idle, "body-complete");
+        presence_interaction_end();
         ESP_LOGI(kLogTag, "PROBE19 status=ack-sent executed=1 torque=released");
     }
 }
@@ -116,17 +120,23 @@ extern "C" void app_main(void)
         ESP_LOGE(kLogTag, "PRESENTATION status=failed stage=start");
     }
 
+    const bool presence_ok = presentation_ok && presence_start();
+    if (!presence_ok) {
+        ESP_LOGE(kLogTag, "PRESENCE status=failed stage=start");
+    }
+
     uint32_t heartbeat_seq = 0;
     const int64_t heartbeat_epoch_us = esp_timer_get_time();
     while (true) {
         const int64_t uptime_ms = (esp_timer_get_time() - heartbeat_epoch_us) / 1000;
         ESP_LOGI(kLogTag,
-                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s",
+                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s presence=%s",
                  static_cast<unsigned>(heartbeat_seq++),
                  static_cast<long long>(uptime_ms),
                  static_cast<unsigned>(esp_get_free_heap_size()),
                  ok ? "ok" : "failed",
-                 presentation_ok ? "ready" : "failed");
+                 presentation_ok ? "ready" : "failed",
+                 presence_ok ? "ready" : "failed");
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
