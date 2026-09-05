@@ -56,6 +56,14 @@ class RuntimeBody:
     ):
         return await self.host.send_body_pose(yaw, pitch, timeout=timeout)
 
+    async def send_presentation_state(
+        self,
+        state: str,
+        *,
+        timeout: float = 3.0,
+    ):
+        return await self.host.send_presentation_state(state, timeout=timeout)
+
     async def __aenter__(self) -> "RuntimeBody":
         return self
 
