@@ -76,7 +76,7 @@ def _require_httpx():
 
 
 class OpenAITranscriber:
-    """File-turn STT adapter using OpenAI's current audio transcription endpoint."""
+    """File-turn STT adapter using OpenAI's audio transcription endpoint."""
 
     endpoint = "https://api.openai.com/v1/audio/transcriptions"
 
@@ -93,14 +93,24 @@ class OpenAITranscriber:
         self.model = model
         self.request_timeout = request_timeout
 
-    async def transcribe(self, pcm: bytes, sample_rate: int) -> str:
+    async def transcribe_file(
+        self,
+        audio: bytes,
+        *,
+        filename: str,
+        content_type: str,
+    ) -> str:
+        """Transcribe one supported encoded audio file without decoding it locally."""
         if not self.api_key:
             raise VoiceProviderUnavailable("OPENAI_API_KEY is not configured")
+        if not isinstance(audio, (bytes, bytearray)) or not audio:
+            raise ValueError("audio must contain bytes")
+        if not filename.strip() or not content_type.strip():
+            raise ValueError("filename and content_type are required")
 
-        wav = pcm16_mono_to_wav(pcm, sample_rate)
         httpx = _require_httpx()
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        files = {"file": ("kadence-turn.wav", wav, "audio/wav")}
+        files = {"file": (filename, bytes(audio), content_type)}
         data = {"model": self.model}
 
         async with httpx.AsyncClient(timeout=self.request_timeout) as client:
@@ -112,6 +122,14 @@ class OpenAITranscriber:
         if not isinstance(text, str) or not text.strip():
             raise RuntimeError("OpenAI transcription returned no text")
         return text.strip()
+
+    async def transcribe(self, pcm: bytes, sample_rate: int) -> str:
+        wav = pcm16_mono_to_wav(pcm, sample_rate)
+        return await self.transcribe_file(
+            wav,
+            filename="kadence-turn.wav",
+            content_type="audio/wav",
+        )
 
 
 class GeminiThinker:
