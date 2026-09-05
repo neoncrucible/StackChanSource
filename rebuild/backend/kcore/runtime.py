@@ -9,6 +9,7 @@ import serial
 from .config import RuntimeConfig
 from .host import HostServer
 from .serial_transport import SerialBodySession
+from .voice_cancel_host import send_voice_cancel
 
 
 @dataclass(slots=True)
@@ -89,6 +90,13 @@ class RuntimeBody:
             capture_ms=capture_ms,
             timeout=timeout,
         )
+
+    async def send_voice_cancel(
+        self,
+        *,
+        timeout: float = 3.0,
+    ):
+        return await send_voice_cancel(self.host, timeout=timeout)
 
     async def __aenter__(self) -> "RuntimeBody":
         return self
