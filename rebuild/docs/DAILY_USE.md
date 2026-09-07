@@ -2,6 +2,9 @@
 
 Use `C:\KadenceX\source` on `kadence/rebuild-kade` with the matching RC1 firmware.
 Stop an existing `kadence` process with Ctrl+C before updating or flashing.
+Download mode is appropriate while flashing; the host verification before it
+does not contact the device. After a successful flash, reset into normal boot
+if the device remains in download mode, then start `kadence`.
 
 ## Candidate update
 

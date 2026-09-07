@@ -589,6 +589,16 @@ Phase B completion means Kadence is a genuinely useful embodied companion/home a
 
 # 14. EXACT NEXT MOVE IN A FRESH CHAT
 
+Operator deployment update: the first RC1 install reached the host gate but
+stopped before flashing, with fourteen Windows `WinError 32` database cleanup
+errors under Python 3.14. This was a host connection-lifetime bug, unrelated to
+the robot being in download mode. `ContextStore` now explicitly closes every
+worker connection after its transaction, and regression tests plus Windows
+3.12/3.14 CI cover it. Use the corrected bundle matching the latest source;
+the first bundle belongs to `51deab5` and must not be mixed with a later host.
+Download mode is appropriate for the flash; reset into normal boot afterwards
+if needed before starting `kadence`. No new hardware sign-off was obtained.
+
 After reading this file:
 
 1. **Do not reopen CP19–23, replay Phase A, or implement B1 again.**

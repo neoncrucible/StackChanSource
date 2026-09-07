@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,7 +24,7 @@ class ContextStore:
     async def start(self) -> None:
         def initialise() -> None:
             self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            with sqlite3.connect(self.path, timeout=0.25) as db:
+            with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
                 db.execute("PRAGMA journal_mode=WAL")
                 version = db.execute("PRAGMA user_version").fetchone()[0]
                 if version not in (0, 1):
@@ -43,7 +44,10 @@ class ContextStore:
         return await asyncio.to_thread(self._perform, action, args)
 
     def _perform(self, action: str, args: dict) -> dict:
-        with sqlite3.connect(self.path, timeout=0.25) as db:
+        # SQLite's context manager commits/rolls back; it does not close.
+        # Close on the owning worker even when returning or raising, so Windows
+        # never has to wait for garbage collection to release database handles.
+        with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
             db.row_factory = sqlite3.Row
             kind = args.get("kind", "memory")
             if kind not in ("memory", "task"):

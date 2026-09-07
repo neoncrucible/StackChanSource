@@ -17,6 +17,39 @@ permissions:
   contents: read
 
 jobs:
+  windows-host:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up host Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Verify Windows runtime and deployment gates
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install -e './rebuild[voice,dev]'
+          if ($LASTEXITCODE -ne 0) { throw 'Host install failed' }
+          python -m pytest rebuild/tests -q
+          if ($LASTEXITCODE -ne 0) { throw 'Windows host tests failed' }
+          python rebuild/tools/phase_b_gate.py
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate gate failed' }
+          python rebuild/tools/phase_a3_voice_wire_gate.py
+          if ($LASTEXITCODE -ne 0) { throw 'Voice wire gate failed' }
+          foreach ($script in @('deploy.ps1', 'flash_bundle.ps1')) {
+              $tokens = $null
+              $parseErrors = $null
+              $path = Join-Path (Get-Location) "rebuild/tools/$script"
+              $null = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors)
+              if ($parseErrors.Count -ne 0) { throw "$script failed Windows PowerShell parsing" }
+          }
+
   build:
     runs-on: ubuntu-latest
     container:

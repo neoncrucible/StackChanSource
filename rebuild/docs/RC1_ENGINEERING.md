@@ -89,13 +89,23 @@ remain intact.
 
 ## Remaining acceptance
 
-Local verification before publication: **53 tests passed, 18 subtests passed**;
-the focused Phase B suite contains **31 tests**. CP23, A4, A3 cancellation,
+Local verification after the Windows handle fix: **56 tests passed, 18 subtests passed**;
+the focused Phase B suite contains **35 tests**. CP23, A4, A3 cancellation,
 self-init and voice-wire gates passed. The native renderer passed all eleven
 state/bounds checks with AddressSanitizer/UndefinedBehaviorSanitizer enabled.
 ESP-IDF 5.5.4 completed the full build; application size was approximately 1 MiB,
 leaving 76% of its 4 MiB partition free. Flash offsets and SHA-256 manifests are
 validated by the package step.
+
+The first operator deployment stopped before flashing: Python 3.14 on Windows
+reported fourteen temporary-database cleanup errors (`WinError 32`). SQLite's
+transaction context had been used without explicitly closing its connection.
+Both initialisation and operation workers now close their own connection after
+commit/rollback, including exception paths. Three tests retain real connections
+to prevent garbage collection hiding leaks; all three fail on the old code.
+CI now runs the host suite and deployment gates on Windows Python 3.12 and 3.14,
+and parses both operator scripts with Windows PowerShell. Download mode was
+unrelated to this failure; the guard stopped before the serial flashing step.
 
 The new combined candidate needs physical cold start, rendering/touch responsiveness
 under audio load, normal/repeated conversation, one safe tool round-trip, explicit

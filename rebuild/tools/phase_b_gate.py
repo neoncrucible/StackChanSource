@@ -12,7 +12,7 @@ sys.path.insert(0,str(ROOT / "backend"))
 def main() -> int:
     suite=unittest.TestSuite()
     loader=unittest.TestLoader()
-    for pattern in ("test_phase_b.py", "test_appliance_candidate.py", "test_integrations.py", "test_package_firmware.py"):
+    for pattern in ("test_phase_b.py", "test_appliance_candidate.py", "test_integrations.py", "test_package_firmware.py", "test_context_store.py"):
         suite.addTests(loader.discover(str(ROOT / "tests"),pattern=pattern))
     stream=io.StringIO()
     with contextlib.redirect_stdout(stream):
