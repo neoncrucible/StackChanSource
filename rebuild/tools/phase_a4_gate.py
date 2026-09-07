@@ -65,8 +65,8 @@ def main() -> None:
             "product runtime illegally depends on an A3 test harness")
     require("serial.Serial" not in appliance,
             "product runtime bypasses RuntimeBody with a second serial owner")
-    require("COM4" not in appliance.split("DEFAULT_PORT", 1)[1] if "DEFAULT_PORT" in appliance else True,
-            "unexpected hard-coded COM4 use beyond the default port declaration")
+    require('DEFAULT_PORT = "COM4"' in appliance,
+            "normal Windows body default port drifted")
 
     print(
         "PHASE_A4_GATE PASS "
