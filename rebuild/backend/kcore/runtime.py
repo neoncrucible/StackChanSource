@@ -98,6 +98,9 @@ class RuntimeBody:
     ):
         return await send_voice_cancel(self.host, timeout=timeout)
 
+    async def next_event(self, *, timeout: float | None = None):
+        return await self.session.next_event(timeout=timeout)
+
     async def __aenter__(self) -> "RuntimeBody":
         return self
 
