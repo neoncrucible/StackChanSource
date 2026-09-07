@@ -1,71 +1,112 @@
-# Kadence blind rebuild — restart-safe handover
+# Kadence blind rebuild — authoritative restart-safe handover
 
 **Repo:** `neoncrucible/StackChanSource`  
 **Branch:** `kadence/rebuild-kade`  
-**Workspace:** `C:\KadenceX\source`  
-**Firmware:** `C:\KadenceX\source\rebuild\firmware`  
+**User workspace:** `C:\KadenceX\source`  
+**Firmware workspace:** `C:\KadenceX\source\rebuild\firmware`  
 **Hardware:** M5Stack StackChan / CoreS3 / K151, ESP32-S3  
-**Normal serial:** COM4 @ 115200  
-**ESP-IDF:** 5.5.4
+**Normal serial:** `COM4` @ `115200`  
+**ESP-IDF:** 5.5.4  
+**State date:** 7 Sep 2026  
+**State anchor before this handover rewrite:** `36850a0b46b81cc45707f2ff5abbe4f9f3c8bc1e`
 
-> This is the authoritative restart document. Read it before continuing. Preserve the blind/no-spoilers spirit for unfinished areas. Kade leads architecture/code; the user performs physical QA. Batch safe sequential commands where sensible.
-
----
-
-## 1. Product definition
-
-Kadence is an **embodied companion and home assistant**, not just an ESP32 chatbot front-end.
-
-- Device owns physical I/O, local safety, immediate feedback and embodied presentation.
-- Host owns cognition, memory, orchestration and integrations.
-- Device/host communication crosses a versioned protocol boundary only.
-- STT / Thinker / TTS / ToolBridge remain replaceable.
-- Identity stays Kadence regardless of model provider.
-
-Finished Kadence means intentional visual identity, local presence, natural voice interaction, safe embodied reactions, controlled tools/integrations, durable useful context where appropriate, graceful recovery, and a normal daily-use runtime.
+> **This file is the authoritative continuation document.** In a fresh chat, read this file before proposing work. Do not ask the user to reconstruct prior context unless this document and the referenced repo files are demonstrably insufficient.
 
 ---
 
-## 2. Non-negotiable invariants
+# 0. CRITICAL: BLIND-BUILD / NO-SPOILERS PROTOCOL
 
-`rebuild/docs/ARCHITECTURE.md` remains authoritative.
+This is **Kade's secret surprise rebuild of Kadence**.
 
-Preserve:
+The user deliberately gave Kade broad freedom over the design and asked to experience the finished result rather than receive a running feature reveal.
 
-- one physical movement lane at a time;
-- movement success ACK only after safe execution and torque release;
-- late ACKs after timeout/cancel cannot poison a healthy session;
-- correlation IDs never cross command lifecycles;
-- malformed/noisy serial must not wedge the host;
-- reconnect clears stale ownership/pending state;
-- long operations are cancellable and do not block local presence;
-- no duplicate movement, serial, touch, I2S or I2C owners;
-- COM4 is control-only; audio data plane is LAN/TCP;
-- Wi-Fi credentials are RAM-only on device;
-- API keys never go in chat or source.
+Future Kade must follow these rules:
+
+- **Do not narrate unrevealed design choices, planned features, personality details, visual surprises, hidden behaviours, animations, tool lineup, easter eggs, or future interaction ideas.**
+- Do not explain what a hidden behaviour is "supposed" to do unless physical QA genuinely requires that information.
+- The user is primarily **physical QA / operator**, not co-designer for the secret parts of the build.
+- Kade leads architecture, implementation and product choices unless a genuine external constraint requires user input.
+- Give the user only the commands, pass/fail criteria and observations needed to continue safely.
+- It is fine to explain engineering faults, safety boundaries and why a test failed. Do not use debugging as an excuse to spoil unrelated product intent.
+- Do not preview the next surprise after a successful test. Continue the build.
+- If a test can be described neutrally (for example "touch once", "speak when the listening state appears", "report whether playback is smooth"), do that instead of revealing intended presentation details.
+- Completed/revealed technical architecture can be discussed when useful, but preserve the spirit of the blind build.
+
+This secrecy rule is a **product requirement**, not merely a conversational preference.
+
+---
+
+# 1. Product definition
+
+Kadence is an **embodied companion and home assistant**, not merely an ESP32 front-end to a chatbot.
+
+Core ownership split:
+
+- **Device:** physical I/O, local safety, immediate feedback, display/avatar/presence, touch ownership, audio hardware ownership and safe body execution.
+- **Host:** cognition, identity/persona orchestration, memory, tools, integrations and external providers.
+- **Boundary:** device and host communicate through a versioned protocol. Do not bypass it for product behaviour.
+
+Finished Kadence should feel present even when no prompt is active and should remain useful if any one external provider is unavailable.
+
+---
+
+# 2. Non-negotiable architecture contract
+
+`rebuild/docs/ARCHITECTURE.md` is authoritative and currently states:
+
+1. Device owns physical I/O, local safety and immediate feedback.
+2. Host owns cognition, memory, orchestration and integrations.
+3. Device and host communicate only through a versioned protocol boundary.
+4. STT, reasoning, TTS and tool bridges are replaceable providers.
+5. Identity/presentation is independent of model provider.
+6. Loss of an external integration must not prevent basic device operation.
+7. Startup exposes deterministic health states and diagnostics.
+8. Long-running operations are cancellable and do not block presence updates.
+
+Additional invariants proven during the rebuild:
+
+- One physical movement lane at a time.
+- Movement success ACK only after safe execution **and torque release**.
+- Stored zero calibration remains preserved.
+- Late ACKs after timeout/cancel cannot poison a healthy session.
+- Correlation IDs never cross command lifecycles.
+- Malformed/noisy serial traffic must not wedge the host session.
+- Reconnect clears stale pending/retired state and releases ownership.
+- Do not introduce a duplicate movement implementation.
+- Do not introduce a second serial reader/owner.
+- Do not introduce a second touch/I2C owner.
+- Do not introduce a second I2S/audio owner.
+- COM4 is the **control plane only**; voice audio uses LAN/TCP.
+- Wi-Fi credentials are RAM-only on the device.
+- API keys must never be committed or pasted into chat.
 
 `RuntimeBody` / `HostServer` remain the normal body/control authority.
 
 ---
 
-## 3. User workflow
+# 3. User workflow / operating rules
 
-- Address user as **Boss** during Kadence work.
-- Keep instructions compact/direct.
-- Kade writes/commits code; do not ask user to edit code unless unavoidable.
-- Pull current branch before meaningful local tests.
-- Avoid redundant clean/build/flash loops.
+During Kadence technical work:
+
+- Address the user as **Boss**.
+- Kade leads and writes/commits code.
+- Do not ask the user to edit code unless genuinely unavoidable.
+- The user explicitly approved **batched safe sequential commands** with fail-fast guards.
+- Keep commands compact and PowerShell-compatible.
+- Pull/fetch the real remote branch before meaningful local tests. A stale-remote incident previously wasted most of a day.
+- Avoid unnecessary `fullclean` / build / flash loops.
 - Flash only when firmware changed.
-- Do not casually delete generated/untracked firmware paths.
-- User explicitly approved **batched safe commands** with fail-fast guards.
+- Do not reflexively delete generated/untracked firmware files.
+- If our code is wrong, own it and fix the repo rather than making the user patch it manually.
+- Never ask the user to paste API keys or Wi-Fi passwords into chat.
 
-Fresh PowerShell ESP-IDF activation:
+Fresh PowerShell after reboot/new terminal:
 
 ```powershell
 . C:\Espressif\frameworks\esp-idf-v5.5.4\export.ps1
 ```
 
-Build/flash only when needed:
+Normal firmware build/flash only when required:
 
 ```powershell
 cd C:\KadenceX\source\rebuild\firmware
@@ -73,24 +114,49 @@ idf.py build
 idf.py -p COM4 flash
 ```
 
-Voice provider credentials are environment-only and disappear after a new terminal/reboot unless the user deliberately persists them later.
+Known generated/untracked local paths may include:
+
+```text
+rebuild/backend/kcore/__pycache__/
+rebuild/firmware/build/
+rebuild/firmware/dependencies.lock
+rebuild/firmware/managed_components/
+rebuild/firmware/sdkconfig
+rebuild/tests/__pycache__/
+rebuild/tools/__pycache__/
+```
+
+Do not delete them casually.
 
 ---
 
-## 4. Runtime/body foundation — COMPLETE, DO NOT REOPEN
+# 4. CURRENT STATE IN ONE SENTENCE
 
-CP19–CP23 physically proved:
+**Runtime/body foundation is complete; Phase A (presentation, presence, embodied interaction, voice and integrated normal runtime) is complete and live-proven; the next engineering family is Phase B, beginning with the safe host-side tool boundary.**
 
-- real USB Serial/JTAG COM4 transport;
-- HostServer -> firmware -> motor -> correlated ACK;
-- safe bounded body movement;
-- torque release;
+Do not reopen CP19–23 or A1–A4 without concrete regression evidence.
+
+---
+
+# 5. Runtime/body foundation — COMPLETE, DO NOT REOPEN
+
+Checkpoint work through CP23 physically established:
+
+- versioned v1 protocol envelopes and correlation IDs;
+- bounded `body.pose` decoding;
+- real physical movement through the proven motor path;
 - calibration preservation;
-- timeout/cancel retirement + late-ACK hardening;
-- malformed traffic resilience;
-- reconnect recovery;
-- single runtime owner;
-- clean shutdown.
+- torque release after motion;
+- ACK only after physical completion;
+- host pending-request lifecycle;
+- timeout/cancel retirement and late-ACK hardening;
+- presence/heartbeat not blocked by body commands;
+- single-owner movement lock;
+- real USB Serial/JTAG control over COM4;
+- HostServer -> COM4 -> firmware -> motor -> correlated ACK;
+- disconnect/reconnect recovery;
+- malformed/noisy serial resilience;
+- clean runtime ownership and shutdown.
 
 Final foundation proof:
 
@@ -98,46 +164,86 @@ Final foundation proof:
 CP23_LIVE PASS runtime_owner=1 sequential_commands=1 correlated=1 torque_released=1 clean_path=1
 ```
 
-Do not create CP24-style infrastructure work unless a real regression requires it.
+Current host authority:
+
+```text
+rebuild/backend/kcore/host.py
+rebuild/backend/kcore/serial_transport.py
+rebuild/backend/kcore/runtime.py
+```
+
+Do not create CP24-style infrastructure work just to keep checkpoint numbering alive.
 
 ---
 
-## 5. Phase A status
+# 6. PHASE A — COMPLETE AND SIGNED OFF
 
-# A1 — Display architecture + visual identity — COMPLETE
+Phase A transformed the proven chassis/runtime into the embodied Kadence interaction layer. All Phase A slices are complete.
 
-Current product presentation lives in `rebuild/firmware/main/presentation.cpp` with intentional boot/idle/attentive/listening/thinking/speaking/tool/offline/degraded/fault/recovery states and purposeful touch behaviour.
+## A1 — Display architecture + visual identity — COMPLETE
 
-The old purple/probe display is not the normal UX. Do not regress to probe scaffolding.
+Primary module:
 
-# A2 — Presence engine + embodied behaviour — COMPLETE
+```text
+rebuild/firmware/main/presentation.cpp
+```
 
-`rebuild/firmware/main/presence_engine.cpp` provides local autonomous idle presence independent of host latency. Interaction pre-empts/yields presence safely.
+Established:
 
-Final proof:
+- intentional product presentation replacing the old purple/probe UX;
+- explicit product states including boot/idle/attentive/listening/thinking/speaking/tool/offline/degraded/fault/recovery;
+- purposeful touch behaviour;
+- rendering owned locally by the device and independent of host/model latency;
+- diagnostics retained without becoming the normal UX.
+
+Do not spoil unrevealed visual details in conversation.
+
+## A2 — Local presence / embodied behaviour — COMPLETE
+
+Primary module:
+
+```text
+rebuild/firmware/main/presence_engine.cpp
+```
+
+Established:
+
+- local autonomous idle presence;
+- interaction immediately pre-empts/yields presence;
+- presence remains responsive during host delay;
+- safe movement ownership and torque policy remain intact.
+
+Final A2 proof:
 
 ```text
 PHASE_A2_LIVE PASS precondition=1 interrupt=1 command=1 correlated=1 torque_released=1 recovery=1
 ```
 
-# A3 — Voice + personality loop — COMPLETE AND SIGNED OFF
+## A3 — Voice + identity/personality interaction loop — COMPLETE
 
-Live stack:
+Current live provider stack:
 
 - OpenAI STT: `gpt-transcribe`
 - Gemini thinker: `gemini-3.5-flash-lite`
 - Edge TTS: `en-GB-SoniaNeural`
-- provider-independent Kadence identity
-- device mic -> 16 kHz mono 60 ms Opus -> LAN/TCP -> host
-- host wraps Opus into Ogg for STT
-- Sonia MP3 decoded with `miniaudio` to 16 kHz mono PCM
-- reply staged in CoreS3 PSRAM
-- actual codec/I2S writes drain through internal DMA-safe RAM
-- voice worker is asynchronous and cancellable
-- touch while active interrupts blocked LAN I/O and local speaker playback
-- no duplicate serial/touch/audio owner
+- Kadence identity/persona wrapper independent of provider
 
-Key modules:
+Current data/control architecture:
+
+- COM4 remains control-only.
+- Voice audio is LAN/TCP.
+- Device uplink: 16 kHz mono, 60 ms Opus frames.
+- Host wraps raw Opus into Ogg Opus for OpenAI transcription.
+- Gemini provides the reasoning reply through the Kadence identity layer.
+- Edge Sonia TTS returns MP3.
+- `miniaudio` decodes/resamples to 16 kHz mono PCM.
+- Reply PCM is staged in CoreS3 PSRAM.
+- Actual codec/I2S writes copy through internal RAM DMA-safe scratch before playback.
+- Voice work runs on an asynchronous device worker lane.
+- Touch during an active voice turn can cancel blocked LAN I/O and local staged playback.
+- No duplicate I2S/I2C/touch/serial owner.
+
+Important firmware modules:
 
 ```text
 rebuild/firmware/main/voice_lan.cpp
@@ -146,6 +252,12 @@ rebuild/firmware/main/voice_playback_buffer.cpp
 rebuild/firmware/main/voice_turn_lane.cpp
 rebuild/firmware/main/touch_voice_bridge.cpp
 rebuild/firmware/main/probe21.cpp
+```
+
+Important host modules:
+
+```text
+rebuild/backend/kcore/identity.py
 rebuild/backend/kcore/voice_providers.py
 rebuild/backend/kcore/voice_wire.py
 rebuild/backend/kcore/serial_transport.py
@@ -153,13 +265,13 @@ rebuild/backend/kcore/runtime.py
 rebuild/backend/kcore/host.py
 ```
 
-Signed-off proofs:
+Key live proofs:
 
 ```text
 PHASE_A3_ROUNDTRIP PASS stt=1 thinker=1 tts=1 device_mic=1 opus=1 device_speaker=1 correlated=1 body_command=1 torque_released=1 recovery=1
 ```
 
-User reported playback **smooth**.
+User explicitly reported playback **smooth** after the PSRAM/DMA-safe playback fix.
 
 ```text
 PHASE_A3_FAILURE_RECOVERY PASS forced_provider_failure=1 device_mic=1 opus=1 correlated=1 torque_released=1 body_recovery=1 control_lane=usable
@@ -173,15 +285,11 @@ PHASE_A3_CANCEL_LIVE PASS async_lane=1 preemptive_cancel=1 playback_cancel=1 cor
 PHASE_A3_SELF_INIT PASS touch_start=1 device_event=1 real_roundtrip=1 stt=1 thinker=1 tts=1 touch_cancel=1 playback_cancel=1 correlated_control=1 torque_released=1 body_recovery=1 control_lane=usable
 ```
 
-Do not reopen A3 without concrete regression evidence.
+A3 is signed off. Do not reopen it without a regression.
 
----
+## A4 — Integrated normal Phase A runtime — COMPLETE
 
-## 6. A4 — Integrated Phase A runtime — ACTIVE, NEAR SIGN-OFF
-
-A4 now has a **real normal runtime**, not a checkpoint harness.
-
-Normal entry point:
+Normal product entry point:
 
 ```powershell
 kadence
@@ -189,114 +297,326 @@ kadence
 
 Implementation:
 
-- `rebuild/backend/kcore/appliance.py`
-- console script in `rebuild/pyproject.toml`
-- one LAN voice server owned by the appliance runtime;
-- repeated device-originated `voice.request` turns;
-- device-originated `voice.touch-cancel` handling;
-- provider cancellation;
-- `RuntimeBody` remains control owner;
-- safe post-turn body reaction through existing `body.pose` lane;
-- local presence remains device-owned;
-- COM4 disconnect supervision and reconnect loop;
-- clean Ctrl+C shutdown path;
-- no A3 test harness imported by product runtime.
+```text
+rebuild/backend/kcore/appliance.py
+rebuild/pyproject.toml
+```
 
-A4 static gate:
+The normal runtime now:
+
+- owns one LAN voice server;
+- opens `RuntimeBody` as the single control owner;
+- consumes device-originated `voice.request` events;
+- consumes device-originated `voice.touch-cancel` events;
+- supports repeated touch-initiated turns without restarting;
+- runs the real provider pipeline;
+- cancels active provider work when required;
+- sends the existing safe post-turn body reaction through `body.pose`;
+- leaves local presence device-owned;
+- supervises COM4 disconnects;
+- automatically reconnects after device reset/restart;
+- shuts down cleanly;
+- does not import A3 test harnesses.
+
+A4 static proof:
 
 ```text
 PHASE_A4_GATE PASS normal_entry=1 runtime_owner=1 device_events=1 repeated_turns=1 touch_cancel=1 provider_cancel=1 body_reaction=1 reconnect=1 clean_shutdown=1 single_voice_server=1 no_test_harness=1
 ```
 
-### A4 live product proof — 7 Sep 2026
+A normal no-speech turn is also productized: an empty STT result is represented explicitly as `VoiceNoSpeechDetected`, which produces a short spoken retry response instead of cascading into a provider/device proof failure.
 
-User ran normal `kadence` runtime and completed two consecutive touch-initiated turns without restarting the process:
+Final A4 live sequence proved all of the following inside the ordinary `kadence` process:
+
+1. startup into device-owned local presence;
+2. repeated touch-initiated conversations;
+3. no-speech spoken recovery;
+4. normal real STT -> thinker -> TTS conversation;
+5. safe body reaction;
+6. return to idle;
+7. physical CoreS3 reset while host remained running;
+8. automatic reconnect without restarting `kadence`;
+9. another complete conversation after reconnect.
+
+Final observed proof included:
 
 ```text
-KADENCE_RUNTIME READY port=COM4 lan=192.168.40.174:63106 touch_start=1 touch_cancel=1 reconnect=1
+KADENCE_RUNTIME RECONNECT delay_s=2.0
 KADENCE_RUNTIME DEVICE ready presence=local
 KADENCE_RUNTIME TURN start trigger=touch
-KADENCE_RUNTIME PROVIDERS complete transcript_chars=0 reply_chars=27 pcm_bytes=78336
-KADENCE_RUNTIME TURN complete seq=1 voice=1 body_reaction=1 idle_return=1
-KADENCE_RUNTIME TURN start trigger=touch
-KADENCE_RUNTIME PROVIDERS complete transcript_chars=21 reply_chars=104 pcm_bytes=227328
-KADENCE_RUNTIME TURN complete seq=2 voice=1 body_reaction=1 idle_return=1
+KADENCE_RUNTIME PROVIDERS complete transcript_chars=61 reply_chars=399 pcm_bytes=755712
+KADENCE_RUNTIME TURN complete seq=3 voice=1 body_reaction=1 idle_return=1
 ```
 
-User reported: **“works perfectly.”**
+**A4 PASS. PHASE A COMPLETE.**
 
-The first turn intentionally proved no-speech handling. Empty OpenAI transcription is now an explicit normal condition (`VoiceNoSpeechDetected`) that produces a short spoken retry prompt and still completes playback/handoff instead of cascading into a provider/device proof failure.
-
-### Remaining A4 sign-off
-
-Only prove the integrated runtime survives a **real device reset/disconnect/reconnect** and then performs another normal touch voice turn, while the product UI returns normally rather than probe scaffolding.
-
-If that passes, mark **Phase A complete** and move to Phase B.
+Do not tell the user what unrevealed presentation/personality details were intended. The completed experience remains part of the surprise build.
 
 ---
 
-## 7. Current firmware details worth preserving
+# 7. Current normal runtime / daily test path
 
-Current firmware entry remains `probe21.cpp`, but Probe21 now composes product-grade Phase A modules rather than acting as a simple diagnostic probe.
+When provider credentials are available in the current PowerShell environment, ordinary runtime startup is simply:
 
-Properties:
+```powershell
+kadence
+```
+
+Typical healthy startup:
+
+```text
+KADENCE_RUNTIME READY port=COM4 lan=<host-ip>:<port> touch_start=1 touch_cancel=1 reconnect=1
+KADENCE_RUNTIME DEVICE ready presence=local
+```
+
+A healthy normal turn ends with:
+
+```text
+KADENCE_RUNTIME PROVIDERS complete ...
+KADENCE_RUNTIME TURN complete seq=<n> voice=1 body_reaction=1 idle_return=1
+```
+
+Voice preflight remains available:
+
+```powershell
+python C:\KadenceX\source\rebuild\tools\phase_a3_voice_preflight.py
+```
+
+Expected healthy output:
+
+```text
+PHASE_A3_VOICE_PREFLIGHT PASS httpx=1 edge_tts=1 openai_key=1 gemini_key=1 stt=gpt-transcribe thinker=gemini-3.5-flash-lite voice=en-GB-SoniaNeural
+```
+
+Credentials are currently environment-only and disappear after a new terminal/reboot unless deliberately persisted later.
+
+Never place secrets in repo code, documentation, logs or chat.
+
+---
+
+# 8. Current firmware architecture worth preserving
+
+The selected firmware entry remains `rebuild/firmware/main/probe21.cpp` for historical reasons, but it now composes product-grade Phase A modules rather than being merely a simple diagnostic probe.
+
+Probe21 currently preserves:
 
 - one USB Serial/JTAG reader;
 - one asynchronous voice worker;
-- existing presentation task remains sole touch/I2C owner;
-- touch release publishes an atomic action sequence;
+- one touch/I2C owner in presentation;
+- atomic touch action publication;
 - idle touch -> versioned `voice.request` event;
-- active touch -> immediate local cancel + versioned `voice.touch-cancel` event;
-- host queues device events instead of scraping logs;
-- body path reuses proven Probe16 execution;
-- presence engine remains local.
+- active touch -> immediate local cancellation + versioned `voice.touch-cancel` event;
+- device-originated events queued by host rather than log-scraped;
+- body execution delegated to the already-proven Probe16 path;
+- local presence task independent of host/provider work.
 
-Custom CoreS3 16 MB flash layout:
+Do not rename or restructure this just for aesthetics unless there is a real product/maintenance reason. Stability matters more than eliminating the word `probe` from a filename.
+
+---
+
+# 9. Flash / memory layout
+
+The CoreS3 16 MB custom partition layout is active and intentionally leaves room for future OTA/product storage:
 
 ```text
 factory  4 MiB
 ota_0    4 MiB
 ota_1    4 MiB
-remaining storage/coredump reserved
+remaining flash reserved for storage/coredump
 ```
 
-PSRAM is enabled for staged playback; actual codec DMA writes stay in internal RAM.
+Relevant files:
+
+```text
+rebuild/firmware/partitions.csv
+rebuild/firmware/sdkconfig.defaults
+rebuild/firmware/CMakeLists.txt
+```
+
+PSRAM is enabled for staged voice playback.
+
+Important rule:
+
+- PSRAM is storage/jitter buffering only.
+- Actual codec/I2S playback drains through internal RAM DMA-safe scratch.
+
+The previous speaker stutter was fixed by demand-growing PSRAM staging plus internal DMA-safe playback copying. Do not regress to direct network-fed playback or direct codec writes from PSRAM.
 
 ---
 
-## 8. Phase B — NOT STARTED
+# 10. Key gates / diagnostic references
 
-Do not start until A4 reconnect/reset sign-off passes.
+These are validation tools, not the product runtime:
 
-Suggested outer slices:
+```text
+rebuild/tools/checkpoint23_gate.py
+rebuild/tools/checkpoint23_live.py
+rebuild/tools/phase_a1_gate.py
+rebuild/tools/phase_a2_gate.py
+rebuild/tools/phase_a2_live.py
+rebuild/tools/phase_a3_gate.py
+rebuild/tools/phase_a3_bridge_gate.py
+rebuild/tools/phase_a3_voice_gate.py
+rebuild/tools/phase_a3_voice_preflight.py
+rebuild/tools/phase_a3_voice_wire_gate.py
+rebuild/tools/phase_a3_device_audio_gate.py
+rebuild/tools/phase_a3_device_audio_live.py
+rebuild/tools/phase_a3_roundtrip_live.py
+rebuild/tools/phase_a3_failure_recovery_live.py
+rebuild/tools/phase_a3_cancel_gate.py
+rebuild/tools/phase_a3_cancel_live.py
+rebuild/tools/phase_a3_self_init_gate.py
+rebuild/tools/phase_a3_self_init_live.py
+rebuild/tools/phase_a4_gate.py
+```
 
-- **B1 Tool boundary:** concrete allowlisted ToolBridge, structured success/error, timeout/cancel, no presence/body wedging.
-- **B2 Useful tools:** reminders/tasks, time/date/weather-style providers, notes/memory retrieval, local/home actions and explicitly authorised connected services.
-- **B3 Durable context/integrations:** inspectable memory/context, home-assistant/orchestration provider, graceful degradation.
-- **B4 Daily-use sign-off:** cold boot, presence, voice, tool calls, forced failure, reconnect, restart, runbook.
-
-Phase B completion means a genuinely useful embodied companion/home assistant, not merely a technically sound platform.
+Do not make checkpoint scripts the normal user journey.
 
 ---
 
-## 9. Immediate next move
+# 11. Useful commit anchors
 
-If the normal `kadence` process is still running, **do not stop it**.
+These are useful historical anchors if debugging requires archaeology. Do not replay them as a to-do list.
 
-Reset/reboot the CoreS3 once while `kadence` remains running. The host should detect the physical disconnect, enter its reconnect loop, bind COM4 again when the board returns, and print another `KADENCE_RUNTIME DEVICE ready presence=local`.
+- `c5e418e67f208a3e4e331d0a91a7571ba955e866` — staged playback gate requiring DMA-safe scratch.
+- `b26f556c17794cc14e6c5ee9f4b09e12844e1079` — demand-grown PSRAM + internal DMA-safe playback fix.
+- `7a0b1ebcf67bd669e8837ad29a7112b700b7972e` — final A3 self-init integration state before physical sign-off.
+- `60ce1b6687c06e45d1090a343ebf6110760a6e2b` — handover corrected after A3 sign-off.
+- `1f9083f15717eb7aa62026b1009a18bcec862734` — initial normal appliance runtime.
+- `b60d4b0cfcc75bd1583b816df0cf404b365d82c7` — `kadence` console entry point.
+- `29c3cd0c6cc433908a3f4da8db5f9431a85153fa` — A4 static gate.
+- `509ff8b85147fae31b073c8e6812841f7e1c2e8c` / `816b48e88901c19205b3268171339d6b7f814430` — explicit no-speech recovery path.
+- `e3827f8f69b193bcb65080a66b87177d4563c84f` — A4 gate updated to require no-speech recovery.
+- `36850a0b46b81cc45707f2ff5abbe4f9f3c8bc1e` — handover state immediately before final Phase A reconnect proof was recorded here.
 
-Then touch Kadence once and complete one normal spoken turn. Confirm:
-
-- product UI returns normally after reset (no purple/probe scaffolding);
-- runtime reconnects without manual restart;
-- the post-reconnect turn reaches `KADENCE_RUNTIME TURN complete ... idle_return=1`.
-
-If all three hold, sign off A4 / **Phase A complete**, update this handover, and begin Phase B / B1.
+Use `git log` / GitHub history if finer-grained archaeology is needed.
 
 ---
 
-## 10. Fresh-chat restart prompt
+# 12. Known current constraints / technical debt
 
-User can say:
+These are not Phase A failures, but future work should know they exist:
 
-> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`, then continue the Kadence rebuild from the documented next step. You lead; batch safe commands where sensible.
+- Current normal initiation is physical touch. Do not add/announce another trigger merely because older Kadence versions had one; choose future behaviour deliberately and keep surprises secret.
+- Current capture window is turn-based/fixed-duration (normal default 4.8 s). Do not casually replace it without preserving cancellation and device/host ownership.
+- Provider credentials are environment-only and are lost on a fresh terminal/reboot.
+- Wi-Fi password is currently requested locally when needed; firmware stores Wi-Fi credentials in RAM only.
+- LAN host selection can be affected by VPN/multiple adapters; `KADENCE_LAN_HOST` exists as an override.
+- The product runtime currently depends on external OpenAI/Gemini/Edge providers for full cognition/voice, while local presence and physical safety remain independent.
+- OTA partitions exist, but normal OTA product delivery is not yet the user workflow.
+- Current firmware entry naming still says Probe21; this is acceptable until a product reason justifies changing it.
+
+Do not turn technical debt cleanup into a sprawling infrastructure phase. Fix debt when it blocks a real product goal or causes a regression.
+
+---
+
+# 13. PHASE B — NEXT ENGINEERING FAMILY
+
+Phase B is the second and final outer build family: **tools, useful context/memory, integrations and companion/home-assistant capability**.
+
+Keep exact planned capabilities and surprises out of user-facing narration.
+
+## B1 — Safe host-side tool boundary — NEXT
+
+The provider protocol already exists in:
+
+```text
+rebuild/backend/kcore/providers.py
+```
+
+Current interface:
+
+```python
+class ToolBridge(Protocol):
+    async def invoke(self, name: str, arguments: dict) -> dict: ...
+```
+
+B1 should turn this interface into a concrete, controlled host-side execution boundary.
+
+Required properties:
+
+- explicit allowlisted tool registry;
+- structured tool schemas / validated arguments;
+- structured success/error result envelope;
+- per-tool timeout;
+- cancellation propagation;
+- unknown/denied tool handling;
+- a hanging/broken tool must not wedge voice, presence, serial or body ownership;
+- tool execution remains **host-side**;
+- model/tool output must never gain direct motor/touch/audio hardware authority;
+- distinguish normal reasoning from tool-working presentation state through the existing presentation protocol, without duplicating the state system;
+- integration failure must return the normal runtime to a healthy conversational state.
+
+B1 should be host/static-test first. **Do not flash firmware unless a real firmware change is required.**
+
+Inspect these before implementing:
+
+```text
+rebuild/backend/kcore/providers.py
+rebuild/backend/kcore/interaction.py
+rebuild/backend/kcore/identity.py
+rebuild/backend/kcore/appliance.py
+rebuild/backend/kcore/runtime_bridge.py
+rebuild/backend/kcore/host.py
+rebuild/docs/ARCHITECTURE.md
+```
+
+Do not ask the user which secret tools/features Kade should add unless a genuinely external authorization or account choice is required. Kade has design freedom.
+
+## B2 / B3 / B4 — intentionally high-level here
+
+Future Kade should continue vertically from B1 into useful assistant capability, durable context/integrations and final daily-use sign-off.
+
+However, **do not pre-document a spoiler-heavy feature list**. Choose and implement useful capabilities behind the common ToolBridge, test them safely, and reveal the finished experience through use rather than narration.
+
+Final Phase B acceptance must still include:
+
+- ordinary cold start;
+- local presence;
+- normal voice conversation;
+- safe tool use;
+- cancellation;
+- forced integration/provider failure;
+- serial/device reconnect;
+- recovery to normal interaction;
+- clean shutdown/restart;
+- concise daily-use runbook.
+
+Phase B completion means Kadence is a genuinely useful embodied companion/home assistant rather than merely a technically correct platform.
+
+---
+
+# 14. EXACT NEXT MOVE IN A FRESH CHAT
+
+After reading this file:
+
+1. **Do not reopen CP19–23 or A1–A4. Phase A is complete.**
+2. Confirm/fetch the real current `kadence/rebuild-kade` remote before editing.
+3. Read the B1 reference files listed above.
+4. Design the smallest concrete safe `ToolBridge` / registry that satisfies the architecture contract.
+5. Keep the exact future capability lineup secret from the user.
+6. Commit host-side B1 work to `kadence/rebuild-kade`.
+7. Add a focused B1 static/unit gate proving allowlist, validation, timeout/cancel, structured errors and runtime recovery.
+8. Ask the user to run only the minimum safe batch required for validation.
+9. Do not rebuild/flash firmware if only host files changed.
+10. Update this handover after meaningful B1 sign-off so the next fresh chat never regresses.
+
+---
+
+# 15. Fresh-chat restart prompt
+
+The user can start a new chat with exactly this:
+
+> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`, then continue the Kadence rebuild from the documented next step. This is your secret surprise build: you lead, keep unrevealed features to yourself, and batch safe commands where sensible.
+
+That should be sufficient to restore the project without the user repeating history.
+
+---
+
+# 16. Final instruction to future Kade
+
+The hard foundation and the entire Phase A embodied interaction stack are already real and live-proven.
+
+Do not make the user spend another day admiring infrastructure for its own sake.
+
+Build useful capability **behind the proven boundaries**, preserve the surprise, test vertically, and keep moving toward the finished companion.
