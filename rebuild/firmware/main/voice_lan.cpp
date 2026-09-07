@@ -12,6 +12,7 @@
 #include "freertos/event_groups.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "voice_wifi_state.h"
 
 namespace {
 
@@ -24,9 +25,9 @@ constexpr std::size_t kVoiceLanEncodedBuffer = 2048;
 constexpr uint32_t kVoiceLanMaxPcmReply = 4U * 1024U * 1024U;
 constexpr int kVoiceLanConnectTimeoutMs = 15000;
 constexpr int kVoiceLanSocketTimeoutSec = 60;
-constexpr int kVoiceLanWifiRetries = 3;
 constexpr EventBits_t kVoiceLanWifiReadyBit = BIT0;
 constexpr EventBits_t kVoiceLanWifiFailedBit = BIT1;
+constexpr EventBits_t kVoiceLanWifiStoppedBit = BIT2;
 
 constexpr char kVoiceLanUplinkMagic[4] = {'K', 'D', 'V', '1'};
 constexpr char kVoiceLanReplyMagic[4] = {'K', 'D', 'R', '1'};
@@ -40,8 +41,17 @@ std::array<uint8_t, 4096> g_voice_lan_playback{};
 EventGroupHandle_t g_voice_lan_wifi_events = nullptr;
 esp_netif_t* g_voice_lan_sta_netif = nullptr;
 bool g_voice_lan_wifi_initialised = false;
-bool g_voice_lan_wifi_attempt_active = false;
-int g_voice_lan_wifi_retry = 0;
+bool g_voice_lan_wifi_started = false;
+kadence_wifi::State g_voice_lan_wifi_state;
+const char* g_voice_lan_failure_stage = "starting";
+int g_voice_lan_failure_code = 0;
+
+bool voice_lan_fail(const char* stage, int code = 0)
+{
+    g_voice_lan_failure_stage = stage;
+    g_voice_lan_failure_code = code;
+    return false;
+}
 
 struct VoiceLanRequest {
     char request_id[48]{};
@@ -73,23 +83,32 @@ enum class VoiceLanCommandResult : uint8_t {
     Rejected,
 };
 
-void voice_lan_wifi_event(void*, esp_event_base_t event_base, int32_t event_id, void*)
+void voice_lan_wifi_event(void*, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
     if (g_voice_lan_wifi_events == nullptr) return;
 
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        g_voice_lan_wifi_attempt_active = false;
-        xEventGroupSetBits(g_voice_lan_wifi_events, kVoiceLanWifiReadyBit);
+        if (g_voice_lan_wifi_state.got_ip())
+            xEventGroupSetBits(g_voice_lan_wifi_events, kVoiceLanWifiReadyBit);
         return;
     }
 
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED &&
-        g_voice_lan_wifi_attempt_active) {
-        if (g_voice_lan_wifi_retry < kVoiceLanWifiRetries) {
-            ++g_voice_lan_wifi_retry;
-            (void)esp_wifi_connect();
-        } else {
-            g_voice_lan_wifi_attempt_active = false;
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_STOP) {
+        g_voice_lan_wifi_state.stopped();
+        xEventGroupSetBits(g_voice_lan_wifi_events, kVoiceLanWifiStoppedBit);
+        return;
+    }
+
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        xEventGroupClearBits(g_voice_lan_wifi_events, kVoiceLanWifiReadyBit);
+        const auto* event = static_cast<const wifi_event_sta_disconnected_t*>(event_data);
+        const auto action = g_voice_lan_wifi_state.disconnected(event ? event->reason : 0);
+        if (action == kadence_wifi::Disconnect::Retry) {
+            if (esp_wifi_connect() != ESP_OK) {
+                g_voice_lan_wifi_state.fail();
+                xEventGroupSetBits(g_voice_lan_wifi_events, kVoiceLanWifiFailedBit);
+            }
+        } else if (action == kadence_wifi::Disconnect::Failed) {
             xEventGroupSetBits(g_voice_lan_wifi_events, kVoiceLanWifiFailedBit);
         }
     }
@@ -152,13 +171,6 @@ bool voice_lan_initialise_wifi()
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=wifi-mode err=%s", esp_err_to_name(err));
         return false;
     }
-    err = esp_wifi_start();
-    if (err != ESP_OK) {
-        ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=wifi-start err=%s", esp_err_to_name(err));
-        return false;
-    }
-    (void)esp_wifi_set_ps(WIFI_PS_NONE);
-
     g_voice_lan_wifi_initialised = true;
     ESP_LOGI(kLogTag, "VOICE_LAN wifi=ready storage=ram-only");
     return true;
@@ -166,7 +178,7 @@ bool voice_lan_initialise_wifi()
 
 bool voice_lan_connect_wifi(const VoiceLanRequest& request)
 {
-    if (!voice_lan_initialise_wifi()) return false;
+    if (!voice_lan_initialise_wifi()) return voice_lan_fail("wifi-init");
 
     wifi_config_t config{};
     const std::size_t ssid_len = std::strlen(request.ssid);
@@ -177,42 +189,73 @@ bool voice_lan_connect_wifi(const VoiceLanRequest& request)
     config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     config.sta.threshold.authmode = WIFI_AUTH_OPEN;
 
-    xEventGroupClearBits(
-        g_voice_lan_wifi_events,
-        kVoiceLanWifiReadyBit | kVoiceLanWifiFailedBit);
-    g_voice_lan_wifi_retry = 0;
-    g_voice_lan_wifi_attempt_active = true;
-
-    const esp_err_t disconnect_err = esp_wifi_disconnect();
-    if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
-        ESP_LOGW(kLogTag, "VOICE_LAN wifi-disconnect err=%s", esp_err_to_name(disconnect_err));
+    wifi_config_t current{};
+    wifi_ap_record_t ap{};
+    esp_netif_ip_info_t ip{};
+    const bool matching = esp_wifi_get_config(WIFI_IF_STA, &current) == ESP_OK &&
+        std::memcmp(current.sta.ssid, config.sta.ssid, sizeof(config.sta.ssid)) == 0 &&
+        std::memcmp(current.sta.password, config.sta.password, sizeof(config.sta.password)) == 0;
+    const bool has_ip = esp_wifi_sta_get_ap_info(&ap) == ESP_OK &&
+        esp_netif_get_ip_info(g_voice_lan_sta_netif, &ip) == ESP_OK && ip.ip.addr != 0;
+    if (g_voice_lan_wifi_state.reusable(matching, has_ip)) {
+        ESP_LOGI(kLogTag, "VOICE_LAN network=reused credentials=persistent-no");
+        return true;
     }
+
+    // Drain the old station's events before enabling retries for a new attempt.
+    // In particular, an intentional disconnect must never race set_config().
+    g_voice_lan_wifi_state.begin_reset();
+    xEventGroupClearBits(g_voice_lan_wifi_events,
+        kVoiceLanWifiReadyBit | kVoiceLanWifiFailedBit | kVoiceLanWifiStoppedBit);
+    const esp_err_t stop_err = g_voice_lan_wifi_started ? esp_wifi_stop() : ESP_ERR_WIFI_NOT_STARTED;
+    if (stop_err == ESP_OK) {
+        const auto stopped = xEventGroupWaitBits(g_voice_lan_wifi_events,
+            kVoiceLanWifiStoppedBit, pdTRUE, pdFALSE, pdMS_TO_TICKS(2000));
+        if ((stopped & kVoiceLanWifiStoppedBit) == 0) return voice_lan_fail("wifi-stop-timeout");
+    } else if (stop_err != ESP_ERR_WIFI_NOT_STARTED) {
+        return voice_lan_fail("wifi-stop", stop_err);
+    }
+    g_voice_lan_wifi_started = false;
+    if (voice_cancel_is_requested()) return voice_lan_fail("cancelled");
 
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &config);
     if (err != ESP_OK) {
-        g_voice_lan_wifi_attempt_active = false;
+        g_voice_lan_wifi_state.fail();
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=wifi-config err=%s", esp_err_to_name(err));
-        return false;
+        return voice_lan_fail("wifi-config", err);
     }
 
+    g_voice_lan_wifi_state.begin_connect();
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        g_voice_lan_wifi_state.fail();
+        return voice_lan_fail("wifi-start", err);
+    }
+    g_voice_lan_wifi_started = true;
+    (void)esp_wifi_set_ps(WIFI_PS_NONE);
     err = esp_wifi_connect();
     if (err != ESP_OK) {
-        g_voice_lan_wifi_attempt_active = false;
+        g_voice_lan_wifi_state.fail();
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=wifi-connect err=%s", esp_err_to_name(err));
-        return false;
+        return voice_lan_fail("wifi-connect", err);
     }
 
-    const EventBits_t bits = xEventGroupWaitBits(
-        g_voice_lan_wifi_events,
-        kVoiceLanWifiReadyBit | kVoiceLanWifiFailedBit,
-        pdTRUE,
-        pdFALSE,
-        pdMS_TO_TICKS(kVoiceLanConnectTimeoutMs));
-    g_voice_lan_wifi_attempt_active = false;
+    EventBits_t bits = 0;
+    const TickType_t started = xTaskGetTickCount();
+    while ((xTaskGetTickCount() - started) < pdMS_TO_TICKS(kVoiceLanConnectTimeoutMs)) {
+        if (voice_cancel_is_requested()) {
+            g_voice_lan_wifi_state.fail();
+            return voice_lan_fail("cancelled");
+        }
+        bits = xEventGroupWaitBits(g_voice_lan_wifi_events,
+            kVoiceLanWifiReadyBit | kVoiceLanWifiFailedBit, pdTRUE, pdFALSE, pdMS_TO_TICKS(100));
+        if (bits != 0) break;
+    }
 
     if ((bits & kVoiceLanWifiReadyBit) == 0) {
+        g_voice_lan_wifi_state.fail();
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=wifi-ready");
-        return false;
+        return voice_lan_fail("wifi-ready");
     }
 
     ESP_LOGI(kLogTag, "VOICE_LAN network=connected credentials=persistent-no");
@@ -250,12 +293,14 @@ int voice_lan_connect_server(const VoiceLanRequest& request)
     address.sin_port = htons(request.port);
     if (inet_pton(AF_INET, request.host, &address.sin_addr) != 1) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=host-address");
+        voice_lan_fail("host-address");
         return -1;
     }
 
     const int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (sock < 0) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=socket");
+        voice_lan_fail("socket", errno);
         return -1;
     }
 
@@ -266,6 +311,7 @@ int voice_lan_connect_server(const VoiceLanRequest& request)
     (void)setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
     if (connect(sock, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
+        voice_lan_fail("tcp-connect", errno);
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=tcp-connect");
         close(sock);
         return -1;
@@ -282,8 +328,10 @@ bool voice_lan_send_hello(int sock, const char* token)
     const uint16_t frame_ms = htons(kVoiceLanFrameMs);
     std::memcpy(hello.data() + 4, &sample_rate, sizeof(sample_rate));
     std::memcpy(hello.data() + 6, &frame_ms, sizeof(frame_ms));
-    if (!voice_lan_send_all(sock, hello.data(), hello.size())) return false;
-    return token == nullptr || token[0] == '\0' || voice_lan_send_all(sock, token, 32);
+    if (!voice_lan_send_all(sock, hello.data(), hello.size())) return voice_lan_fail("uplink-header", errno);
+    if (token != nullptr && token[0] != '\0' && !voice_lan_send_all(sock, token, 32))
+        return voice_lan_fail("uplink-auth", errno);
+    return true;
 }
 
 bool voice_lan_send_packet(int sock, const uint8_t* packet, std::size_t length)
@@ -315,16 +363,16 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
     opus_config.enable_vbr = false;
 
     void* encoder = nullptr;
-    if (esp_opus_enc_open(&opus_config, sizeof(opus_config), &encoder) != ESP_AUDIO_ERR_OK ||
-        encoder == nullptr) {
+    const esp_audio_err_t open_err = esp_opus_enc_open(&opus_config, sizeof(opus_config), &encoder);
+    if (open_err != ESP_AUDIO_ERR_OK || encoder == nullptr) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=opus-open");
-        return false;
+        return voice_lan_fail("opus-open", open_err);
     }
 
     int input_bytes = 0;
     int output_bytes = 0;
-    const bool frame_size_ok =
-        esp_opus_enc_get_frame_size(encoder, &input_bytes, &output_bytes) == ESP_AUDIO_ERR_OK &&
+    const esp_audio_err_t frame_err = esp_opus_enc_get_frame_size(encoder, &input_bytes, &output_bytes);
+    const bool frame_size_ok = frame_err == ESP_AUDIO_ERR_OK &&
         input_bytes == static_cast<int>(kVoiceLanMonoFrames * sizeof(int16_t)) &&
         output_bytes > 0 && output_bytes <= static_cast<int>(g_voice_lan_encoded.size());
     if (!frame_size_ok) {
@@ -333,13 +381,13 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
                  input_bytes,
                  output_bytes);
         esp_opus_enc_close(encoder);
-        return false;
+        return voice_lan_fail("opus-frame", frame_err);
     }
 
     if (!open_input()) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=input-open");
         esp_opus_enc_close(encoder);
-        return false;
+        return voice_lan_fail("input-open");
     }
 
     bool ok = true;
@@ -352,6 +400,7 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
             static_cast<int>(g_voice_lan_stereo.size() * sizeof(int16_t))));
         if (read_err != ESP_OK) {
             ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=capture-read err=%s", esp_err_to_name(read_err));
+            voice_lan_fail("capture-read", read_err);
             ok = false;
             break;
         }
@@ -368,22 +417,28 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
         output_frame.buffer = g_voice_lan_encoded.data();
         output_frame.len = static_cast<uint32_t>(g_voice_lan_encoded.size());
 
-        if (esp_opus_enc_process(encoder, &input_frame, &output_frame) != ESP_AUDIO_ERR_OK ||
-            output_frame.encoded_bytes == 0 ||
-            output_frame.encoded_bytes > kVoiceLanMaxOpusPacket ||
-            !voice_lan_send_packet(sock, output_frame.buffer, output_frame.encoded_bytes)) {
+        const esp_audio_err_t encode_err = esp_opus_enc_process(encoder, &input_frame, &output_frame);
+        if (encode_err != ESP_AUDIO_ERR_OK || output_frame.encoded_bytes == 0 ||
+            output_frame.encoded_bytes > kVoiceLanMaxOpusPacket) {
+            voice_lan_fail("opus-encode", encode_err);
+            ok = false;
+            break;
+        }
+        if (!voice_lan_send_packet(sock, output_frame.buffer, output_frame.encoded_bytes)) {
             ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=opus-send");
+            voice_lan_fail("opus-send", errno);
             ok = false;
             break;
         }
     }
 
-    if (!close_input()) ok = false;
+    if (!close_input()) { voice_lan_fail("input-close"); ok = false; }
     esp_opus_enc_close(encoder);
 
-    if (!ok || !voice_lan_send_end(sock)) {
+    if (!ok) return false;
+    if (!voice_lan_send_end(sock)) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=uplink-finish");
-        return false;
+        return voice_lan_fail("uplink-finish", errno);
     }
 
     ESP_LOGI(kLogTag,
@@ -398,7 +453,7 @@ bool voice_lan_receive_playback(int sock)
     std::array<char, 4> magic{};
     if (!voice_lan_recv_all(sock, magic.data(), magic.size())) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-header");
-        return false;
+        return voice_lan_fail("reply-header", errno);
     }
 
     if (std::memcmp(magic.data(), kVoiceLanErrorMagic, 4) == 0) {
@@ -410,28 +465,28 @@ bool voice_lan_receive_playback(int sock)
             if (remaining > 0) (void)voice_lan_recv_all(sock, discard.data(), remaining);
         }
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=provider");
-        return false;
+        return voice_lan_fail("provider");
     }
 
     if (std::memcmp(magic.data(), kVoiceLanReplyMagic, 4) != 0) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-magic");
-        return false;
+        return voice_lan_fail("reply-magic");
     }
 
     uint32_t network_pcm_bytes = 0;
     if (!voice_lan_recv_all(sock, &network_pcm_bytes, sizeof(network_pcm_bytes))) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-length");
-        return false;
+        return voice_lan_fail("reply-length", errno);
     }
     const uint32_t pcm_bytes = ntohl(network_pcm_bytes);
     if (pcm_bytes == 0 || pcm_bytes > kVoiceLanMaxPcmReply || (pcm_bytes % 2) != 0) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-range bytes=%u", static_cast<unsigned>(pcm_bytes));
-        return false;
+        return voice_lan_fail("reply-range");
     }
 
     if (!open_output()) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=output-open");
-        return false;
+        return voice_lan_fail("output-open");
     }
 
     bool ok = true;
@@ -439,6 +494,7 @@ bool voice_lan_receive_playback(int sock)
         esp_codec_dev_set_out_mute(g_audio.output_dev, false));
     if (unmute_err != ESP_OK) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=output-unmute err=%s", esp_err_to_name(unmute_err));
+        voice_lan_fail("output-unmute", unmute_err);
         ok = false;
     }
 
@@ -447,6 +503,7 @@ bool voice_lan_receive_playback(int sock)
         const std::size_t chunk = std::min<std::size_t>(remaining, g_voice_lan_playback.size());
         if (!voice_lan_recv_all(sock, g_voice_lan_playback.data(), chunk)) {
             ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-read");
+            voice_lan_fail("reply-read", errno);
             ok = false;
             break;
         }
@@ -456,6 +513,7 @@ bool voice_lan_receive_playback(int sock)
             static_cast<int>(chunk)));
         if (write_err != ESP_OK) {
             ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=playback-write err=%s", esp_err_to_name(write_err));
+            voice_lan_fail("playback-write", write_err);
             ok = false;
             break;
         }
@@ -472,7 +530,7 @@ bool voice_lan_receive_playback(int sock)
         }
     }
 
-    if (!close_output()) ok = false;
+    if (!close_output()) { voice_lan_fail("output-close"); ok = false; }
     if (ok) {
         ESP_LOGI(kLogTag, "VOICE_LAN downlink=complete codec=pcm16 sample_rate=%u", static_cast<unsigned>(kVoiceLanSampleRate));
     }
@@ -482,19 +540,23 @@ bool voice_lan_receive_playback(int sock)
 VoiceLanProof voice_lan_run_turn(const VoiceLanRequest& request)
 {
     VoiceLanProof proof{};
+    g_voice_lan_failure_stage = "starting";
+    g_voice_lan_failure_code = 0;
 
     if (!g_audio.ready || g_audio.input_dev == nullptr || g_audio.output_dev == nullptr) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=audio-transport");
+        voice_lan_fail("audio-transport");
         return proof;
     }
 
     if (!p9_release_torque() || !p10_verify_torque_released()) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=torque-precondition");
+        voice_lan_fail("torque-precondition");
         return proof;
     }
 
     presence_interaction_begin();
-    presentation_set_state(PresentationState::Attentive, "voice-lan-connect");
+    presentation_set_state(PresentationState::Thinking, "voice-lan-connect");
 
     if (!voice_lan_connect_wifi(request)) {
         presentation_set_state(PresentationState::Degraded, "voice-lan-network");
@@ -538,6 +600,8 @@ VoiceLanProof voice_lan_run_turn(const VoiceLanRequest& request)
     proof.handoff = proof.capture && proof.opus && proof.playback;
     proof.torque_released = p9_release_torque() && p10_verify_torque_released();
 
+    if (!proof.torque_released) voice_lan_fail("torque-release");
+
     if (proof.ok()) {
         presentation_set_state(PresentationState::Idle, "voice-lan-complete");
         ESP_LOGI(kLogTag,
@@ -579,6 +643,11 @@ bool voice_lan_make_ack(const VoiceLanRequest& request,
     built = built && cJSON_AddBoolToObject(payload, "playback", proof.playback) != nullptr;
     built = built && cJSON_AddBoolToObject(payload, "handoff", proof.handoff) != nullptr;
     built = built && cJSON_AddBoolToObject(payload, "torque_released", proof.torque_released) != nullptr;
+    built = built && cJSON_AddBoolToObject(payload, "cancelled", voice_cancel_is_requested()) != nullptr;
+    built = built && cJSON_AddStringToObject(payload, "stage",
+        proof.ok() ? "complete" : voice_cancel_is_requested() ? "cancelled" : g_voice_lan_failure_stage) != nullptr;
+    built = built && cJSON_AddNumberToObject(payload, "error_code", g_voice_lan_failure_code) != nullptr;
+    built = built && cJSON_AddNumberToObject(payload, "wifi_reason", g_voice_lan_wifi_state.reason()) != nullptr;
     if (built) {
         cJSON_AddItemToObject(root, "payload", payload);
         payload = nullptr;

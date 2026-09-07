@@ -20,6 +20,10 @@ int main(int argc, char** argv) {
         for(uint64_t ms: {0ULL,66ULL,1000ULL,4800ULL,4860ULL,4960ULL,99999ULL,4294967300ULL}) {
             animation.render(pixels.data()+1,static_cast<kadence_scene::State>(state),ms,0.7f);
             assert(pixels.front()==0xa55a && pixels.back()==0xa55a);
+            for(int y=0;y<kadence_scene::Height;++y) {
+                assert(pixels[1+y*kadence_scene::Width]==0);
+                assert(pixels[1+y*kadence_scene::Width+319]==0);
+            }
         }
         uint64_t checksum=0;
         for(size_t i=1;i<=count;++i) checksum=checksum*31+pixels[i];
@@ -39,5 +43,5 @@ int main(int argc, char** argv) {
         }
         std::fclose(f);
     }
-    std::puts("AVATAR_SCENE PASS states=11 bounds=preserved native_renderer=1 wire_byte_order=verified");
+    std::puts("AVATAR_SCENE PASS states=11 bounds=preserved native_renderer=1 wire_byte_order=verified background=solid");
 }

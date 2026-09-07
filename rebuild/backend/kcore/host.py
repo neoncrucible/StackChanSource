@@ -17,6 +17,31 @@ class Session:
     hello_seen: bool = False
 
 
+class VoiceTurnFailure(RuntimeError):
+    """A completed device ACK failed its voice proof; no extra cancel is needed."""
+    STAGES = frozenset(("starting", "wifi-init", "wifi-stop", "wifi-stop-timeout",
+        "wifi-config", "wifi-start", "wifi-connect", "wifi-ready", "host-address",
+        "socket", "tcp-connect", "uplink-header", "uplink-auth", "opus-open",
+        "opus-frame", "opus-encode", "input-open", "capture-read", "opus-send", "input-close",
+        "uplink-finish", "reply-header", "provider", "reply-magic", "reply-length",
+        "reply-range", "output-open", "output-unmute", "reply-read", "playback-write",
+        "output-close", "audio-transport", "torque-precondition", "torque-release", "cancelled"))
+
+    def __init__(self, missing: list[str], payload: dict):
+        stage = payload.get("stage")
+        self.stage = stage if isinstance(stage, str) and stage in self.STAGES else "unspecified"
+        self.torque_released = payload.get("torque_released") is True
+        self.cancelled = payload.get("cancelled") is True and self.torque_released
+        def number(key):
+            value = payload.get(key)
+            return value if type(value) is int and -(2**31) <= value < 2**31 else 0
+        self.error_code = number("error_code")
+        self.wifi_reason = number("wifi_reason")
+        status = "cancelled" if self.cancelled else "failed"
+        super().__init__(f"voice turn {status} stage={self.stage} code={self.error_code} "
+                         f"wifi_reason={self.wifi_reason} missing=" + ",".join(missing))
+
+
 class HostServer:
     """Minimal single-endpoint host runtime.
 
@@ -331,7 +356,7 @@ class HostServer:
             )
             missing = [key for key in required if response.payload.get(key) is not True]
             if missing:
-                raise RuntimeError("voice turn proof missing: " + ",".join(missing))
+                raise VoiceTurnFailure(missing, response.payload)
             return response
 
     async def _send(self, writer: asyncio.StreamWriter, envelope: Envelope) -> None:

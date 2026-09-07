@@ -33,7 +33,8 @@ Host-only maintenance, when the installed firmware is already compatible:
 
 This repairs the host dependencies and runs the startup and candidate checks
 without building or flashing. The startup fix after `ff7a422` is host-only and
-uses the firmware already flashed from that commit.
+uses the firmware already flashed from that commit. The subsequent voice recovery
+and display update is firmware 0.20.1 and requires its matching new flash.
 
 ## Ordinary startup
 

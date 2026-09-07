@@ -63,7 +63,7 @@ remain intact.
 
 ## Reproduction and delivery
 
-- Python 3.12; host package `0.2.0`; firmware `0.20.0`; ESP-IDF 5.5.4.
+- Python 3.12; host package `0.2.0`; firmware `0.20.1`; ESP-IDF 5.5.4.
 - This hosted Linux build uses IDF Component Manager 2.2.2, within the SDK's
   `~=2.2` requirement. Newer versions assume process information unavailable in
   this workspace. No SDK hardware or access-control code was modified.
@@ -91,8 +91,8 @@ remain intact.
 
 ## Remaining acceptance
 
-Local verification after the Windows startup fix: **61 tests passed, 18 subtests passed**;
-the focused Phase B suite contains **40 tests**. CP23, A4, A3 cancellation,
+Local verification after the voice recovery update: **65 tests passed, 18 subtests passed**;
+the focused Phase B suite contains **44 tests**. CP23, A4, A3 cancellation,
 self-init and voice-wire gates passed. The native renderer passed all eleven
 state/bounds checks with AddressSanitizer/UndefinedBehaviorSanitizer enabled.
 ESP-IDF 5.5.4 completed the full build; application size was approximately 1 MiB,
@@ -120,6 +120,29 @@ failure exits. Setup tests cover missing dependencies, invalid timezone and loca
 visible/hidden entry without persistence. The owner explicitly authorised visible
 credential entry in their private lab; use `--visible-input`. This repair has no
 firmware changes and needs no additional flash for the existing `ff7a422` device.
+
+The next physical attempt reached touch-initiated voice but produced an incomplete
+uplink, a touch-cancel event, then two negative voice ACKs with network unproven.
+Those coarse logs do not prove the exact original failing call. Code inspection
+found a real reconnect race: every turn intentionally disconnected the station
+with automatic retries already enabled, allowing reconnect to race set_config.
+Firmware 0.20.1 reuses a connected station only when credentials and IP match.
+Reconfiguration disables retries, stops the station and waits for its stop event
+before applying configuration and starting a fresh bounded attempt. Wi-Fi waits
+check cancellation every 100 ms. State tests cover reset events, late IP events,
+bounded retries, link loss and reuse; physical reconnection still needs observation.
+
+Negative voice ACKs now carry an allowlisted failure stage, numeric SDK/socket
+code, Wi-Fi disconnect reason and cancellation flag. The host preserves these
+details and does not treat intentional cancellation as failed playback. Missing
+torque-release proof still triggers the existing physical release request. An
+incomplete uplink is labelled as such, without logging its contents. No protocol
+success requirement was relaxed and no extra hardware/serial owner was added.
+
+The owner requested one flat background and a retro terminal appearance while
+keeping the avatar they liked. The renderer now uses exact RGB565 black across
+the background with green terminal styling; native tests check uniform borders
+in every state. This combined firmware/host update requires one new matching flash.
 
 The new combined candidate needs physical cold start, rendering/touch responsiveness
 under audio load, normal/repeated conversation, one safe tool round-trip, explicit

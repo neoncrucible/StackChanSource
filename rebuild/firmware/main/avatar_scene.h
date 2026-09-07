@@ -14,8 +14,8 @@ enum class State : uint8_t { Booting, Idle, Attentive, Listening, Thinking,
                             Speaking, ToolWorking, Offline, Degraded, Fault, Recovery };
 
 struct Colour { float r, g, b; };
-constexpr Colour Ink{5, 9, 18}, Ice{119, 241, 236}, White{227, 249, 246};
-constexpr Colour Dim{34, 69, 83}, Copper{249, 169, 99}, Violet{158, 112, 210};
+constexpr Colour Ink{0, 0, 0}, Ice{112, 255, 144}, White{204, 255, 210};
+constexpr Colour Dim{28, 74, 38}, Copper{249, 192, 99};
 
 inline Colour mix(Colour a, Colour b, float t) {
     t = std::clamp(t, 0.0f, 1.0f);
@@ -73,6 +73,7 @@ public:
                 case 'U': g=0b101101101101111; break; case 'V': g=0b101101101101010; break;
                 case 'W': g=0b101101111111101; break; case 'X': g=0b101101010101101; break;
                 case 'Y': g=0b101101010010010; break; case 'Z': g=0b111001010100111; break;
+                case '>': g=0b100010001010100; break;
             }
             for(int row=0;row<5;++row) for(int col=0;col<3;++col)
                 if(g & (1<<(14-row*3-col))) box(x+col*scale,y+row*scale,scale,scale,c);
@@ -138,9 +139,11 @@ struct Animation {
         float open=std::max(0.05f,openness*ease(blink));
         Colour accent=state==State::ToolWorking ? Copper : state==State::Degraded ? Copper : state==State::Fault ? Colour{241,100,113} : Ice;
         if(state==State::Offline) accent=Dim;
-        for(int y=0;y<Height;++y) c.box(0,y,Width,1,mix(Ink,Colour{11,20,33},static_cast<float>(y)/Height*0.7f));
+        // A single exact RGB565 background value: no gradients or banding.
+        std::fill(pixels, pixels+Width*Height, rgb(Ink));
         c.box(20,37,280,1,Dim);
         c.text(22,18,"KADENCE",White,2);
+        if ((now / 600) % 2 == 0) c.box(81,26,7,2,Ice);
         constexpr const char* labels[]={"STARTING","READY","HERE","LISTENING","THINKING","SPEAKING","WORKING","OFFLINE","RETRY","FAULT","RECOVERING"};
         const auto index=std::min(static_cast<unsigned>(state),10U);
         const char* label=labels[index];
@@ -151,7 +154,7 @@ struct Animation {
         c.eye(91+gaze_x*0.14f,112+breathe,open,gaze_x,gaze_y,accent,state==State::Listening ? 1.0f : 0.0f);
         c.eye(229+gaze_x*0.14f,112+breathe,open,gaze_x,gaze_y,accent,state==State::Listening ? 1.0f : 0.0f);
         c.box(21,100,2,26,Dim); c.box(297,100,2,26,Dim);
-        c.box(26,162,11,2,Violet); c.box(283,162,11,2,Violet);
+        c.box(26,162,11,2,Dim); c.box(283,162,11,2,Dim);
         if(state==State::Speaking) {
             c.ellipse(160,171,15+level*10,2+level*12,accent);
             if(level>0.12f) c.ellipse(160,170,11+level*6,1+level*7,Ink);
@@ -171,7 +174,7 @@ struct Animation {
             int x=static_cast<int>((std::sin(t*2)+1)*125);
             c.box(20+x,203,30,2,accent);
         } else c.box(151,203,18,2,mix(Dim,accent,0.5f+0.25f*std::sin(t*2)));
-        const char* hint=active ? "TOUCH TO CANCEL" : state==State::Fault ? "CHECK HOST" : "TOUCH TO TALK";
+        const char* hint=active ? "> TOUCH TO CANCEL" : state==State::Fault ? "> CHECK HOST" : "> TOUCH TO TALK";
         c.text((Width-static_cast<int>(std::strlen(hint))*4)/2,219,hint,mix(Dim,White,0.65f));
     }
 };

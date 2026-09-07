@@ -78,6 +78,8 @@ jobs:
           python rebuild/tools/phase_a3_voice_wire_gate.py
           g++ -std=c++17 -Wall -Wextra -Werror -O2 -fsanitize=address,undefined rebuild/tests/avatar_scene_test.cpp -o /tmp/avatar-scene-test
           /tmp/avatar-scene-test
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -fsanitize=address,undefined rebuild/tests/voice_wifi_state_test.cpp -o /tmp/voice-wifi-state-test
+          /tmp/voice-wifi-state-test
 
       - name: Build current ESP32-S3 candidate
         shell: bash

@@ -589,6 +589,17 @@ Phase B completion means Kadence is a genuinely useful embodied companion/home a
 
 # 14. EXACT NEXT MOVE IN A FRESH CHAT
 
+Latest update supersedes the host-only instruction below: the owner reached
+voice turns, reported incomplete uplink/cancellation followed by network-unproven
+ACKs, and requested a single-colour retro terminal background while keeping the
+avatar. Firmware 0.20.1 contains that styling plus connection reuse and a station
+stop-event barrier that removes a confirmed per-turn reconnect/configuration race.
+Negative ACKs now report exact failure stages/codes without exposing credentials.
+The original coarse log does not prove which lower-level call first failed.
+This combined update needs **one matching host/firmware flash**, then one touch,
+wait for listening, speak and let the turn finish. Preserve any new stage/code if
+it fails; do not declare voice fixed until the physical observation proves it.
+
 Latest operator observation: `ff7a422` flashed successfully and all four image
 hashes verified. The avatar is physically rendered and the owner praised its
 appearance. Ordinary startup then failed before device connection because SDK
@@ -616,9 +627,8 @@ After reading this file:
 1. **Do not reopen CP19–23, replay Phase A, or implement B1 again.**
 2. Fetch the real current branch and read `RC1_ENGINEERING.md`, `BRANCH_AUDIT.md`
    and `DAILY_USE.md`. Preserve the no-spoilers requirement.
-3. Check the actual latest CI result and installed firmware compatibility. For a
-   new flash, check the RC1 source/bundle commit match. The startup repair above
-   is compatible with the already installed `ff7a422` firmware.
+3. Check the actual latest CI result and the new source/bundle commit match. The
+   latest voice recovery and display changes require the 0.20.1 firmware flash.
 4. The minimum operator path is the candidate's `rebuild/tools/deploy.ps1`:
    it fetches, checks, and either uses a matching prebuilt bundle or builds once,
    then flashes once. Never delete generated files to make an update easier.

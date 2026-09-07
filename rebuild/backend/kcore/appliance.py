@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .config import RuntimeConfig
+from .host import VoiceTurnFailure
 from .companion import Companion
 from .context_store import ContextStore, default_data_dir
 from .integrations import register_integrations
@@ -244,8 +245,12 @@ class KadenceAppliance:
             await self._close_connections()
             if self._companion:
                 self._companion.abort_turn()
-            with contextlib.suppress(Exception):
-                await body.send_voice_cancel(timeout=3.0)
+            if not isinstance(exc, VoiceTurnFailure) or not exc.torque_released:
+                with contextlib.suppress(Exception):
+                    await body.send_voice_cancel(timeout=3.0)
+            if isinstance(exc, VoiceTurnFailure) and exc.cancelled:
+                print("KADENCE_RUNTIME TURN cancelled torque=released")
+                return
             print(
                 "KADENCE_RUNTIME TURN recovered "
                 f"reason={type(exc).__name__}:{_safe_message(exc)}"
@@ -346,12 +351,14 @@ class KadenceAppliance:
                 await writer.wait_closed()
             return
         self._connections[task] = writer
+        phase = "UPLINK"
         try:
             async with self._provider_lock:
                 turn = await asyncio.wait_for(read_wire_turn(reader, expected_token=token), timeout=15.0)
                 if self._turn_token != token or self._body is not body or not body.connected:
                     return
                 self._wire_claimed = True
+                phase = "PROVIDERS"
                 bridge = RuntimePresentationBridge(body)
 
                 async def state_sink(state: str) -> None:
@@ -388,7 +395,10 @@ class KadenceAppliance:
                 self._wire_result = None
                 if self._companion:
                     self._companion.abort_turn()
-            print(f"KADENCE_RUNTIME PROVIDERS recovered reason={type(exc).__name__}")
+            if isinstance(exc, asyncio.IncompleteReadError) and phase == "UPLINK":
+                print(f"KADENCE_RUNTIME UPLINK ended_early expected_bytes={exc.expected} received_bytes={len(exc.partial)}")
+            else:
+                print(f"KADENCE_RUNTIME {phase} recovered reason={type(exc).__name__}")
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(send_wire_error(writer, "voice service failure"), timeout=1)
         finally:
