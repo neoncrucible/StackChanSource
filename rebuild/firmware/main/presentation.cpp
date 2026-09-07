@@ -48,6 +48,7 @@ constexpr uint16_t kUiRed = 0xF800;
 
 std::atomic<uint8_t> g_presentation_requested{
     static_cast<uint8_t>(PresentationState::Booting)};
+std::atomic<uint32_t> g_presentation_touch_action_seq{0};
 TaskHandle_t g_presentation_task_handle = nullptr;
 uint64_t g_presentation_boot_ms = 0;
 uint64_t g_touch_attention_until_ms = 0;
@@ -83,6 +84,11 @@ const char* presentation_state_name(PresentationState state)
 PresentationState presentation_requested_state()
 {
     return static_cast<PresentationState>(g_presentation_requested.load(std::memory_order_relaxed));
+}
+
+uint32_t presentation_touch_action_sequence()
+{
+    return g_presentation_touch_action_seq.load(std::memory_order_acquire);
 }
 
 void presentation_set_state(PresentationState target, const char* reason)
@@ -384,8 +390,11 @@ void presentation_poll_touch(uint64_t now_ms)
 
     if (g_presentation_touch.down) {
         const uint64_t held_ms = now_ms - g_presentation_touch.pressed_ms;
+        const uint32_t action_seq =
+            g_presentation_touch_action_seq.fetch_add(1, std::memory_order_release) + 1;
         ESP_LOGI(kLogTag,
-                 "PRESENTATION_TOUCH type=release action=attention x=%d y=%d held_ms=%" PRIu64,
+                 "PRESENTATION_TOUCH type=release action=voice-toggle seq=%" PRIu32 " x=%d y=%d held_ms=%" PRIu64,
+                 action_seq,
                  g_presentation_touch.x,
                  g_presentation_touch.y,
                  held_ms);
@@ -456,6 +465,7 @@ bool presentation_start(bool runtime_ok)
 
     g_presentation_boot_ms = static_cast<uint64_t>(esp_timer_get_time()) / 1000ULL;
     g_touch_attention_until_ms = 0;
+    g_presentation_touch_action_seq.store(0, std::memory_order_release);
     g_presentation_requested.store(
         static_cast<uint8_t>(runtime_ok ? PresentationState::Booting : PresentationState::Fault),
         std::memory_order_relaxed);
