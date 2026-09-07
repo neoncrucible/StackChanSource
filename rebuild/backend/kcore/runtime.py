@@ -44,6 +44,13 @@ class RuntimeBody:
                 pass
             raise
 
+    @property
+    def connected(self) -> bool:
+        return self.session.connected
+
+    async def wait_disconnected(self) -> None:
+        await self.session.wait_disconnected()
+
     async def close(self) -> None:
         await self.session.close()
         await self.host.close()
