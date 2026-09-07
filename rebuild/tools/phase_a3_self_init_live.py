@@ -262,6 +262,10 @@ async def main() -> int:
         await asyncio.wait_for(tone_sent.wait(), timeout=15.0)
         if synthetic_error is not None:
             raise synthetic_error
+        # The device buffers the full synthetic reply in PSRAM before opening
+        # the speaker. Give that handoff a short deterministic head start so the
+        # second physical touch proves cancellation during local playback.
+        await asyncio.sleep(0.8)
         print("PHASE_A3_SELF_INIT TOUCH_NOW touch Kadence once while the tone is playing")
 
         cancel_event = await wait_for_device_event(
