@@ -8,6 +8,16 @@ from zoneinfo import ZoneInfoNotFoundError
 from kcore import appliance
 
 
+@contextlib.contextmanager
+def clean_setup_environment():
+    # Keep Windows system/SSL configuration while removing only owner settings.
+    with patch.dict(os.environ):
+        for name in tuple(os.environ):
+            if name.startswith("KADENCE_") or name in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+                os.environ.pop(name)
+        yield
+
+
 class SetupTests(unittest.TestCase):
     def args(self, *extra):
         with patch("sys.argv", ["kadence", *extra]):
@@ -16,7 +26,7 @@ class SetupTests(unittest.TestCase):
     def test_visible_input_reaches_all_credential_prompts_without_persistence(self):
         values = ["test-openai", "test-gemini", "test-wifi-password"]
         output = io.StringIO()
-        with patch.dict(os.environ, {}, clear=True), \
+        with clean_setup_environment(), \
              patch.object(appliance.sys.stdin, "isatty", return_value=True), \
              patch.object(appliance, "_current_wifi_ssid", return_value="test-ssid"), \
              patch.object(appliance, "_local_lan_ipv4", return_value="192.0.2.10"), \
@@ -30,13 +40,14 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(settings.password, values[2])
             self.assertEqual(settings.providers.openai_api_key, values[0])
             self.assertEqual(settings.providers.gemini_api_key, values[1])
-            self.assertEqual(dict(os.environ), {})
+            for name in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "KADENCE_WIFI_PASSWORD"):
+                self.assertNotIn(name, os.environ)
         self.assertIn("Input is visible", output.getvalue())
         for value in values:
             self.assertNotIn(value, output.getvalue() + repr(settings))
 
     def test_default_input_remains_hidden(self):
-        with patch.dict(os.environ, {}, clear=True), \
+        with clean_setup_environment(), \
              patch.object(appliance.sys.stdin, "isatty", return_value=True), \
              patch.object(appliance, "_current_wifi_ssid", return_value="test-ssid"), \
              patch.object(appliance, "_local_lan_ipv4", return_value="192.0.2.10"), \
@@ -77,7 +88,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn("timezone unavailable", output.getvalue())
 
     def test_check_needs_no_credentials_or_hardware(self):
-        with patch.dict(os.environ, {}, clear=True), \
+        with clean_setup_environment(), \
              patch("sys.argv", ["kadence", "--check"]), \
              patch.object(appliance, "_make_settings") as settings, \
              patch.object(appliance, "KadenceAppliance") as runtime, \
