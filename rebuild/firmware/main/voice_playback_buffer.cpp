@@ -17,7 +17,7 @@ uint8_t* g_voice_playback_psram = nullptr;
 std::size_t g_voice_playback_capacity = 0;
 std::size_t g_voice_playback_length = 0;
 bool g_voice_playback_buffering = false;
-std::array<uint8_t, kVoicePlaybackDrainChunk> g_voice_playback_dma_scratch{};
+alignas(4) std::array<uint8_t, kVoicePlaybackDrainChunk> g_voice_playback_dma_scratch{};
 
 void voice_playback_buffer_reset()
 {
@@ -131,6 +131,7 @@ bool voice_lan_buffered_close_output()
     const std::size_t audio_bytes = g_voice_playback_length;
     g_voice_playback_buffering = false;
 
+    presentation_set_state(PresentationState::Speaking, "voice-buffer-ready");
     if (!open_output()) {
         ESP_LOGE(kLogTag, "VOICE_PLAYBACK status=failed stage=hardware-open");
         voice_playback_buffer_reset();
@@ -165,6 +166,8 @@ bool voice_lan_buffered_close_output()
             g_voice_playback_dma_scratch.data(),
             g_voice_playback_psram + offset,
             chunk);
+        presentation_audio_samples(
+            reinterpret_cast<const int16_t*>(g_voice_playback_dma_scratch.data()), chunk / sizeof(int16_t));
         const esp_err_t write_err = static_cast<esp_err_t>(esp_codec_dev_write(
             g_audio.output_dev,
             g_voice_playback_dma_scratch.data(),

@@ -53,7 +53,7 @@ void presence_interaction_end()
 
 bool presence_user_attention_active()
 {
-    return g_presentation_touch.down || g_touch_attention_until_ms != 0;
+    return g_presentation_touch_down.load(std::memory_order_acquire) || g_presentation_attention_active.load(std::memory_order_acquire);
 }
 
 void presence_task(void*)

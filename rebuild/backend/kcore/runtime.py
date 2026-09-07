@@ -37,7 +37,7 @@ class RuntimeBody:
             session = SerialBodySession(host, ser, port_name=port)
             await session.start(ready_timeout=ready_timeout)
             return cls(host=host, session=session)
-        except Exception:
+        except BaseException:
             try:
                 ser.close()
             except Exception:
@@ -88,6 +88,7 @@ class RuntimeBody:
         port: int,
         capture_ms: int = 4800,
         timeout: float = 90.0,
+        token: str | None = None,
     ):
         return await self.host.send_voice_turn(
             ssid=ssid,
@@ -96,6 +97,7 @@ class RuntimeBody:
             port=port,
             capture_ms=capture_ms,
             timeout=timeout,
+            token=token,
         )
 
     async def send_voice_cancel(

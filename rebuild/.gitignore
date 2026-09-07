@@ -1,0 +1,10 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/dependencies.lock
+*.log
+dist/
+*.sqlite3*

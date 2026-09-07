@@ -3,6 +3,9 @@
 #include <atomic>
 #include <cinttypes>
 #include <cstdint>
+#include <cstring>
+#include "esp_heap_caps.h"
+#include "avatar_scene.h"
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
@@ -13,22 +16,10 @@
 
 namespace {
 
-enum class PresentationState : uint8_t {
-    Booting = 0,
-    Idle,
-    Attentive,
-    Listening,
-    Thinking,
-    Speaking,
-    ToolWorking,
-    Offline,
-    Degraded,
-    Fault,
-    Recovery,
-};
+using PresentationState = kadence_scene::State;
 
-constexpr uint32_t kPresentationTickMs = 40;
-constexpr uint32_t kPresentationFrameMs = 160;
+constexpr uint32_t kPresentationTickMs = 20;
+constexpr uint32_t kPresentationFrameMs = 66;
 constexpr uint32_t kPresentationHeartbeatMs = 5000;
 constexpr uint32_t kBootPresentationMs = 1400;
 constexpr uint32_t kTouchAttentionMs = 1400;
@@ -52,6 +43,9 @@ std::atomic<uint32_t> g_presentation_touch_action_seq{0};
 TaskHandle_t g_presentation_task_handle = nullptr;
 uint64_t g_presentation_boot_ms = 0;
 uint64_t g_touch_attention_until_ms = 0;
+std::atomic<bool> g_presentation_attention_active{false};
+std::atomic<bool> g_presentation_touch_down{false};
+std::atomic<uint32_t> g_presentation_audio_level{0};
 
 struct PresentationTouch {
     bool down = false;
@@ -215,7 +209,7 @@ bool presentation_draw_fault_cross(uint16_t colour)
     return true;
 }
 
-bool presentation_render(PresentationState state, uint32_t frame)
+bool presentation_render_basic(PresentationState state, uint32_t frame)
 {
     if (!presentation_fill_rect(kFaceX, kFaceY, kFaceW, kFaceH, kUiBlack)) return false;
 
@@ -341,6 +335,51 @@ bool presentation_render(PresentationState state, uint32_t frame)
     return true;
 }
 
+void presentation_audio_samples(const int16_t* samples, size_t count)
+{
+    if (samples == nullptr || count == 0) return;
+    uint32_t total = 0, used = 0;
+    for (size_t i = 0; i < count; i += 8) {
+        const int value = samples[i];
+        total += static_cast<uint32_t>(value < 0 ? -value : value);
+        ++used;
+    }
+    g_presentation_audio_level.store(std::min<uint32_t>(1000, total / used / 4), std::memory_order_relaxed);
+}
+
+bool presentation_render(PresentationState state, uint32_t frame)
+{
+    // The canvas stays in PSRAM. Only the internal 8-row scratch reaches DMA.
+    // The existing synchronous panel boundary completes each transfer before reuse.
+    static bool attempted = false;
+    static bool transfer_failed = false;
+    static uint16_t* pixels = nullptr;
+    static kadence_scene::Animation animation;
+    static std::array<uint16_t, kadence_scene::Width * 8> scratch{};
+    if (transfer_failed) return false; // Do not reuse memory after an unconfirmed DMA completion.
+    if (!attempted) {
+        attempted = true;
+        pixels = static_cast<uint16_t*>(heap_caps_malloc(
+            kadence_scene::Width * kadence_scene::Height * sizeof(uint16_t),
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (pixels == nullptr) ESP_LOGW(kLogTag, "PRESENTATION fallback=basic reason=canvas-memory");
+    }
+    if (pixels == nullptr) return presentation_render_basic(state, frame);
+    const uint64_t now = static_cast<uint64_t>(esp_timer_get_time()) / 1000ULL;
+    float level = static_cast<float>(g_presentation_audio_level.load(std::memory_order_relaxed)) / 1000;
+    if (state != PresentationState::Listening && state != PresentationState::Speaking) level = 0;
+    animation.render(pixels, state, now, level);
+    for (int row = 0; row < kadence_scene::Height; row += 8) {
+        std::memcpy(scratch.data(), pixels + row * kadence_scene::Width, scratch.size() * sizeof(uint16_t));
+        if (probe8_sync_draw_bitmap(g_probe8_surface.panel, 0, row,
+                kadence_scene::Width, row + 8, scratch.data()) != ESP_OK) {
+            transfer_failed = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 void presentation_poll_touch(uint64_t now_ms)
 {
     if (!g_probe8_surface.touch_ready || g_probe8_surface.touch == nullptr) return;
@@ -373,12 +412,18 @@ void presentation_poll_touch(uint64_t now_ms)
 
     if (down && !g_presentation_touch.down) {
         g_presentation_touch.down = true;
+        g_presentation_touch_down.store(true, std::memory_order_release);
         g_presentation_touch.x = x;
         g_presentation_touch.y = y;
         g_presentation_touch.pressed_ms = now_ms;
         ESP_LOGI(kLogTag, "PRESENTATION_TOUCH type=press x=%d y=%d", x, y);
-        presentation_set_state(PresentationState::Attentive, "touch-press");
+        const PresentationState current = presentation_requested_state();
+        if (current == PresentationState::Idle || current == PresentationState::Offline ||
+            current == PresentationState::Degraded) {
+            presentation_set_state(PresentationState::Attentive, "touch-press");
+        }
         g_touch_attention_until_ms = now_ms + kTouchAttentionMs;
+        g_presentation_attention_active.store(true, std::memory_order_release);
         return;
     }
 
@@ -399,9 +444,11 @@ void presentation_poll_touch(uint64_t now_ms)
                  g_presentation_touch.y,
                  held_ms);
         g_presentation_touch.down = false;
+        g_presentation_touch_down.store(false, std::memory_order_release);
         g_presentation_touch.x = -1;
         g_presentation_touch.y = -1;
         g_touch_attention_until_ms = now_ms + kTouchAttentionMs;
+        g_presentation_attention_active.store(true, std::memory_order_release);
     }
 }
 
@@ -423,13 +470,15 @@ void presentation_task(void*)
             requested = PresentationState::Idle;
         }
 
-        if (requested == PresentationState::Attentive &&
-            !g_presentation_touch.down &&
+        if (!g_presentation_touch.down &&
             g_touch_attention_until_ms != 0 &&
             now_ms >= g_touch_attention_until_ms) {
             g_touch_attention_until_ms = 0;
-            presentation_set_state(PresentationState::Idle, "attention-complete");
-            requested = PresentationState::Idle;
+            g_presentation_attention_active.store(false, std::memory_order_release);
+            if (requested == PresentationState::Attentive) {
+                presentation_set_state(PresentationState::Idle, "attention-complete");
+                requested = PresentationState::Idle;
+            }
         }
 
         if (requested != last_rendered || now_ms >= next_frame_ms) {

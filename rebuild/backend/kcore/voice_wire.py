@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import hmac
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .companion import Companion, StateSink
 
 from .identity import KADENCE_IDENTITY
 from .voice_providers import (
@@ -14,6 +18,7 @@ from .voice_providers import (
 )
 
 UPLINK_MAGIC = b"KDV1"
+AUTH_UPLINK_MAGIC = b"KDV2"
 REPLY_MAGIC = b"KDR1"
 ERROR_MAGIC = b"KDE1"
 WIRE_SAMPLE_RATE = 16000
@@ -157,11 +162,17 @@ def decode_edge_mp3_to_pcm16(mp3: bytes) -> bytes:
     return pcm
 
 
-async def read_wire_turn(reader: asyncio.StreamReader) -> VoiceWireTurn:
+async def read_wire_turn(reader: asyncio.StreamReader, *, expected_token: str | None = None) -> VoiceWireTurn:
     hello = await reader.readexactly(8)
     magic, sample_rate, frame_ms = struct.unpack("!4sHH", hello)
-    if magic != UPLINK_MAGIC:
-        raise ValueError("invalid voice wire uplink magic")
+    if expected_token is not None:
+        if magic != AUTH_UPLINK_MAGIC:
+            raise ValueError("authenticated voice wire required")
+        token = await reader.readexactly(32)
+        if not hmac.compare_digest(token, expected_token.encode("ascii")):
+            raise ValueError("invalid voice turn authentication")
+    elif magic != UPLINK_MAGIC:
+        raise ValueError("invalid diagnostic voice wire uplink magic")
     if sample_rate != WIRE_SAMPLE_RATE or frame_ms != WIRE_FRAME_MS:
         raise ValueError("unsupported voice wire audio contract")
 
@@ -184,16 +195,23 @@ async def read_wire_turn(reader: asyncio.StreamReader) -> VoiceWireTurn:
 
 async def _synthesize_reply(providers: LiveVoiceProviders, reply: str) -> bytes:
     mp3_parts: list[bytes] = []
-    async for chunk in providers.tts.synthesize(reply):
-        mp3_parts.append(chunk)
+    size = 0
+    async with asyncio.timeout(18):
+        async for chunk in providers.tts.synthesize(reply):
+            size += len(chunk)
+            if size > MAX_PCM_REPLY:
+                raise ValueError("encoded speech exceeds limit")
+            mp3_parts.append(chunk)
     mp3 = b"".join(mp3_parts)
-    return decode_edge_mp3_to_pcm16(mp3)
+    return await asyncio.to_thread(decode_edge_mp3_to_pcm16, mp3)
 
 
 async def process_wire_turn(
     turn: VoiceWireTurn,
     *,
     settings: VoiceProviderSettings | None = None,
+    companion: Companion | None = None,
+    state_sink: StateSink | None = None,
 ) -> VoiceWireResult:
     resolved = VoiceProviderSettings.from_env() if settings is None else settings
     missing = resolved.missing_credentials()
@@ -207,11 +225,12 @@ async def process_wire_turn(
         frame_ms=turn.frame_ms,
     )
     try:
-        transcript = await providers.stt.transcribe_file(
-            ogg,
-            filename="kadence-turn.ogg",
-            content_type="audio/ogg",
-        )
+        async with asyncio.timeout(15):
+            transcript = await providers.stt.transcribe_file(
+                ogg,
+                filename="kadence-turn.ogg",
+                content_type="audio/ogg",
+            )
     except VoiceNoSpeechDetected:
         pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY)
         return VoiceWireResult(
@@ -221,11 +240,17 @@ async def process_wire_turn(
             no_speech=True,
         )
 
-    prompt = KADENCE_IDENTITY.wrap_user_text(transcript)
-    reply_parts: list[str] = []
-    async for chunk in providers.thinker.stream_reply(prompt):
-        reply_parts.append(chunk)
-    reply = "".join(reply_parts).strip()
+    if companion is not None:
+        reply = await companion.respond(transcript, providers.thinker, state_sink=state_sink)
+    else:
+        prompt = KADENCE_IDENTITY.wrap_user_text(transcript)
+        reply_parts: list[str] = []
+        async with asyncio.timeout(22):
+            async for chunk in providers.thinker.stream_reply(prompt):
+                reply_parts.append(chunk)
+                if sum(map(len, reply_parts)) > 8000:
+                    raise ValueError("reply exceeds limit")
+        reply = "".join(reply_parts).strip()
     if not reply:
         raise RuntimeError("Thinker returned an empty reply")
 

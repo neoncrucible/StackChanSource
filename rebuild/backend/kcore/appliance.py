@@ -6,13 +6,20 @@ import contextlib
 import getpass
 import os
 import re
+import secrets
 import socket
 import subprocess
-from dataclasses import dataclass, field
+import sys
+from dataclasses import dataclass, field, replace
 
 from .config import RuntimeConfig
+from .companion import Companion
+from .context_store import ContextStore, default_data_dir
+from .integrations import register_integrations
+from .local_tools import make_local_tools
 from .protocol import Envelope, MessageKind
 from .runtime import RuntimeBody
+from .runtime_bridge import RuntimePresentationBridge
 from .voice_providers import VoiceProviderSettings
 from .voice_wire import process_wire_turn, read_wire_turn, send_wire_error, send_wire_reply
 
@@ -36,7 +43,7 @@ class ApplianceSettings:
 
 
 class KadenceAppliance:
-    """Always-on Phase A runtime composed from the signed-off A1-A3 slices."""
+    """Normal companion runtime composed from the signed-off hardware owners."""
 
     def __init__(self, settings: ApplianceSettings):
         self.settings = settings
@@ -48,8 +55,14 @@ class KadenceAppliance:
         self._provider_lock = asyncio.Lock()
         self._stop = asyncio.Event()
         self._turn_sequence = 0
+        self._turn_token: str | None = None
+        self._wire_claimed = False
+        self._wire_result = None
+        self._connections: dict[asyncio.Task, asyncio.StreamWriter] = {}
+        self._companion: Companion | None = None
 
     async def run_forever(self) -> None:
+        await self._start_companion()
         await self._start_voice_server()
         print(
             "KADENCE_RUNTIME READY "
@@ -79,8 +92,12 @@ class KadenceAppliance:
                             f"reason={type(exc).__name__}:{_safe_message(exc)}"
                         )
                 finally:
+                    self._turn_token = None
                     await self._cancel_active_provider()
                     await self._cancel_active_voice_task()
+                    await self._close_connections()
+                    if self._companion:
+                        self._companion.abort_turn()
                     if body is not None:
                         with contextlib.suppress(Exception):
                             await body.close()
@@ -103,8 +120,13 @@ class KadenceAppliance:
 
     async def close(self) -> None:
         self._stop.set()
+        self._turn_token = None
         await self._cancel_active_provider()
         await self._cancel_active_voice_task()
+        await self._close_connections()
+        if self._companion:
+            self._companion.abort_turn()
+            await self._companion.tools.close()
         body = self._body
         self._body = None
         if body is not None:
@@ -115,6 +137,28 @@ class KadenceAppliance:
             await self._server.wait_closed()
             self._server = None
         print("KADENCE_RUNTIME STOPPED clean=1")
+
+    async def _start_companion(self) -> None:
+        store = ContextStore(default_data_dir())
+        try:
+            await asyncio.wait_for(store.start(), timeout=2)
+        except Exception:
+            store = None
+            print("KADENCE_RUNTIME CONTEXT degraded local_store=unavailable")
+        tools = make_local_tools(store, timezone_name=os.environ.get("KADENCE_TIMEZONE", "Europe/London"))
+        try:
+            register_integrations(tools)
+        except ValueError:
+            print("KADENCE_RUNTIME INTEGRATION unavailable configuration=invalid")
+        self._companion = Companion(tools, store)
+
+    async def _close_connections(self) -> None:
+        connections = tuple(self._connections.items())
+        for task, writer in connections:
+            writer.close()
+            task.cancel()
+        if connections:
+            await asyncio.wait({task for task, _ in connections}, timeout=1)
 
     async def _start_voice_server(self) -> None:
         self._server = await asyncio.start_server(self._handle_voice_connection, "0.0.0.0", 0)
@@ -131,16 +175,14 @@ class KadenceAppliance:
         disconnected = asyncio.create_task(
             body.wait_disconnected(), name="kadence-device-disconnect"
         )
-        done, pending = await asyncio.wait(
-            {events, disconnected}, return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in pending:
-            task.cancel()
-        for task in pending:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        if events in done:
-            events.result()
+        try:
+            done, _ = await asyncio.wait({events, disconnected}, return_when=asyncio.FIRST_COMPLETED)
+            if events in done:
+                events.result()
+        finally:
+            for task in (events, disconnected):
+                task.cancel()
+            await asyncio.gather(events, disconnected, return_exceptions=True)
 
     async def _event_loop(self, body: RuntimeBody) -> None:
         while body.connected and not self._stop.is_set():
@@ -176,6 +218,9 @@ class KadenceAppliance:
             task.result()
 
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
+        self._turn_token = secrets.token_hex(16)
+        self._wire_claimed = False
+        self._wire_result = None
         try:
             ack = await body.send_voice_turn(
                 ssid=self.settings.ssid,
@@ -183,20 +228,39 @@ class KadenceAppliance:
                 host=self.settings.lan_host,
                 port=self._server_port,
                 capture_ms=self.settings.capture_ms,
-                timeout=90.0,
+                timeout=210.0,
+                token=self._turn_token,
             )
         except asyncio.CancelledError:
+            self._turn_token = None
+            if self._companion:
+                self._companion.abort_turn()
             raise
         except Exception as exc:
+            self._turn_token = None
+            await self._cancel_active_provider()
+            await self._close_connections()
+            if self._companion:
+                self._companion.abort_turn()
+            with contextlib.suppress(Exception):
+                await body.send_voice_cancel(timeout=3.0)
             print(
                 "KADENCE_RUNTIME TURN recovered "
                 f"reason={type(exc).__name__}:{_safe_message(exc)}"
             )
             return
 
+        self._turn_token = None
         if ack.payload.get("ok") is not True:
+            if self._companion:
+                self._companion.abort_turn()
             print("KADENCE_RUNTIME TURN recovered reason=device-proof-missing")
             return
+
+        if self._companion and self._wire_result is not None:
+            result = self._wire_result
+            self._companion.commit_spoken(result.transcript, result.reply)
+        self._wire_result = None
 
         self._turn_sequence += 1
         body_ok = False
@@ -221,7 +285,12 @@ class KadenceAppliance:
         if event.payload.get("trigger") != "touch":
             return
 
+        self._turn_token = None
+        self._wire_result = None
+        if self._companion:
+            self._companion.abort_turn()
         provider_cancelled = await self._cancel_active_provider()
+        await self._close_connections()
         active_voice = self._voice_task is not None and not self._voice_task.done()
         cancel_ok = False
         if active_voice:
@@ -266,40 +335,65 @@ class KadenceAppliance:
     async def _handle_voice_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        async with self._provider_lock:
-            try:
-                turn = await asyncio.wait_for(read_wire_turn(reader), timeout=15.0)
+        task = asyncio.current_task()
+        body, token = self._body, self._turn_token
+        if (task is None or body is None or token is None or self._wire_claimed
+                or self._provider_lock.locked() or len(self._connections) >= 4):
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+            return
+        self._connections[task] = writer
+        try:
+            async with self._provider_lock:
+                turn = await asyncio.wait_for(read_wire_turn(reader, expected_token=token), timeout=15.0)
+                if self._turn_token != token or self._body is not body or not body.connected:
+                    return
+                self._wire_claimed = True
+                bridge = RuntimePresentationBridge(body)
+
+                async def state_sink(state: str) -> None:
+                    if self._turn_token != token or self._body is not body or not body.connected:
+                        raise asyncio.CancelledError()
+                    await bridge.set_state(state)
+
+                await state_sink("thinking")
                 provider_task = asyncio.create_task(
-                    process_wire_turn(turn, settings=self.settings.providers),
+                    process_wire_turn(turn, settings=self.settings.providers,
+                                      companion=self._companion, state_sink=state_sink),
                     name="kadence-provider-turn",
                 )
                 self._provider_task = provider_task
                 try:
-                    result = await provider_task
+                    async with asyncio.timeout(52):
+                        result = await provider_task
                 finally:
                     if self._provider_task is provider_task:
                         self._provider_task = None
-
-                await send_wire_reply(writer, result.pcm)
+                if self._turn_token != token:
+                    return
+                self._wire_result = result
+                await asyncio.wait_for(send_wire_reply(writer, result.pcm), timeout=10)
                 print(
                     "KADENCE_RUNTIME PROVIDERS complete "
                     f"transcript_chars={len(result.transcript)} "
                     f"reply_chars={len(result.reply)} pcm_bytes={len(result.pcm)}"
                 )
-            except asyncio.CancelledError:
-                with contextlib.suppress(Exception):
-                    await send_wire_error(writer, "voice turn cancelled")
-            except Exception as exc:
-                print(
-                    "KADENCE_RUNTIME PROVIDERS recovered "
-                    f"reason={type(exc).__name__}:{_safe_message(exc)}"
-                )
-                with contextlib.suppress(Exception):
-                    await send_wire_error(writer, "voice service failure")
-            finally:
-                writer.close()
-                with contextlib.suppress(ConnectionError):
-                    await writer.wait_closed()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if self._turn_token == token:
+                self._wire_result = None
+                if self._companion:
+                    self._companion.abort_turn()
+            print(f"KADENCE_RUNTIME PROVIDERS recovered reason={type(exc).__name__}")
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(send_wire_error(writer, "voice service failure"), timeout=1)
+        finally:
+            writer.close()
+            self._connections.pop(task, None)
+            with contextlib.suppress(ConnectionError, TimeoutError):
+                await asyncio.wait_for(writer.wait_closed(), timeout=1)
 
 
 def _runtime_config() -> RuntimeConfig:
@@ -368,7 +462,7 @@ def _local_lan_ipv4() -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the Kadence Phase A appliance runtime")
+    parser = argparse.ArgumentParser(description="Run the Kadence companion runtime")
     parser.add_argument("--port", default=DEFAULT_PORT)
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     parser.add_argument("--capture-ms", type=int, default=DEFAULT_CAPTURE_MS)
@@ -384,6 +478,13 @@ def _make_settings(args: argparse.Namespace) -> ApplianceSettings:
 
     providers = VoiceProviderSettings.from_env()
     missing = providers.missing_credentials()
+    if missing and sys.stdin.isatty():
+        print("Provider credentials are used in this process only. Input is hidden.")
+        if not providers.openai_api_key:
+            providers = replace(providers, openai_api_key=getpass.getpass("OpenAI API key: ").strip() or None)
+        if not providers.gemini_api_key:
+            providers = replace(providers, gemini_api_key=getpass.getpass("Gemini API key: ").strip() or None)
+        missing = providers.missing_credentials()
     if missing:
         raise RuntimeError("missing credentials: " + ",".join(missing))
 

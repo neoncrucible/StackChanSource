@@ -8,7 +8,8 @@
 **Normal serial:** `COM4` @ `115200`  
 **ESP-IDF:** 5.5.4  
 **State date:** 7 Sep 2026  
-**State anchor before this handover rewrite:** `36850a0b46b81cc45707f2ff5abbe4f9f3c8bc1e`
+**Phase A starting anchor for RC1:** `70e7d80baa81ef3b280e96e0f3de25e0c52618ed`
+**Current candidate:** RC1, host 0.2.0 / firmware 0.20.0; physical acceptance pending.
 
 > **This file is the authoritative continuation document.** In a fresh chat, read this file before proposing work. Do not ask the user to reconstruct prior context unless this document and the referenced repo files are demonstrably insufficient.
 
@@ -132,7 +133,7 @@ Do not delete them casually.
 
 # 4. CURRENT STATE IN ONE SENTENCE
 
-**Runtime/body foundation is complete; Phase A (presentation, presence, embodied interaction, voice and integrated normal runtime) is complete and live-proven; the next engineering family is Phase B, beginning with the safe host-side tool boundary.**
+**Runtime/body foundation and historical Phase A are signed off. RC1 implements the Phase B host boundary and useful vertical capability, integrates it into normal voice, and includes the requested avatar/UI upgrade. Host and native-renderer checks pass; the combined RC1 requires physical acceptance. Do not restart B1 or replay Phase A.**
 
 Do not reopen CP19–23 or A1–A4 without concrete regression evidence.
 
@@ -510,13 +511,13 @@ Do not turn technical debt cleanup into a sprawling infrastructure phase. Fix de
 
 ---
 
-# 13. PHASE B — NEXT ENGINEERING FAMILY
+# 13. PHASE B — RC1 IMPLEMENTED; PHYSICAL ACCEPTANCE NEXT
 
 Phase B is the second and final outer build family: **tools, useful context/memory, integrations and companion/home-assistant capability**.
 
 Keep exact planned capabilities and surprises out of user-facing narration.
 
-## B1 — Safe host-side tool boundary — NEXT
+## B1 — Safe host-side tool boundary — IMPLEMENTED / HOST VERIFIED
 
 The provider protocol already exists in:
 
@@ -531,7 +532,7 @@ class ToolBridge(Protocol):
     async def invoke(self, name: str, arguments: dict) -> dict: ...
 ```
 
-B1 should turn this interface into a concrete, controlled host-side execution boundary.
+RC1 implements this interface in `rebuild/backend/kcore/tool_bridge.py`. The strict schema validator carries forward the proven Alpha 2 implementation, with deadline, cancellation, result-limit and confirmation hardening. Read `RC1_ENGINEERING.md` and `BRANCH_AUDIT.md` before changing the candidate. The requirements below remain acceptance invariants, not a new to-do list.
 
 Required properties:
 
@@ -547,7 +548,7 @@ Required properties:
 - distinguish normal reasoning from tool-working presentation state through the existing presentation protocol, without duplicating the state system;
 - integration failure must return the normal runtime to a healthy conversational state.
 
-B1 should be host/static-test first. **Do not flash firmware unless a real firmware change is required.**
+B1 was verified host-first. **RC1 now does require a firmware flash**: the requested visual upgrade and authenticated KDV2 uplink are real firmware changes. Use the matching host and firmware commit.
 
 Inspect these before implementing:
 
@@ -565,7 +566,7 @@ Do not ask the user which secret tools/features Kade should add unless a genuine
 
 ## B2 / B3 / B4 — intentionally high-level here
 
-Future Kade should continue vertically from B1 into useful assistant capability, durable context/integrations and final daily-use sign-off.
+RC1 has continued vertically into useful host capability, bounded context and optional integrations. The ordinary appliance owns this implementation; it does not import diagnostic harnesses. Exact capabilities should still be discovered through use, not narrated in advance. Daily-use physical sign-off remains pending.
 
 However, **do not pre-document a spoiler-heavy feature list**. Choose and implement useful capabilities behind the common ToolBridge, test them safely, and reveal the finished experience through use rather than narration.
 
@@ -590,16 +591,21 @@ Phase B completion means Kadence is a genuinely useful embodied companion/home a
 
 After reading this file:
 
-1. **Do not reopen CP19–23 or A1–A4. Phase A is complete.**
-2. Confirm/fetch the real current `kadence/rebuild-kade` remote before editing.
-3. Read the B1 reference files listed above.
-4. Design the smallest concrete safe `ToolBridge` / registry that satisfies the architecture contract.
-5. Keep the exact future capability lineup secret from the user.
-6. Commit host-side B1 work to `kadence/rebuild-kade`.
-7. Add a focused B1 static/unit gate proving allowlist, validation, timeout/cancel, structured errors and runtime recovery.
-8. Ask the user to run only the minimum safe batch required for validation.
-9. Do not rebuild/flash firmware if only host files changed.
-10. Update this handover after meaningful B1 sign-off so the next fresh chat never regresses.
+1. **Do not reopen CP19–23, replay Phase A, or implement B1 again.**
+2. Fetch the real current branch and read `RC1_ENGINEERING.md`, `BRANCH_AUDIT.md`
+   and `DAILY_USE.md`. Preserve the no-spoilers requirement.
+3. Check the actual latest CI result and the RC1 source/bundle commit match.
+4. The minimum operator path is the candidate's `rebuild/tools/deploy.ps1`:
+   it fetches, checks, and either uses a matching prebuilt bundle or builds once,
+   then flashes once. Never delete generated files to make an update easier.
+5. Run ordinary `kadence`. Confirm cold start and normal interaction, smooth
+   display/touch under voice load, one useful tool turn with its confirmation,
+   cancel, forced provider/integration failure, reconnect and clean restart.
+   Give neutral observations/commands only; keep the feature reveal through use.
+6. Record actual physical observations and fix concrete failures in the repo.
+   RC1 is a candidate, not an invented B4 sign-off or a completion percentage.
+7. Update this document when physical acceptance is proven. Do not create another
+   outer checkpoint family or ask the user to reconstruct prior sessions.
 
 ---
 
@@ -616,6 +622,8 @@ That should be sufficient to restore the project without the user repeating hist
 # 16. Final instruction to future Kade
 
 The hard foundation and the entire Phase A embodied interaction stack are already real and live-proven.
+
+The user explicitly requested a substantial near-finished candidate, including improved avatar/UI, with safe work batched. RC1 is that integrated candidate; do not return to tiny unconnected checkpoint delivery.
 
 Do not make the user spend another day admiring infrastructure for its own sake.
 

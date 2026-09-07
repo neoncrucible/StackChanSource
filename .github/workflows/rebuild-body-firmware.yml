@@ -5,37 +5,11 @@ on:
     branches:
       - kadence/rebuild-kade
     paths:
-      - "rebuild/firmware/**"
-      - "rebuild/backend/kcore/body_contract.py"
-      - "rebuild/backend/kcore/commands.py"
-      - "rebuild/backend/kcore/host.py"
-      - "rebuild/tools/checkpoint10_gate.py"
-      - "rebuild/tools/checkpoint11_gate.py"
-      - "rebuild/tools/checkpoint12_gate.py"
-      - "rebuild/tools/checkpoint13_gate.py"
-      - "rebuild/tools/checkpoint14_gate.py"
-      - "rebuild/tools/checkpoint15_gate.py"
-      - "rebuild/tools/checkpoint16_gate.py"
-      - "rebuild/tools/checkpoint17_gate.py"
-      - "rebuild/tools/checkpoint18_gate.py"
-      - "rebuild/tools/checkpoint19_gate.py"
+      - "rebuild/**"
       - ".github/workflows/rebuild-body-firmware.yml"
   pull_request:
     paths:
-      - "rebuild/firmware/**"
-      - "rebuild/backend/kcore/body_contract.py"
-      - "rebuild/backend/kcore/commands.py"
-      - "rebuild/backend/kcore/host.py"
-      - "rebuild/tools/checkpoint10_gate.py"
-      - "rebuild/tools/checkpoint11_gate.py"
-      - "rebuild/tools/checkpoint12_gate.py"
-      - "rebuild/tools/checkpoint13_gate.py"
-      - "rebuild/tools/checkpoint14_gate.py"
-      - "rebuild/tools/checkpoint15_gate.py"
-      - "rebuild/tools/checkpoint16_gate.py"
-      - "rebuild/tools/checkpoint17_gate.py"
-      - "rebuild/tools/checkpoint18_gate.py"
-      - "rebuild/tools/checkpoint19_gate.py"
+      - "rebuild/**"
       - ".github/workflows/rebuild-body-firmware.yml"
   workflow_dispatch:
 
@@ -52,25 +26,26 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Run checkpoint host safety gates
+      - name: Verify current runtime and safety contracts
         shell: bash
         run: |
-          set -o pipefail
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint10_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint11_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint12_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint13_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint14_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint15_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint16_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint17_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint18_gate.py
-          PYTHONPATH=rebuild/backend python3 rebuild/tools/checkpoint19_gate.py
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          python -m pip install -e './rebuild[voice,dev]'
+          python -m pytest rebuild/tests -q
+          python rebuild/tools/phase_b_gate.py
+          python rebuild/tools/checkpoint23_gate.py
+          python rebuild/tools/phase_a4_gate.py
+          python rebuild/tools/phase_a3_cancel_gate.py
+          python rebuild/tools/phase_a3_self_init_gate.py
+          python rebuild/tools/phase_a3_voice_wire_gate.py
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -fsanitize=address,undefined rebuild/tests/avatar_scene_test.cpp -o /tmp/avatar-scene-test
+          /tmp/avatar-scene-test
 
-      - name: Build inert ESP32-S3 body probe
+      - name: Build current ESP32-S3 candidate
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           source "$IDF_PATH/export.sh"
           cd rebuild/firmware
           idf.py build 2>&1 | tee body-build.log
@@ -79,19 +54,16 @@ jobs:
         if: success()
         shell: bash
         run: |
-          mkdir -p body-firmware-artifacts
-          cp rebuild/firmware/build/bootloader/bootloader.bin body-firmware-artifacts/
-          cp rebuild/firmware/build/partition_table/partition-table.bin body-firmware-artifacts/
-          cp rebuild/firmware/build/*.bin body-firmware-artifacts/
-          cp rebuild/firmware/build/flasher_args.json body-firmware-artifacts/
-          cp rebuild/firmware/build/flash_args body-firmware-artifacts/
+          source "$IDF_PATH/export.sh"
+          python rebuild/tools/package_firmware.py
+
 
       - name: Upload firmware artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: kadence-rebuild-body-probe
-          path: body-firmware-artifacts/
+          name: kadence-rc1-firmware
+          path: rebuild/dist/Kadence-RC1.zip
           if-no-files-found: error
 
       - name: Upload build log

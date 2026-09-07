@@ -5,7 +5,7 @@ import json
 import os
 import wave
 from collections.abc import AsyncIterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -21,8 +21,8 @@ class VoiceNoSpeechDetected(RuntimeError):
 class VoiceProviderSettings:
     """Environment-backed live provider configuration with no embedded secrets."""
 
-    openai_api_key: str | None
-    gemini_api_key: str | None
+    openai_api_key: str | None = field(repr=False)
+    gemini_api_key: str | None = field(repr=False)
     stt_model: str = "gpt-transcribe"
     thinker_model: str = "gemini-3.5-flash-lite"
     tts_voice: str = "en-GB-SoniaNeural"

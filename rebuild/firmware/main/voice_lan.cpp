@@ -48,6 +48,7 @@ struct VoiceLanRequest {
     char ssid[33]{};
     char password[64]{};
     char host[46]{};
+    char token[33]{};
     uint16_t port = 0;
     uint32_t capture_ms = 0;
 };
@@ -272,15 +273,17 @@ int voice_lan_connect_server(const VoiceLanRequest& request)
     return sock;
 }
 
-bool voice_lan_send_hello(int sock)
+bool voice_lan_send_hello(int sock, const char* token)
 {
     std::array<uint8_t, 8> hello{};
     std::memcpy(hello.data(), kVoiceLanUplinkMagic, 4);
+    if (token != nullptr && token[0] != '\0') hello[3] = '2';
     const uint16_t sample_rate = htons(kVoiceLanSampleRate);
     const uint16_t frame_ms = htons(kVoiceLanFrameMs);
     std::memcpy(hello.data() + 4, &sample_rate, sizeof(sample_rate));
     std::memcpy(hello.data() + 6, &frame_ms, sizeof(frame_ms));
-    return voice_lan_send_all(sock, hello.data(), hello.size());
+    if (!voice_lan_send_all(sock, hello.data(), hello.size())) return false;
+    return token == nullptr || token[0] == '\0' || voice_lan_send_all(sock, token, 32);
 }
 
 bool voice_lan_send_packet(int sock, const uint8_t* packet, std::size_t length)
@@ -360,6 +363,7 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
         esp_audio_enc_in_frame_t input_frame{};
         input_frame.buffer = reinterpret_cast<uint8_t*>(g_voice_lan_mono.data());
         input_frame.len = static_cast<uint32_t>(g_voice_lan_mono.size() * sizeof(int16_t));
+        presentation_audio_samples(g_voice_lan_mono.data(), g_voice_lan_mono.size());
         esp_audio_enc_out_frame_t output_frame{};
         output_frame.buffer = g_voice_lan_encoded.data();
         output_frame.len = static_cast<uint32_t>(g_voice_lan_encoded.size());
@@ -503,7 +507,7 @@ VoiceLanProof voice_lan_run_turn(const VoiceLanRequest& request)
     proof.network = true;
 
     const int sock = voice_lan_connect_server(request);
-    if (sock < 0 || !voice_lan_send_hello(sock)) {
+    if (sock < 0 || !voice_lan_send_hello(sock, request.token)) {
         if (sock >= 0) close(sock);
         presentation_set_state(PresentationState::Degraded, "voice-lan-server");
         vTaskDelay(pdMS_TO_TICKS(180));
@@ -528,7 +532,6 @@ VoiceLanProof voice_lan_run_turn(const VoiceLanRequest& request)
     }
 
     presentation_set_state(PresentationState::Thinking, "voice-lan-provider");
-    presentation_set_state(PresentationState::Speaking, "voice-lan-playback");
     proof.playback = voice_lan_receive_playback(sock);
     close(sock);
 
@@ -622,6 +625,13 @@ VoiceLanCommandResult voice_lan_execute_command(const char* raw,
     const cJSON* host = payload ? cJSON_GetObjectItemCaseSensitive(payload, "host") : nullptr;
     const cJSON* port = payload ? cJSON_GetObjectItemCaseSensitive(payload, "port") : nullptr;
     const cJSON* capture_ms = payload ? cJSON_GetObjectItemCaseSensitive(payload, "capture_ms") : nullptr;
+    const cJSON* token = payload ? cJSON_GetObjectItemCaseSensitive(payload, "token") : nullptr;
+    if (token != nullptr && (!cJSON_IsString(token) || token->valuestring == nullptr ||
+                            std::strlen(token->valuestring) != 32 ||
+                            std::strspn(token->valuestring, "0123456789abcdef") != 32)) {
+        cJSON_Delete(root);
+        return VoiceLanCommandResult::Rejected;
+    }
 
     const bool fields_valid =
         cJSON_IsNumber(version) && version->valuedouble == 1.0 &&
@@ -662,6 +672,7 @@ VoiceLanCommandResult voice_lan_execute_command(const char* raw,
     std::snprintf(request.host, sizeof(request.host), "%s", host->valuestring);
     request.port = static_cast<uint16_t>(port->valueint);
     request.capture_ms = static_cast<uint32_t>(capture_ms->valueint);
+    if (token != nullptr) std::memcpy(request.token, token->valuestring, 32);
     cJSON_Delete(root);
 
     const VoiceLanProof proof = voice_lan_run_turn(request);

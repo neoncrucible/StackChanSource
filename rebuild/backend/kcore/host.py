@@ -257,6 +257,7 @@ class HostServer:
         port: int,
         capture_ms: int = 4800,
         timeout: float = 90.0,
+        token: str | None = None,
     ) -> Envelope:
         """Run one exclusive robot-mic -> LAN -> robot-speaker voice turn.
 
@@ -275,6 +276,8 @@ class HostServer:
             raise ValueError("port must be in 1..65535")
         if capture_ms < 2400 or capture_ms > 8000:
             raise ValueError("capture_ms must be in 2400..8000")
+        if token is not None and (len(token) != 32 or any(c not in "0123456789abcdef" for c in token)):
+            raise ValueError("voice token must contain 32 hex characters")
 
         async with self._command_lock:
             writer = self._active_writer
@@ -291,6 +294,7 @@ class HostServer:
                     "host": host,
                     "port": port,
                     "capture_ms": capture_ms,
+                    **({"token": token} if token is not None else {}),
                 },
             )
             loop = asyncio.get_running_loop()
