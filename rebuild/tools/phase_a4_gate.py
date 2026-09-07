@@ -16,16 +16,22 @@ def main() -> None:
     appliance_path = BACKEND / "appliance.py"
     serial_path = BACKEND / "serial_transport.py"
     runtime_path = BACKEND / "runtime.py"
+    providers_path = BACKEND / "voice_providers.py"
+    wire_path = BACKEND / "voice_wire.py"
     pyproject_path = ROOT / "pyproject.toml"
 
     appliance = appliance_path.read_text(encoding="utf-8")
     serial = serial_path.read_text(encoding="utf-8")
     runtime = runtime_path.read_text(encoding="utf-8")
+    providers = providers_path.read_text(encoding="utf-8")
+    wire = wire_path.read_text(encoding="utf-8")
     pyproject = pyproject_path.read_text(encoding="utf-8")
 
     ast.parse(appliance, filename=str(appliance_path))
     ast.parse(serial, filename=str(serial_path))
     ast.parse(runtime, filename=str(runtime_path))
+    ast.parse(providers, filename=str(providers_path))
+    ast.parse(wire, filename=str(wire_path))
 
     require('kadence = "kcore.appliance:main"' in pyproject,
             "normal kadence console entry point is not registered")
@@ -61,6 +67,17 @@ def main() -> None:
     require("async def wait_disconnected" in runtime and "self.session.wait_disconnected()" in runtime,
             "RuntimeBody does not expose disconnect supervision")
 
+    require("class VoiceNoSpeechDetected" in providers,
+            "empty STT is not classified as a normal no-speech condition")
+    require("raise VoiceNoSpeechDetected" in providers,
+            "OpenAI empty transcription does not use the no-speech condition")
+    require("except VoiceNoSpeechDetected" in wire,
+            "voice wire does not recover an empty transcription")
+    require("NO_SPEECH_REPLY" in wire and "no_speech=True" in wire,
+            "voice wire no-speech recovery has no spoken reply/proof")
+    require("_synthesize_reply(providers, NO_SPEECH_REPLY)" in wire,
+            "no-speech recovery does not produce valid device playback")
+
     require("phase_a3_" not in appliance.lower(),
             "product runtime illegally depends on an A3 test harness")
     require("serial.Serial" not in appliance,
@@ -72,7 +89,7 @@ def main() -> None:
         "PHASE_A4_GATE PASS "
         "normal_entry=1 runtime_owner=1 device_events=1 repeated_turns=1 "
         "touch_cancel=1 provider_cancel=1 body_reaction=1 reconnect=1 clean_shutdown=1 "
-        "single_voice_server=1 no_test_harness=1"
+        "no_speech_recovery=1 single_voice_server=1 no_test_harness=1"
     )
 
 
