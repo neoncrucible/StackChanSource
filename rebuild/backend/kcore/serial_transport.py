@@ -59,6 +59,12 @@ class SerialBodySession:
         self._reader_task: asyncio.Task[None] | None = None
         self._started = False
         self._events: asyncio.Queue[Envelope] = asyncio.Queue(maxsize=16)
+        self._disconnected = asyncio.Event()
+        self._disconnected.set()
+
+    @property
+    def connected(self) -> bool:
+        return self._started and not self._disconnected.is_set()
 
     async def start(self, *, ready_timeout: float = 30.0) -> None:
         if ready_timeout <= 0:
@@ -91,6 +97,7 @@ class SerialBodySession:
         if self.host.state.presence in {Presence.BOOTING, Presence.OFFLINE}:
             self.host.state.transition(Presence.IDLE)
 
+        self._disconnected.clear()
         self._started = True
         self._reader_task = asyncio.create_task(
             self._reader_loop(), name=f"serial-body-{self.port_name}"
@@ -105,6 +112,10 @@ class SerialBodySession:
             with contextlib.suppress(asyncio.CancelledError, ConnectionError):
                 await task
         self._reader_task = None
+
+    async def wait_disconnected(self) -> None:
+        """Wait until the physical serial session exits for any reason."""
+        await self._disconnected.wait()
 
     async def next_event(self, *, timeout: float | None = None) -> Envelope:
         """Return the next device-originated protocol event."""
@@ -151,6 +162,7 @@ class SerialBodySession:
                 self.host._active_session = None
             self.host._client_done.set()
             self._started = False
+            self._disconnected.set()
 
 
 def _decode_line(raw: bytes) -> str:
