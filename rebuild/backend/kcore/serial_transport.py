@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from .host import HostServer, Session
-from .protocol import Envelope
+from .protocol import Envelope, MessageKind
 from .state import Presence
 
 
@@ -45,7 +45,9 @@ class SerialBodySession:
 
     ESP-IDF diagnostic lines are ignored. Only complete JSON protocol envelopes
     are dispatched into HostServer, preserving its existing correlation,
-    timeout, retirement and single-command ownership rules.
+    timeout, retirement and single-command ownership rules. Device-originated
+    v1 events are also queued for the appliance runtime before their normal
+    host.event acknowledgement is emitted.
     """
 
     def __init__(self, host: HostServer, serial_port: Any, *, port_name: str):
@@ -56,6 +58,7 @@ class SerialBodySession:
         self.session = Session(device_id=f"serial:{port_name}", hello_seen=True)
         self._reader_task: asyncio.Task[None] | None = None
         self._started = False
+        self._events: asyncio.Queue[Envelope] = asyncio.Queue(maxsize=16)
 
     async def start(self, *, ready_timeout: float = 30.0) -> None:
         if ready_timeout <= 0:
@@ -103,6 +106,20 @@ class SerialBodySession:
                 await task
         self._reader_task = None
 
+    async def next_event(self, *, timeout: float | None = None) -> Envelope:
+        """Return the next device-originated protocol event."""
+        if timeout is not None and timeout <= 0:
+            raise ValueError("timeout must be positive")
+        if timeout is None:
+            return await self._events.get()
+        return await asyncio.wait_for(self._events.get(), timeout=timeout)
+
+    def _queue_event(self, incoming: Envelope) -> None:
+        if self._events.full():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                self._events.get_nowait()
+        self._events.put_nowait(incoming)
+
     async def _reader_loop(self) -> None:
         try:
             while True:
@@ -114,6 +131,8 @@ class SerialBodySession:
                     incoming = Envelope.from_json(text)
                 except (TypeError, ValueError):
                     continue
+                if incoming.kind is MessageKind.EVENT:
+                    self._queue_event(incoming)
                 outgoing = self.host._dispatch(self.session, incoming)
                 if outgoing is not None:
                     await self.host._send(self.writer, outgoing)
