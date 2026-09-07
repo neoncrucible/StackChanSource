@@ -86,11 +86,13 @@ remain intact.
 - `deploy.ps1` fetches the actual branch, refuses tracked local edits/divergence,
   checks a prebuilt bundle's exact source commit, installs the host and runs its
   candidate gate before flashing. Without a bundle, it builds once locally.
+  SDK setup runs in a child process; host installation/checks use one resolved
+  interpreter. `-HostOnly` repairs a compatible host without touching firmware.
 
 ## Remaining acceptance
 
-Local verification after the Windows handle fix: **56 tests passed, 18 subtests passed**;
-the focused Phase B suite contains **35 tests**. CP23, A4, A3 cancellation,
+Local verification after the Windows startup fix: **61 tests passed, 18 subtests passed**;
+the focused Phase B suite contains **40 tests**. CP23, A4, A3 cancellation,
 self-init and voice-wire gates passed. The native renderer passed all eleven
 state/bounds checks with AddressSanitizer/UndefinedBehaviorSanitizer enabled.
 ESP-IDF 5.5.4 completed the full build; application size was approximately 1 MiB,
@@ -106,6 +108,18 @@ to prevent garbage collection hiding leaks; all three fail on the old code.
 CI now runs the host suite and deployment gates on Windows Python 3.12 and 3.14,
 and parses both operator scripts with Windows PowerShell. Download mode was
 unrelated to this failure; the guard stopped before the serial flashing step.
+
+The corrected `ff7a422` firmware was then flashed successfully with all image
+hashes verified. The owner reported that the avatar rendered and looked excellent.
+Startup subsequently failed because SDK export had changed the terminal's Python
+after host installation, selecting an older `kadence.exe` without `tzdata`.
+SDK child-process isolation now prevents that switch. Actual runtime `--check`
+executes in CI and deployment before credential entry. Windows tests execute the
+SDK wrapper against a real child that changes PATH and exercise both success and
+failure exits. Setup tests cover missing dependencies, invalid timezone and local
+visible/hidden entry without persistence. The owner explicitly authorised visible
+credential entry in their private lab; use `--visible-input`. This repair has no
+firmware changes and needs no additional flash for the existing `ff7a422` device.
 
 The new combined candidate needs physical cold start, rendering/touch responsiveness
 under audio load, normal/repeated conversation, one safe tool round-trip, explicit

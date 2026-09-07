@@ -25,15 +25,38 @@ your checkout. A prebuilt bundle avoids the local build:
 The prebuilt bundle and source commit must match exactly. Do not flash images
 from older branch layouts or substitute a historical combined binary.
 
+Host-only maintenance, when the installed firmware is already compatible:
+
+```powershell
+.\rebuild\tools\deploy.ps1 -HostOnly
+```
+
+This repairs the host dependencies and runs the startup and candidate checks
+without building or flashing. The startup fix after `ff7a422` is host-only and
+uses the firmware already flashed from that commit.
+
 ## Ordinary startup
 
 ```powershell
 kadence
 ```
 
+For visible credential entry in the owner's private lab:
+
+```powershell
+python -m kcore.appliance --visible-input
+```
+
+The module command starts the same runtime using this terminal's Python. Use it
+after `deploy.ps1` to avoid a stale `kadence.exe` from a different environment.
+SDK build/flash setup now runs in a child process and leaves the host environment
+intact. `python -m kcore.appliance --check` verifies dependencies and timezone
+before asking for credentials or touching the device.
+
 Provider credentials are read from `OPENAI_API_KEY` and `GEMINI_API_KEY` (or
 `GOOGLE_API_KEY`). If absent in an interactive terminal, Kadence asks locally
-with hidden input. They are used only in this process. Wi-Fi credentials also
+with hidden input by default; `--visible-input` shows all three credential entries
+locally as requested by the owner. They are used only in this process. Wi-Fi credentials also
 remain local inputs; firmware holds them in RAM only. Never paste secrets into chat.
 
 Wait for `KADENCE_RUNTIME DEVICE ready`. Touch once and speak when the device

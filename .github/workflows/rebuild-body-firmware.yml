@@ -36,13 +36,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -m pip install -e './rebuild[voice,dev]'
           if ($LASTEXITCODE -ne 0) { throw 'Host install failed' }
+          python -m kcore.appliance --check
+          if ($LASTEXITCODE -ne 0) { throw 'Actual runtime entry point failed its setup check' }
           python -m pytest rebuild/tests -q
           if ($LASTEXITCODE -ne 0) { throw 'Windows host tests failed' }
           python rebuild/tools/phase_b_gate.py
           if ($LASTEXITCODE -ne 0) { throw 'Candidate gate failed' }
           python rebuild/tools/phase_a3_voice_wire_gate.py
           if ($LASTEXITCODE -ne 0) { throw 'Voice wire gate failed' }
-          foreach ($script in @('deploy.ps1', 'flash_bundle.ps1')) {
+          & ./rebuild/tests/test_sdk_process.ps1
+          foreach ($script in @('deploy.ps1', 'flash_bundle.ps1', 'build_firmware.ps1', 'sdk_process.ps1')) {
               $tokens = $null
               $parseErrors = $null
               $path = Join-Path (Get-Location) "rebuild/tools/$script"
@@ -65,6 +68,7 @@ jobs:
           set -euo pipefail
           source "$IDF_PATH/export.sh"
           python -m pip install -e './rebuild[voice,dev]'
+          python -m kcore.appliance --check
           python -m pytest rebuild/tests -q
           python rebuild/tools/phase_b_gate.py
           python rebuild/tools/checkpoint23_gate.py

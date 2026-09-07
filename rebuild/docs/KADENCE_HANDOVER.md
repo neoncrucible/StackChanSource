@@ -589,6 +589,18 @@ Phase B completion means Kadence is a genuinely useful embodied companion/home a
 
 # 14. EXACT NEXT MOVE IN A FRESH CHAT
 
+Latest operator observation: `ff7a422` flashed successfully and all four image
+hashes verified. The avatar is physically rendered and the owner praised its
+appearance. Ordinary startup then failed before device connection because SDK
+export changed the terminal's Python after installation; the selected older
+`kadence.exe` lacked `tzdata`. This has a host-only repair: SDK tasks now run in
+child processes, setup checks precede credential entry, and `deploy.ps1 -HostOnly`
+repairs/checks the current interpreter. Use `python -m kcore.appliance
+--visible-input` afterwards. The owner explicitly authorised visible local entry
+in their private lab; this does not authorise sending credentials to chat or
+revealing unreleased features. **Do not reflash the already installed `ff7a422`
+firmware for this repair.** Voice/touch-under-load acceptance is still pending.
+
 Operator deployment update: the first RC1 install reached the host gate but
 stopped before flashing, with fourteen Windows `WinError 32` database cleanup
 errors under Python 3.14. This was a host connection-lifetime bug, unrelated to
@@ -604,7 +616,9 @@ After reading this file:
 1. **Do not reopen CP19–23, replay Phase A, or implement B1 again.**
 2. Fetch the real current branch and read `RC1_ENGINEERING.md`, `BRANCH_AUDIT.md`
    and `DAILY_USE.md`. Preserve the no-spoilers requirement.
-3. Check the actual latest CI result and the RC1 source/bundle commit match.
+3. Check the actual latest CI result and installed firmware compatibility. For a
+   new flash, check the RC1 source/bundle commit match. The startup repair above
+   is compatible with the already installed `ff7a422` firmware.
 4. The minimum operator path is the candidate's `rebuild/tools/deploy.ps1`:
    it fetches, checks, and either uses a matching prebuilt bundle or builds once,
    then flashes once. Never delete generated files to make an update easier.

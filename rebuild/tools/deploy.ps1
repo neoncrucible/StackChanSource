@@ -1,6 +1,7 @@
-param([string]$Port = 'COM4', [string]$Bundle = '', [switch]$BuildOnly)
+param([string]$Port = 'COM4', [string]$Bundle = '', [switch]$BuildOnly, [switch]$HostOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($HostOnly -and ($Bundle -or $BuildOnly)) { throw 'HostOnly cannot be combined with firmware options.' }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 Set-Location $root
 $branch = (& git branch --show-current).Trim()
@@ -23,26 +24,27 @@ if ($Bundle) {
     $release = Get-Content -Raw (Join-Path $firmware 'RELEASE.json') | ConvertFrom-Json
     if ($release.source_commit -ne $commit) { throw 'Firmware and host commits differ. Use the matching source and bundle.' }
 }
-& python -m pip install -e "$root\rebuild[voice,dev]"
+$hostPython = (& python -c 'import sys; print(sys.executable)').Trim()
+if ($LASTEXITCODE -ne 0 -or !(Test-Path $hostPython)) { throw 'Could not resolve the host Python interpreter.' }
+& $hostPython -m pip install -e "$root\rebuild[voice,dev]"
 if ($LASTEXITCODE -ne 0) { throw 'Host dependency install failed.' }
-& python "$root\rebuild\tools\phase_b_gate.py"
+& $hostPython -m kcore.appliance --check
+if ($LASTEXITCODE -ne 0) { throw 'Runtime setup check failed; firmware was not flashed.' }
+& $hostPython "$root\rebuild\tools\phase_b_gate.py"
 if ($LASTEXITCODE -ne 0) { throw 'Candidate host verification failed; firmware was not flashed.' }
-& python "$root\rebuild\tools\phase_a3_voice_wire_gate.py"
+& $hostPython "$root\rebuild\tools\phase_a3_voice_wire_gate.py"
 if ($LASTEXITCODE -ne 0) { throw 'Audio ownership verification failed; firmware was not flashed.' }
 
+if ($HostOnly) {
+    Write-Host 'KADENCE_HOST READY. Run python -m kcore.appliance with your provider credentials in this terminal.'
+    return
+}
 if (!$Bundle) {
-    if (!(Get-Command idf.py -ErrorAction SilentlyContinue)) {
-        $export = 'C:\Espressif\frameworks\esp-idf-v5.5.4\export.ps1'
-        if (!(Test-Path $export)) { throw 'ESP-IDF 5.5.4 was not found at the expected path.' }
-        . $export
-    }
-    Set-Location "$root\rebuild\firmware"
-    & idf.py build
-    if ($LASTEXITCODE -ne 0) { throw 'Firmware build failed; nothing was flashed.' }
-    & python "$root\rebuild\tools\package_firmware.py"
-    if ($LASTEXITCODE -ne 0) { throw 'Firmware packaging failed; nothing was flashed.' }
+    & "$PSScriptRoot\sdk_process.ps1" -Script "$PSScriptRoot\build_firmware.ps1"
     $firmware = "$root\rebuild\dist\Kadence-RC1"
 }
-if (!$BuildOnly) { & (Join-Path $firmware 'flash.ps1') -Port $Port }
+if (!$BuildOnly) {
+    & "$PSScriptRoot\sdk_process.ps1" -Script (Join-Path $firmware 'flash.ps1') -ScriptArguments @('-Port', $Port)
+}
 Set-Location $root
-Write-Host 'KADENCE_CANDIDATE READY. Run kadence with your provider credentials in this terminal.'
+Write-Host 'KADENCE_CANDIDATE READY. Run python -m kcore.appliance with your provider credentials in this terminal.'

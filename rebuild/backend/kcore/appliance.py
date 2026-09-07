@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import contextlib
 import getpass
+import importlib
 import os
 import re
 import secrets
@@ -11,6 +12,7 @@ import socket
 import subprocess
 import sys
 from dataclasses import dataclass, field, replace
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .config import RuntimeConfig
 from .companion import Companion
@@ -429,7 +431,11 @@ def _current_wifi_ssid() -> str | None:
     return None
 
 
-def _wifi_credentials() -> tuple[str, str]:
+def _prompt_credential(label: str, *, visible: bool) -> str:
+    return input(f"{label}: ") if visible else getpass.getpass(f"{label}: ")
+
+
+def _wifi_credentials(*, visible_input: bool = False) -> tuple[str, str]:
     ssid = _current_wifi_ssid()
     if not ssid:
         ssid = input("Wi-Fi SSID: ").strip()
@@ -440,7 +446,7 @@ def _wifi_credentials() -> tuple[str, str]:
 
     password = os.environ.get("KADENCE_WIFI_PASSWORD")
     if password is None:
-        password = getpass.getpass("Wi-Fi password (not echoed): ")
+        password = _prompt_credential("Wi-Fi password", visible=visible_input)
     if len(password.encode("utf-8")) > 63:
         raise RuntimeError("Wi-Fi password exceeds 63 UTF-8 bytes")
     return ssid, password
@@ -467,7 +473,26 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     parser.add_argument("--capture-ms", type=int, default=DEFAULT_CAPTURE_MS)
     parser.add_argument("--reconnect-delay", type=float, default=DEFAULT_RECONNECT_DELAY)
+    parser.add_argument("--visible-input", action="store_true", help="Show credential input in the local terminal")
+    parser.add_argument("--check", action="store_true", help="Check this Python's runtime dependencies without credentials or hardware")
     return parser.parse_args()
+
+
+def _check_runtime_environment() -> None:
+    # Use the same interpreter as the actual entry point, before asking for keys.
+    missing = []
+    for module in ("serial", "httpx", "edge_tts", "miniaudio", "tzdata"):
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            missing.append(module)
+    if missing:
+        raise RuntimeError("missing runtime dependencies: " + ",".join(missing) +
+                           "; install the rebuild voice extra into this Python: " + sys.executable)
+    try:
+        ZoneInfo(os.environ.get("KADENCE_TIMEZONE", "Europe/London"))
+    except ZoneInfoNotFoundError as exc:
+        raise RuntimeError("timezone unavailable; check KADENCE_TIMEZONE and this Python's tzdata installation") from exc
 
 
 def _make_settings(args: argparse.Namespace) -> ApplianceSettings:
@@ -476,24 +501,22 @@ def _make_settings(args: argparse.Namespace) -> ApplianceSettings:
     if args.reconnect_delay <= 0:
         raise ValueError("reconnect-delay must be positive")
 
+    _check_runtime_environment()
+    visible_input = args.visible_input
     providers = VoiceProviderSettings.from_env()
     missing = providers.missing_credentials()
     if missing and sys.stdin.isatty():
-        print("Provider credentials are used in this process only. Input is hidden.")
+        visibility = "visible" if visible_input else "hidden"
+        print(f"Provider credentials are used in this process only. Input is {visibility}.")
         if not providers.openai_api_key:
-            providers = replace(providers, openai_api_key=getpass.getpass("OpenAI API key: ").strip() or None)
+            providers = replace(providers, openai_api_key=_prompt_credential("OpenAI API key", visible=visible_input).strip() or None)
         if not providers.gemini_api_key:
-            providers = replace(providers, gemini_api_key=getpass.getpass("Gemini API key: ").strip() or None)
+            providers = replace(providers, gemini_api_key=_prompt_credential("Gemini API key", visible=visible_input).strip() or None)
         missing = providers.missing_credentials()
     if missing:
         raise RuntimeError("missing credentials: " + ",".join(missing))
 
-    try:
-        import miniaudio  # noqa: F401
-    except ImportError as exc:
-        raise RuntimeError("miniaudio is not installed; refresh the voice extra") from exc
-
-    ssid, password = _wifi_credentials()
+    ssid, password = _wifi_credentials(visible_input=visible_input)
     lan_host = _local_lan_ipv4()
     return ApplianceSettings(
         port=args.port,
@@ -509,7 +532,12 @@ def _make_settings(args: argparse.Namespace) -> ApplianceSettings:
 
 def main() -> int:
     try:
-        settings = _make_settings(_parse_args())
+        args = _parse_args()
+        if args.check:
+            _check_runtime_environment()
+            print("KADENCE_RUNTIME CHECK PASS dependencies=ready timezone=ready")
+            return 0
+        settings = _make_settings(args)
     except Exception as exc:
         print(f"KADENCE_RUNTIME NEEDS_SETUP {type(exc).__name__}: {_safe_message(exc)}")
         return 2
