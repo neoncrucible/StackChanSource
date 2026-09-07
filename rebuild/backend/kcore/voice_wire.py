@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from .identity import KADENCE_IDENTITY
-from .voice_providers import LiveVoiceProviders, VoiceProviderSettings, VoiceProviderUnavailable
+from .voice_providers import (
+    LiveVoiceProviders,
+    VoiceNoSpeechDetected,
+    VoiceProviderSettings,
+    VoiceProviderUnavailable,
+)
 
 UPLINK_MAGIC = b"KDV1"
 REPLY_MAGIC = b"KDR1"
@@ -16,6 +21,7 @@ WIRE_FRAME_MS = 60
 MAX_OPUS_PACKET = 1500
 MAX_PACKETS = 180
 MAX_PCM_REPLY = 4 * 1024 * 1024
+NO_SPEECH_REPLY = "Sorry, I didn't catch that."
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +36,7 @@ class VoiceWireResult:
     transcript: str
     reply: str
     pcm: bytes
+    no_speech: bool = False
 
 
 def _ogg_crc(page: bytes) -> int:
@@ -175,6 +182,14 @@ async def read_wire_turn(reader: asyncio.StreamReader) -> VoiceWireTurn:
     return VoiceWireTurn(sample_rate, frame_ms, tuple(packets))
 
 
+async def _synthesize_reply(providers: LiveVoiceProviders, reply: str) -> bytes:
+    mp3_parts: list[bytes] = []
+    async for chunk in providers.tts.synthesize(reply):
+        mp3_parts.append(chunk)
+    mp3 = b"".join(mp3_parts)
+    return decode_edge_mp3_to_pcm16(mp3)
+
+
 async def process_wire_turn(
     turn: VoiceWireTurn,
     *,
@@ -191,11 +206,20 @@ async def process_wire_turn(
         sample_rate=turn.sample_rate,
         frame_ms=turn.frame_ms,
     )
-    transcript = await providers.stt.transcribe_file(
-        ogg,
-        filename="kadence-turn.ogg",
-        content_type="audio/ogg",
-    )
+    try:
+        transcript = await providers.stt.transcribe_file(
+            ogg,
+            filename="kadence-turn.ogg",
+            content_type="audio/ogg",
+        )
+    except VoiceNoSpeechDetected:
+        pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY)
+        return VoiceWireResult(
+            transcript="",
+            reply=NO_SPEECH_REPLY,
+            pcm=pcm,
+            no_speech=True,
+        )
 
     prompt = KADENCE_IDENTITY.wrap_user_text(transcript)
     reply_parts: list[str] = []
@@ -205,11 +229,7 @@ async def process_wire_turn(
     if not reply:
         raise RuntimeError("Thinker returned an empty reply")
 
-    mp3_parts: list[bytes] = []
-    async for chunk in providers.tts.synthesize(reply):
-        mp3_parts.append(chunk)
-    mp3 = b"".join(mp3_parts)
-    pcm = decode_edge_mp3_to_pcm16(mp3)
+    pcm = await _synthesize_reply(providers, reply)
     return VoiceWireResult(transcript=transcript, reply=reply, pcm=pcm)
 
 
