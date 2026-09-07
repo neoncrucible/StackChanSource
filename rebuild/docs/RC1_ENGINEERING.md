@@ -1,7 +1,11 @@
-# RC1 engineering record — no feature reveal
+# RC1 engineering record
 
-RC1 is a candidate for physical acceptance, not a claim of new hardware sign-off.
-Phase A's historical acceptance remains valid at its recorded source anchors.
+RC1 at `997654857c3dd6aa2f78c92501c2eda2bf6744fe` was approved by Boss on
+7 September 2026 after a complete normal voice turn and clean shutdown. See
+[RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md) for the exact evidence and
+[USER_MANUAL.md](USER_MANUAL.md) for all current operator features. Phase A's
+historical acceptance remains valid at its recorded source anchors. The
+integration observations below are retained as engineering history.
 
 ## Boundaries
 
@@ -89,7 +93,7 @@ remain intact.
   SDK setup runs in a child process; host installation/checks use one resolved
   interpreter. `-HostOnly` repairs a compatible host without touching firmware.
 
-## Remaining acceptance
+## Verification and historical integration record
 
 Local verification after the voice recovery update: **65 tests passed, 18 subtests passed**;
 the focused Phase B suite contains **44 tests**. CP23, A4, A3 cancellation,
@@ -144,13 +148,14 @@ keeping the avatar they liked. The renderer now uses exact RGB565 black across
 the background with green terminal styling; native tests check uniform borders
 in every state. This combined firmware/host update requires one new matching flash.
 
-The new combined candidate needs physical cold start, rendering/touch responsiveness
-under audio load, normal/repeated conversation, one safe tool round-trip, explicit
-confirmation, cancellation during work/playback, forced external failure, device
-reset/reconnect, and clean restart. Public-service adapters are tested with bounded
-HTTP fixtures; the user's live provider credentials and home environment were not
-available in this workspace. Do not label B4 or the complete product signed off
-until those physical observations are recorded.
+The owner subsequently approved the combined 9976548 build after normal startup,
+a successful provider/device voice round trip, body reaction, idle return and
+clean shutdown. The acceptance record preserves that scope. Rendering/touch under
+extended audio load, repeated tools/confirmation, cancellation, external failure
+and reset/reconnect remain useful regression scenarios for the next release;
+this latest one-turn log is not separate proof of each scenario. Public-service
+adapters are covered by bounded HTTP fixtures. New work described in
+`NEXT_RELEASE_PROPOSAL.md` requires the owner's next explicit scope approval.
 
 API references: [Open-Meteo](https://open-meteo.com/en/docs),
 [Home Assistant REST](https://developers.home-assistant.io/docs/api/rest/).

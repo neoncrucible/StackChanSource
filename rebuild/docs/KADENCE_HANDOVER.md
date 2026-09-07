@@ -9,31 +9,40 @@
 **ESP-IDF:** 5.5.4  
 **State date:** 7 Sep 2026  
 **Phase A starting anchor for RC1:** `70e7d80baa81ef3b280e96e0f3de25e0c52618ed`
-**Current candidate:** RC1, host 0.2.0 / firmware 0.20.0; physical acceptance pending.
+**Approved build:** RC1, host 0.2.0 / firmware 0.20.1, source `997654857c3dd6aa2f78c92501c2eda2bf6744fe`; owner-approved on 7 Sep 2026.
+**Current authority:** publish the approved-build manual and research the requested next release; new implementation awaits Boss's explicit sign-off.
+**Operator manual:** [USER_MANUAL.md](USER_MANUAL.md)
+
+**Acceptance:** [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md)
+
+**Next-release review:** [NEXT_RELEASE_PROPOSAL.md](NEXT_RELEASE_PROPOSAL.md) — proposed, not approved.
 
 > **This file is the authoritative continuation document.** In a fresh chat, read this file before proposing work. Do not ask the user to reconstruct prior context unless this document and the referenced repo files are demonstrably insufficient.
 
 ---
 
-# 0. CRITICAL: BLIND-BUILD / NO-SPOILERS PROTOCOL
+# 0. CRITICAL: CURRENT AUTHORISATION AND NO-SPOILERS PROTOCOL
 
-This is **Kade's secret surprise rebuild of Kadence**.
+Kadence remains Kade's surprise build, with a specific owner-directed transition
+on 7 September 2026. The latest owner instruction supersedes earlier broad
+implementation freedom for the next release:
 
-The user deliberately gave Kade broad freedom over the design and asked to experience the finished result rather than receive a running feature reveal.
+- Boss explicitly approved the current RC1 build after a completed physical voice
+  turn and clean shutdown. Record that approval; do not ask for it again.
+- Boss requested an instruction manual covering **all current features**. Those
+  implemented features may be fully documented and explained.
+- Boss requested feedback on a Windows server UI, practical/fun utilities, top
+  LEDs, top-touch volume and camera capabilities. Those proposals may be discussed.
+- **Do not implement the proposed changes until Boss explicitly signs off their
+  scope.** Research and a reviewable proposal are authorised now. Neither the
+  historical blind-build freedom nor the existence of a proposal grants approval.
+- Keep unrelated unrevealed features, personality details and surprises private.
+- Once a scope is approved, lead its implementation autonomously, batch safe work
+  and request only the physical observations needed to validate it.
+- Never copy credentials from operator messages into files, commits or logs.
 
-Future Kade must follow these rules:
-
-- **Do not narrate unrevealed design choices, planned features, personality details, visual surprises, hidden behaviours, animations, tool lineup, easter eggs, or future interaction ideas.**
-- Do not explain what a hidden behaviour is "supposed" to do unless physical QA genuinely requires that information.
-- The user is primarily **physical QA / operator**, not co-designer for the secret parts of the build.
-- Kade leads architecture, implementation and product choices unless a genuine external constraint requires user input.
-- Give the user only the commands, pass/fail criteria and observations needed to continue safely.
-- It is fine to explain engineering faults, safety boundaries and why a test failed. Do not use debugging as an excuse to spoil unrelated product intent.
-- Do not preview the next surprise after a successful test. Continue the build.
-- If a test can be described neutrally (for example "touch once", "speak when the listening state appears", "report whether playback is smooth"), do that instead of revealing intended presentation details.
-- Completed/revealed technical architecture can be discussed when useful, but preserve the spirit of the blind build.
-
-This secrecy rule is a **product requirement**, not merely a conversational preference.
+The [operator manual](USER_MANUAL.md) is the user-facing guide. The historical
+engineering and branch audit records remain available for implementation lessons.
 
 ---
 
@@ -90,7 +99,7 @@ Additional invariants proven during the rebuild:
 During Kadence technical work:
 
 - Address the user as **Boss**.
-- Kade leads and writes/commits code.
+- Kade leads and writes/commits code within the owner-approved scope.
 - Do not ask the user to edit code unless genuinely unavoidable.
 - The user explicitly approved **batched safe sequential commands** with fail-fast guards.
 - Keep commands compact and PowerShell-compatible.
@@ -133,7 +142,7 @@ Do not delete them casually.
 
 # 4. CURRENT STATE IN ONE SENTENCE
 
-**Runtime/body foundation and historical Phase A are signed off. RC1 implements the Phase B host boundary and useful vertical capability, integrates it into normal voice, and includes the requested avatar/UI upgrade. Host and native-renderer checks pass; the combined RC1 requires physical acceptance. Do not restart B1 or replay Phase A.**
+**Runtime/body foundation, Phase A and the current RC1 build are owner-approved. RC1 adds the Phase B host boundary and useful capabilities to normal voice, with the approved avatar and solid terminal presentation. The 9976548 physical run completed voice, body reaction, idle return and clean shutdown. Next-release research is complete in the proposal; implementation awaits Boss's sign-off. Do not restart B1 or replay Phase A.**
 
 Do not reopen CP19–23 or A1–A4 without concrete regression evidence.
 
@@ -389,7 +398,7 @@ Expected healthy output:
 PHASE_A3_VOICE_PREFLIGHT PASS httpx=1 edge_tts=1 openai_key=1 gemini_key=1 stt=gpt-transcribe thinker=gemini-3.5-flash-lite voice=en-GB-SoniaNeural
 ```
 
-Credentials are currently environment-only and disappear after a new terminal/reboot unless deliberately persisted later.
+Credentials are supplied by process environment or local prompts. Prompted secrets are process-only; there is currently no application credential vault. Use `python -m kcore.appliance --visible-input` for the owner-approved visible local entry, or omit the flag to hide it.
 
 Never place secrets in repo code, documentation, logs or chat.
 
@@ -498,9 +507,9 @@ Use `git log` / GitHub history if finer-grained archaeology is needed.
 
 These are not Phase A failures, but future work should know they exist:
 
-- Current normal initiation is physical touch. Do not add/announce another trigger merely because older Kadence versions had one; choose future behaviour deliberately and keep surprises secret.
+- Current normal initiation is front-screen touch. Additional initiation/notification paths are proposed work and require owner approval; older branches do not authorise them.
 - Current capture window is turn-based/fixed-duration (normal default 4.8 s). Do not casually replace it without preserving cancellation and device/host ownership.
-- Provider credentials are environment-only and are lost on a fresh terminal/reboot.
+- Provider credentials come from process environment or local prompts; prompted values are not saved for a fresh terminal/reboot.
 - Wi-Fi password is currently requested locally when needed; firmware stores Wi-Fi credentials in RAM only.
 - LAN host selection can be affected by VPN/multiple adapters; `KADENCE_LAN_HOST` exists as an override.
 - The product runtime currently depends on external OpenAI/Gemini/Edge providers for full cognition/voice, while local presence and physical safety remain independent.
@@ -511,11 +520,11 @@ Do not turn technical debt cleanup into a sprawling infrastructure phase. Fix de
 
 ---
 
-# 13. PHASE B — RC1 IMPLEMENTED; PHYSICAL ACCEPTANCE NEXT
+# 13. PHASE B — RC1 IMPLEMENTED AND OWNER-APPROVED
 
 Phase B is the second and final outer build family: **tools, useful context/memory, integrations and companion/home-assistant capability**.
 
-Keep exact planned capabilities and surprises out of user-facing narration.
+Current capabilities are documented in `USER_MANUAL.md` at the owner's request. Discuss the explicitly requested next-release proposal; preserve unrelated surprises.
 
 ## B1 — Safe host-side tool boundary — IMPLEMENTED / HOST VERIFIED
 
@@ -532,7 +541,7 @@ class ToolBridge(Protocol):
     async def invoke(self, name: str, arguments: dict) -> dict: ...
 ```
 
-RC1 implements this interface in `rebuild/backend/kcore/tool_bridge.py`. The strict schema validator carries forward the proven Alpha 2 implementation, with deadline, cancellation, result-limit and confirmation hardening. Read `RC1_ENGINEERING.md` and `BRANCH_AUDIT.md` before changing the candidate. The requirements below remain acceptance invariants, not a new to-do list.
+RC1 implements this interface in `rebuild/backend/kcore/tool_bridge.py`. The strict schema validator carries forward the proven Alpha 2 implementation, with deadline, cancellation, result-limit and confirmation hardening. Read `RC1_ENGINEERING.md` and `BRANCH_AUDIT.md` before changing the accepted baseline. The requirements below remain acceptance invariants, not a new to-do list.
 
 Required properties:
 
@@ -548,7 +557,7 @@ Required properties:
 - distinguish normal reasoning from tool-working presentation state through the existing presentation protocol, without duplicating the state system;
 - integration failure must return the normal runtime to a healthy conversational state.
 
-B1 was verified host-first. **RC1 now does require a firmware flash**: the requested visual upgrade and authenticated KDV2 uplink are real firmware changes. Use the matching host and firmware commit.
+B1 was verified host-first. RC1's visual upgrade and authenticated KDV2 uplink were delivered in the accepted matching host/firmware pair. The 9976548 update is now flashed and approved; documentation publication does not require another flash.
 
 Inspect these before implementing:
 
@@ -562,84 +571,58 @@ rebuild/backend/kcore/host.py
 rebuild/docs/ARCHITECTURE.md
 ```
 
-Do not ask the user which secret tools/features Kade should add unless a genuinely external authorization or account choice is required. Kade has design freedom.
+Boss now requires sign-off before next-release implementation. Use the concrete proposal to obtain scope approval; earlier design freedom does not bypass that requirement.
 
-## B2 / B3 / B4 — intentionally high-level here
+## B2 / B3 / B4 — accepted release scope
 
-RC1 has continued vertically into useful host capability, bounded context and optional integrations. The ordinary appliance owns this implementation; it does not import diagnostic harnesses. Exact capabilities should still be discovered through use, not narrated in advance. Daily-use physical sign-off remains pending.
+RC1 includes explicit saved notes, local to-do items, a clock, arithmetic, weather,
+optional read-only Home Assistant status and bounded completed-turn context. The
+ordinary appliance owns the implementation and does not import diagnostic harnesses.
+See `USER_MANUAL.md` for all current capabilities and operating instructions.
 
-However, **do not pre-document a spoiler-heavy feature list**. Choose and implement useful capabilities behind the common ToolBridge, test them safely, and reveal the finished experience through use rather than narration.
+Boss approved this release after the observed 9976548 run. `RC1_ACCEPTANCE.md`
+records the actual evidence. Do not invent per-feature physical observations:
+the latest log covers one complete ordinary voice turn and shutdown. Earlier
+Phase A live proofs and current automated tests retain their own scope.
 
-Final Phase B acceptance must still include:
-
-- ordinary cold start;
-- local presence;
-- normal voice conversation;
-- safe tool use;
-- cancellation;
-- forced integration/provider failure;
-- serial/device reconnect;
-- recovery to normal interaction;
-- clean shutdown/restart;
-- concise daily-use runbook.
-
-Phase B completion means Kadence is a genuinely useful embodied companion/home assistant rather than merely a technically correct platform.
+Subsequent regression work should cover cold start, normal/repeated conversation,
+tools and confirmation, cancellation, provider/integration failure, reconnect,
+return to normal interaction and restart. These scenarios protect future work;
+they are not a reason to withhold or reopen the owner's recorded RC1 approval.
 
 ---
 
 # 14. EXACT NEXT MOVE IN A FRESH CHAT
 
-Latest update supersedes the host-only instruction below: the owner reached
-voice turns, reported incomplete uplink/cancellation followed by network-unproven
-ACKs, and requested a single-colour retro terminal background while keeping the
-avatar. Firmware 0.20.1 contains that styling plus connection reuse and a station
-stop-event barrier that removes a confirmed per-turn reconnect/configuration race.
-Negative ACKs now report exact failure stages/codes without exposing credentials.
-The original coarse log does not prove which lower-level call first failed.
-This combined update needs **one matching host/firmware flash**, then one touch,
-wait for listening, speak and let the turn finish. Preserve any new stage/code if
-it fails; do not declare voice fixed until the physical observation proves it.
+**Current build approved; next implementation awaits scope approval.**
 
-Latest operator observation: `ff7a422` flashed successfully and all four image
-hashes verified. The avatar is physically rendered and the owner praised its
-appearance. Ordinary startup then failed before device connection because SDK
-export changed the terminal's Python after installation; the selected older
-`kadence.exe` lacked `tzdata`. This has a host-only repair: SDK tasks now run in
-child processes, setup checks precede credential entry, and `deploy.ps1 -HostOnly`
-repairs/checks the current interpreter. Use `python -m kcore.appliance
---visible-input` afterwards. The owner explicitly authorised visible local entry
-in their private lab; this does not authorise sending credentials to chat or
-revealing unreleased features. **Do not reflash the already installed `ff7a422`
-firmware for this repair.** Voice/touch-under-load acceptance is still pending.
-
-Operator deployment update: the first RC1 install reached the host gate but
-stopped before flashing, with fourteen Windows `WinError 32` database cleanup
-errors under Python 3.14. This was a host connection-lifetime bug, unrelated to
-the robot being in download mode. `ContextStore` now explicitly closes every
-worker connection after its transaction, and regression tests plus Windows
-3.12/3.14 CI cover it. Use the corrected bundle matching the latest source;
-the first bundle belongs to `51deab5` and must not be mixed with a later host.
-Download mode is appropriate for the flash; reset into normal boot afterwards
-if needed before starting `kadence`. No new hardware sign-off was obtained.
-
-After reading this file:
-
-1. **Do not reopen CP19–23, replay Phase A, or implement B1 again.**
-2. Fetch the real current branch and read `RC1_ENGINEERING.md`, `BRANCH_AUDIT.md`
-   and `DAILY_USE.md`. Preserve the no-spoilers requirement.
-3. Check the actual latest CI result and the new source/bundle commit match. The
-   latest voice recovery and display changes require the 0.20.1 firmware flash.
-4. The minimum operator path is the candidate's `rebuild/tools/deploy.ps1`:
-   it fetches, checks, and either uses a matching prebuilt bundle or builds once,
-   then flashes once. Never delete generated files to make an update easier.
-5. Run ordinary `kadence`. Confirm cold start and normal interaction, smooth
-   display/touch under voice load, one useful tool turn with its confirmation,
-   cancel, forced provider/integration failure, reconnect and clean restart.
-   Give neutral observations/commands only; keep the feature reveal through use.
-6. Record actual physical observations and fix concrete failures in the repo.
-   RC1 is a candidate, not an invented B4 sign-off or a completion percentage.
-7. Update this document when physical acceptance is proven. Do not create another
-   outer checkpoint family or ask the user to reconstruct prior sessions.
+1. Read `RC1_ACCEPTANCE.md`, `USER_MANUAL.md` and `NEXT_RELEASE_PROPOSAL.md`.
+   The latter is a proposal only. Check subsequent owner messages for an explicit
+   approval or revision before acting on it.
+2. The accepted software source is `997654857c3dd6aa2f78c92501c2eda2bf6744fe`,
+   host 0.2.0 / firmware 0.20.1. Its Windows host and firmware CI run
+   `34143759796` succeeded. The owner then reported `KADENCE_FLASH PASS`,
+   device-ready, provider completion, `TURN complete seq=1 voice=1
+   body_reaction=1 idle_return=1`, and `STOPPED clean=1`.
+3. The requested direction is a themed Windows server/credentials application,
+   at least three useful utilities and two fun ones, thinking animations on both
+   top strips, top-touch volume, and camera use. The proposal recommends a shared
+   utility/UI release with snapshots, then separately qualified face tracking
+   and enrolled-person profiles. No additional hardware or cloud account has been
+   approved merely by the research.
+4. Official M5Stack RGB control uses the PY32 I2C expander, not an ESP32 LED GPIO.
+   The top Si12T panel is distinct from front-screen touch. The camera shares
+   SDA12/SCL11 and memory bandwidth with the running device. Read the cited
+   official examples and preserve all current ownership/safety invariants.
+5. Fetch the actual branch before meaningful engineering work. After scope
+   approval, work through the existing runtime/tool and hardware boundaries,
+   build a matching commit-named delivery and test the combined workload.
+6. No build or flash is needed for the manual/sign-off update. The deployment
+   script compares full HEAD to the bundle source, including documentation
+   commits. Preserve the approved bundle's original manifest and hashes; do not
+   bypass its guard or tell the owner to flash an older ZIP against a new HEAD.
+7. Keep real credentials out of all stored documentation, diagnostic excerpts
+   and future UI exports. Current visible input is local to the owner's lab.
 
 ---
 
@@ -647,7 +630,7 @@ After reading this file:
 
 The user can start a new chat with exactly this:
 
-> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`, then continue the Kadence rebuild from the documented next step. This is your secret surprise build: you lead, keep unrevealed features to yourself, and batch safe commands where sensible.
+> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`. RC1 is approved. Continue from the current proposal and my latest scope decision; new implementation needs my sign-off. Preserve unrelated surprises and batch safe commands where sensible.
 
 That should be sufficient to restore the project without the user repeating history.
 
@@ -657,8 +640,8 @@ That should be sufficient to restore the project without the user repeating hist
 
 The hard foundation and the entire Phase A embodied interaction stack are already real and live-proven.
 
-The user explicitly requested a substantial near-finished candidate, including improved avatar/UI, with safe work batched. RC1 is that integrated candidate; do not return to tiny unconnected checkpoint delivery.
+The user requested and has now approved a substantial integrated RC1 build, including the avatar/UI. Preserve that accepted baseline. Prepare coherent next-release work within the scope Boss approves; do not return to tiny unconnected checkpoint delivery.
 
 Do not make the user spend another day admiring infrastructure for its own sake.
 
-Build useful capability **behind the proven boundaries**, preserve the surprise, test vertically, and keep moving toward the finished companion.
+After the next scope is approved, build useful capability **behind the proven boundaries**, preserve unrelated surprises and test vertically. Until then, provide the requested engineering feedback and wait for the owner's decision.
