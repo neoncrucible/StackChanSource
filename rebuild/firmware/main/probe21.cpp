@@ -30,6 +30,7 @@
 #undef connect
 
 #include "voice_turn_lane.cpp"
+#include "touch_voice_bridge.cpp"
 
 namespace {
 
@@ -37,13 +38,13 @@ constexpr size_t kP21LineBytes = kP16FrameBytes;
 constexpr uint32_t kP21TaskStackBytes = 32768;
 SemaphoreHandle_t g_p21_tx_lock = nullptr;
 
-void p21_emit_ack(const char* ack)
+void p21_emit_line(const char* line)
 {
-    if (ack == nullptr || ack[0] == '\0') return;
+    if (line == nullptr || line[0] == '\0') return;
     if (g_p21_tx_lock != nullptr) {
         xSemaphoreTake(g_p21_tx_lock, portMAX_DELAY);
     }
-    std::printf("%s\n", ack);
+    std::printf("%s\n", line);
     std::fflush(stdout);
     if (g_p21_tx_lock != nullptr) {
         xSemaphoreGive(g_p21_tx_lock);
@@ -68,6 +69,10 @@ void p21_protocol_task(void*)
 
         ESP_LOGI(kLogTag, "PROBE21 phase=rx bytes=%u", static_cast<unsigned>(len));
 
+        if (touch_voice_consume_host_event_ack(line)) {
+            continue;
+        }
+
         const VoiceLaneRouteResult voice_result = voice_lane_route_command(line);
         if (voice_result == VoiceLaneRouteResult::Consumed) {
             continue;
@@ -82,7 +87,7 @@ void p21_protocol_task(void*)
         const DeviceAudioCommandResult audio_result =
             device_audio_execute_command(line, ack, sizeof(ack));
         if (audio_result == DeviceAudioCommandResult::Accepted) {
-            p21_emit_ack(ack);
+            p21_emit_line(ack);
             ESP_LOGI(kLogTag, "PROBE21 device-audio=ack-sent correlated=1");
             continue;
         }
@@ -97,7 +102,7 @@ void p21_protocol_task(void*)
         const P20PresentationResult presentation_result =
             p20_execute_presentation_command(line, ack, sizeof(ack));
         if (presentation_result == P20PresentationResult::Accepted) {
-            p21_emit_ack(ack);
+            p21_emit_line(ack);
             ESP_LOGI(kLogTag, "PROBE21 presentation=ack-sent correlated=1");
             continue;
         }
@@ -117,7 +122,7 @@ void p21_protocol_task(void*)
             continue;
         }
 
-        p21_emit_ack(ack);
+        p21_emit_line(ack);
         presentation_set_state(PresentationState::Idle, "body-complete");
         presence_interaction_end();
         ESP_LOGI(kLogTag, "PROBE21 status=ack-sent executed=1 torque=released");
@@ -165,8 +170,13 @@ bool run_probe21()
         return false;
     }
 
-    if (!voice_lane_start(p21_emit_ack)) {
+    if (!voice_lane_start(p21_emit_line)) {
         ESP_LOGE(kLogTag, "PROBE21 status=failed stage=voice-worker");
+        return false;
+    }
+
+    if (!touch_voice_bridge_start(p21_emit_line)) {
+        ESP_LOGE(kLogTag, "PROBE21 status=failed stage=touch-voice-bridge");
         return false;
     }
 
@@ -183,7 +193,7 @@ bool run_probe21()
     }
 
     ESP_LOGI(kLogTag,
-             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms async=1 cancellable=1 buffered-playback=psram handoff=1 torque=released");
+             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms async=1 cancellable=1 touch-init=1 buffered-playback=psram handoff=1 torque=released");
     return true;
 }
 
@@ -218,7 +228,7 @@ extern "C" void app_main(void)
     while (true) {
         const int64_t uptime_ms = (esp_timer_get_time() - heartbeat_epoch_us) / 1000;
         ESP_LOGI(kLogTag,
-                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s presence=%s audio=%s voice=lan-opus-60ms async=1 cancellable=1 buffered-playback=psram",
+                 "BODY_HEARTBEAT seq=%u uptime_ms=%lld free_heap=%u status=%s presentation=%s presence=%s audio=%s voice=lan-opus-60ms async=1 cancellable=1 touch-init=1 buffered-playback=psram",
                  static_cast<unsigned>(heartbeat_seq++),
                  static_cast<long long>(uptime_ms),
                  static_cast<unsigned>(esp_get_free_heap_size()),
