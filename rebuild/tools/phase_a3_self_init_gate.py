@@ -32,7 +32,7 @@ def main() -> None:
 
     require('voice.request' in bridge and 'voice.touch-cancel' in bridge,
             "touch bridge does not emit both voice events")
-    require('"kind\\\":\\\"event"' in bridge or '\\"kind\\":\\"event\\"' in bridge,
+    require('\\"kind\\":\\"event\\"' in bridge,
             "touch bridge event is not versioned protocol JSON")
     require('g_voice_lane_busy.load()' in bridge,
             "touch policy does not distinguish idle from active voice")
@@ -75,6 +75,8 @@ def main() -> None:
             "live signoff does not include a real provider roundtrip")
     require('send_body_pose' in live and 'torque_released' in live,
             "live signoff does not prove physical recovery")
+    require('await asyncio.sleep(0.8)' in live,
+            "touch cancel test does not wait for local playback to start")
 
     print(
         "PHASE_A3_SELF_INIT_GATE PASS "
