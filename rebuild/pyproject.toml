@@ -17,6 +17,9 @@ voice = [
     "miniaudio>=1.61,<2",
 ]
 
+[project.scripts]
+kadence = "kcore.appliance:main"
+
 [tool.setuptools]
 package-dir = {"" = "backend"}
 
