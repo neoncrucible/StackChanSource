@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import zipfile
@@ -30,7 +31,7 @@ def package(build: Path, output: Path, *, source_commit: str | None = None) -> P
         raise ValueError("unexpected flash offsets; calibration/storage protection refused package")
     output.mkdir(parents=True,exist_ok=True)
     source_commit=source_commit or subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
-    if not source_commit or len(source_commit)!=40:
+    if re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
         raise ValueError("full source commit required")
     entries={}
     for offset,relative in files.items():
@@ -72,6 +73,7 @@ if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--build",type=Path,default=ROOT / "rebuild" / "firmware" / "build")
     parser.add_argument("--output",type=Path,default=ROOT / "rebuild" / "dist" / "Kadence-RC1")
+    parser.add_argument("--source-commit",help="Full checkout SHA supplied by the CI runner; defaults to local HEAD")
     args=parser.parse_args()
-    archive=package(args.build,args.output)
+    archive=package(args.build,args.output,source_commit=args.source_commit)
     print(f"KADENCE_PACKAGE PASS file={archive.name} offsets=verified calibration=preserved hashes=1")

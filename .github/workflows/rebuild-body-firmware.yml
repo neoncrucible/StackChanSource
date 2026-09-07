@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           source "$IDF_PATH/export.sh"
-          python rebuild/tools/package_firmware.py
+          python rebuild/tools/package_firmware.py --source-commit "$GITHUB_SHA"
 
 
       - name: Upload firmware artifact

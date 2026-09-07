@@ -2,6 +2,7 @@
 // Pure RGB565 scene. No hardware, tasks, heap allocations or provider dependency.
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -24,6 +25,13 @@ inline uint16_t rgb(Colour c) {
     return static_cast<uint16_t>((static_cast<int>(std::clamp(c.r,0.0f,255.0f))>>3)<<11 |
                                 (static_cast<int>(std::clamp(c.g,0.0f,255.0f))>>2)<<5 |
                                 (static_cast<int>(std::clamp(c.b,0.0f,255.0f))>>3));
+}
+inline void encode_rgb565(const uint16_t* pixels, uint8_t* output, size_t count) {
+    // ILI9341's SPI stream is high-byte first; ESP32's native words are not.
+    for (size_t i = 0; i < count; ++i) {
+        output[i * 2] = static_cast<uint8_t>(pixels[i] >> 8);
+        output[i * 2 + 1] = static_cast<uint8_t>(pixels[i]);
+    }
 }
 inline float ease(float t) { t=std::clamp(t,0.0f,1.0f); return t*t*(3-2*t); }
 inline uint32_t hash(uint32_t n) { n ^= n>>16; n *= 0x7feb352dU; n ^= n>>15; n *= 0x846ca68bU; return n^(n>>16); }

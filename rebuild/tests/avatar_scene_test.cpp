@@ -7,6 +7,11 @@
 #include <vector>
 
 int main(int argc, char** argv) {
+    constexpr std::array<uint16_t, 3> primaries{0xf800, 0x07e0, 0x001f};
+    std::array<uint8_t, 8> encoded{0xa5, 0, 0, 0, 0, 0, 0, 0x5a};
+    kadence_scene::encode_rgb565(primaries.data(), encoded.data() + 1, primaries.size());
+    constexpr std::array<uint8_t, 8> expected{0xa5, 0xf8, 0, 0x07, 0xe0, 0, 0x1f, 0x5a};
+    assert(encoded == expected);
     constexpr size_t count=kadence_scene::Width*kadence_scene::Height;
     std::vector<uint16_t> pixels(count+2,0xa55a);
     std::set<uint64_t> scenes;
@@ -34,5 +39,5 @@ int main(int argc, char** argv) {
         }
         std::fclose(f);
     }
-    std::puts("AVATAR_SCENE PASS states=11 bounds=preserved native_renderer=1");
+    std::puts("AVATAR_SCENE PASS states=11 bounds=preserved native_renderer=1 wire_byte_order=verified");
 }

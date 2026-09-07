@@ -49,7 +49,9 @@ TCP transport, not TLS; it does not promise protection against traffic intercept
 The avatar renderer is a hardware-free C++ scene with the existing eleven-state
 contract. A fixed 150 KiB PSRAM canvas drains through an internal 5 KiB scratch
 buffer and the existing synchronous LCD boundary. DMA never receives the canvas
-pointer. A transfer timeout prevents buffer reuse until reset. A failed canvas
+pointer. RGB565 words are explicitly serialized high-byte first for the existing
+ILI9341 SPI driver, with native primary-colour and buffer-canary checks.
+A transfer timeout prevents buffer reuse until reset. A failed canvas
 allocation falls back to the previous local renderer. Touch and attention are
 published atomically without a second I2C or touch reader.
 
@@ -77,17 +79,21 @@ remain intact.
   geometry, expected offsets and partition capacities, and creates SHA-256 hashes.
   Only bootloader, partition table, initial OTA data and factory application are
   writable. NVS calibration and product storage regions are excluded.
+  CI passes its checkout SHA explicitly: Docker checkout ownership can prevent
+  a separate Git process reading HEAD. Local packaging still uses local HEAD.
+  A CLI regression test verifies packaging without Git access; no global Git
+  ownership exception is required.
 - `deploy.ps1` fetches the actual branch, refuses tracked local edits/divergence,
   checks a prebuilt bundle's exact source commit, installs the host and runs its
   candidate gate before flashing. Without a bundle, it builds once locally.
 
 ## Remaining acceptance
 
-Local verification before publication: **52 tests passed, 18 subtests passed**;
+Local verification before publication: **53 tests passed, 18 subtests passed**;
 the focused Phase B suite contains **31 tests**. CP23, A4, A3 cancellation,
 self-init and voice-wire gates passed. The native renderer passed all eleven
 state/bounds checks with AddressSanitizer/UndefinedBehaviorSanitizer enabled.
-ESP-IDF 5.5.4 completed the full build; application size was `0xf94a0` bytes,
+ESP-IDF 5.5.4 completed the full build; application size was approximately 1 MiB,
 leaving 76% of its 4 MiB partition free. Flash offsets and SHA-256 manifests are
 validated by the package step.
 

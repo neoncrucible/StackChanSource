@@ -1,7 +1,10 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -41,6 +44,17 @@ class PackageTests(unittest.TestCase):
             for line in z.read("SHA256SUMS").decode().splitlines():
                 digest,path=line.split("  ",1)
                 self.assertEqual(hashlib.sha256(z.read(path)).hexdigest(),digest)
+
+    def test_ci_cli_uses_runner_commit_without_git_access(self):
+        (self.build/"flasher_args.json").write_text(json.dumps(self.manifest))
+        result=subprocess.run(
+            [sys.executable,pack.__file__,"--build",str(self.build),
+             "--output",str(self.base/"ci-release"),"--source-commit","b"*40],
+            env={**os.environ,"GIT_DIR":str(self.base/"unavailable-git")},
+            text=True,capture_output=True,check=False)
+        self.assertEqual(result.returncode,0,result.stderr)
+        with zipfile.ZipFile(self.base/"ci-release.zip") as z:
+            self.assertEqual(json.loads(z.read("RELEASE.json"))["source_commit"],"b"*40)
 
     def test_calibration_offset_and_bad_flash_settings_are_rejected(self):
         self.manifest["flash_files"]["0x9000"]="app.bin"

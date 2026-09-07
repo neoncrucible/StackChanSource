@@ -355,7 +355,7 @@ bool presentation_render(PresentationState state, uint32_t frame)
     static bool transfer_failed = false;
     static uint16_t* pixels = nullptr;
     static kadence_scene::Animation animation;
-    static std::array<uint16_t, kadence_scene::Width * 8> scratch{};
+    alignas(4) static std::array<uint8_t, kadence_scene::Width * 8 * 2> scratch{};
     if (transfer_failed) return false; // Do not reuse memory after an unconfirmed DMA completion.
     if (!attempted) {
         attempted = true;
@@ -370,7 +370,8 @@ bool presentation_render(PresentationState state, uint32_t frame)
     if (state != PresentationState::Listening && state != PresentationState::Speaking) level = 0;
     animation.render(pixels, state, now, level);
     for (int row = 0; row < kadence_scene::Height; row += 8) {
-        std::memcpy(scratch.data(), pixels + row * kadence_scene::Width, scratch.size() * sizeof(uint16_t));
+        kadence_scene::encode_rgb565(pixels + row * kadence_scene::Width,
+                                    scratch.data(), kadence_scene::Width * 8);
         if (probe8_sync_draw_bitmap(g_probe8_surface.panel, 0, row,
                 kadence_scene::Width, row + 8, scratch.data()) != ESP_OK) {
             transfer_failed = true;
