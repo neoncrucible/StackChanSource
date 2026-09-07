@@ -26,7 +26,7 @@ def main() -> None:
             "LAN socket I/O is not cancellable")
     require('#define connect voice_cancel_connect' in probe and '#define close voice_cancel_close' in probe,
             "LAN socket lifecycle is not cancellation-aware")
-    require('voice_lane_start(p21_emit_ack)' in probe,
+    require('voice_lane_start(p21_emit_line)' in probe,
             "voice worker lane is not started")
     require('voice_lane_route_command(line)' in probe,
             "serial reader does not route preemptive voice commands")
