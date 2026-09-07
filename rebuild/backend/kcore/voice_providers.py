@@ -13,6 +13,10 @@ class VoiceProviderUnavailable(RuntimeError):
     """Raised when a configured live voice provider cannot be used."""
 
 
+class VoiceNoSpeechDetected(RuntimeError):
+    """Raised when STT succeeds but contains no usable spoken text."""
+
+
 @dataclass(frozen=True, slots=True)
 class VoiceProviderSettings:
     """Environment-backed live provider configuration with no embedded secrets."""
@@ -120,7 +124,7 @@ class OpenAITranscriber:
 
         text = payload.get("text") if isinstance(payload, dict) else None
         if not isinstance(text, str) or not text.strip():
-            raise RuntimeError("OpenAI transcription returned no text")
+            raise VoiceNoSpeechDetected("OpenAI transcription contained no speech")
         return text.strip()
 
     async def transcribe(self, pcm: bytes, sample_rate: int) -> str:
