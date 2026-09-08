@@ -59,7 +59,8 @@ bool touch_voice_consume_host_event_ack(const char* raw)
         std::strcmp(name->valuestring, "host.event") == 0 &&
         cJSON_IsString(accepted) && accepted->valuestring != nullptr &&
         (std::strcmp(accepted->valuestring, "voice.request") == 0 ||
-         std::strcmp(accepted->valuestring, "voice.touch-cancel") == 0);
+         std::strcmp(accepted->valuestring, "voice.touch-cancel") == 0 ||
+         std::strcmp(accepted->valuestring, "voice.phase") == 0);
 
     cJSON_Delete(root);
     if (consumed) {
@@ -82,7 +83,6 @@ void touch_voice_task(void*)
 
             if (active) {
                 voice_cancel_request();
-                (void)p9_release_torque();
                 presentation_set_state(PresentationState::Recovery, "touch-voice-cancel");
             } else {
                 presentation_set_state(PresentationState::Attentive, "touch-voice-request");
@@ -124,7 +124,7 @@ bool touch_voice_bridge_start(TouchVoiceEmitFn emit)
         return false;
     }
 
-    ESP_LOGI(kLogTag, "TOUCH_VOICE status=ready trigger=release policy=idle-request-active-cancel");
+    ESP_LOGI(kLogTag, "TOUCH_VOICE status=ready trigger=debounced-press policy=idle-request-active-cancel");
     return true;
 }
 

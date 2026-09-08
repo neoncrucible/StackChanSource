@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self.server_state="stopped"; self.robot_connected=False; self.quitting=False
         self.started_at=None; self.reminders=[]; self.projects=[]; self.nav=[]; self.entries=[]
         self.diagnostic=deque(maxlen=400); self._settings={}; self.snapshot_pixmap=None
+        self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
         self.active_timezone="Europe/London"; self.timings={}
         self.setWindowTitle("Kadence • Control")
         self.resize(1160,800); self.setMinimumSize(980,690)
@@ -523,7 +524,9 @@ class MainWindow(QMainWindow):
             self.robot_connected=data.get("connected") is True
             self.robot_label.setText("ROBOT  "+("CONNECTED" if self.robot_connected else "DISCONNECTED"))
         elif name=="activity":
-            state=data.get("state","idle"); self.avatar.phase=state; self.activity.setText(state.upper().replace("-"," "))
+            self.set_activity(data.get("state","idle"),data.get("capture_ms"))
+        elif name=="provider_stage":
+            self.provider_stage={"stt":"TRANSCRIBING","reasoning":"THINKING","tts":"PREPARING VOICE"}.get(data.get("stage"),"")
         elif name=="turn": self.turn_info.setText(f"Completed turns  {data.get('completed',0)}")
         elif name=="utilities":
             self.active_timezone=data.get("clock",{}).get("timezone",self.active_timezone)
@@ -542,9 +545,8 @@ class MainWindow(QMainWindow):
             for widget,key in ((self.muted,"muted"),(self.quiet,"quiet"),(self.reverse,"reverse"),(self.game_sound,"sound")): widget.setChecked(data.get(key) is True)
             if not self.maximum.hasFocus(): self.maximum.setValue(data.get("maximum",100))
             self.game_status.setText(f"{data.get('game','off').upper()}  /  SCORE {data.get('score',0)}  /  BEST {data.get('best',0)}")
-            self.hardware.setText(f"Strips: {'ready' if data.get('leds') else 'unavailable'}  •  Top touch: {'ready' if data.get('top_touch') else 'unavailable'}  •  Camera: {'active' if data.get('camera_active') else 'off'}")
-            self.avatar.phase=data.get("presentation","idle")
-            self.activity.setText(self.avatar.phase.upper().replace("-"," "))
+            self.hardware.setText(f"Strips: {'ready' if data.get('leds') else 'unavailable'}  •  Front touch: {'ready' if data.get('front_touch') else 'unavailable'}  •  Top touch: {'ready' if data.get('top_touch') else 'unavailable'}  •  Camera: {'active' if data.get('camera_active') else 'off'}")
+            self.set_activity(data.get("presentation","idle"),data.get("capture_remaining_ms"))
         elif name=="snapshot":
             encoded=data.get("png","")
             if encoded:
@@ -571,10 +573,32 @@ class MainWindow(QMainWindow):
                 "camera":"Camera operation did not complete. Return to idle and try another capture.",
                 "alert":"Robot alert was not confirmed. Review the due reminders in Windows."}
             self.message.setText(hints.get(data.get("stage"),"An operation did not complete. Open Diagnostics for status."))
+            if data.get("stage")=="providers" and data.get("reason")=="timeout":
+                self.message.setText("Speech service timed out. The microphone is closed; tap the robot to try again once it returns to idle.")
         elif name in {"fatal","message"}:
             self.message.setText(data.get("message","Local services unavailable."))
             if name=="fatal": self.update_controls()
         self.record_diagnostic(name,data)
+
+    def set_activity(self,state,remaining_ms=None):
+        if state!=self.avatar.phase:
+            self.phase_started=time.monotonic()
+            if state in {"idle","attentive","listening"}: self.provider_stage=""
+        self.avatar.phase=state
+        if state=="listening" and type(remaining_ms) is int:
+            self.capture_until=time.monotonic()+max(0,min(8000,remaining_ms))/1000
+        elif state!="listening": self.capture_until=0.0
+        self.refresh_activity()
+
+    def refresh_activity(self):
+        state=self.avatar.phase
+        if state=="listening" and self.capture_until:
+            text=f"LISTENING  {max(0,self.capture_until-time.monotonic()):.1f}s"
+        elif state in {"thinking","tool-working"}:
+            title="WORKING" if state=="tool-working" else self.provider_stage or "THINKING"
+            text=f"{title}  {int(time.monotonic()-self.phase_started)}s"
+        else: text="PREPARING AUDIO" if state=="attentive" else state.upper().replace("-"," ")
+        self.activity.setText(text)
 
     def update_controls(self):
         ready=self.control.ready and not self.quitting
@@ -584,6 +608,7 @@ class MainWindow(QMainWindow):
         self.timezone.setEnabled(ready and self.server_state=="stopped")
 
     def tick(self):
+        self.refresh_activity()
         try: now=datetime.now(ZoneInfo(self.active_timezone))
         except Exception: now=datetime.now(timezone.utc)
         self.clock.setText(now.strftime("%a %d %b %Y  %H:%M:%S %Z").upper())
@@ -600,16 +625,17 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue"}
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage"}
         if name not in allowed: return
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","connection","voice","providers","uplink","body","cancel","camera","alert"}
-        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","device_stage","reason","error_code","wifi_reason"):
+        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
-            elif isinstance(value,str) and (key=="state" and value in states or key=="stage" and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in {"timeout","unavailable","device_proof"}): safe[key]=value
+            elif isinstance(value,str) and (key=="state" and value in states or key in {"stage","provider_stage"} and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in {"timeout","unavailable","device_proof"}): safe[key]=value
+        if name=="device" and data.get("presentation") in states: safe["state"]=data["presentation"]
         record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
         self.diagnostic.append(record)
         self.log.appendPlainText(record["at"][11:19]+"  "+name.upper()+"  "+" ".join(f"{k}={v}" for k,v in safe.items()))

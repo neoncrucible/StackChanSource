@@ -1,11 +1,12 @@
 #include "top_controls.h"
 #include "top_logic.h"
 #include "device_ack.h"
+#include "device_status_payload.h"
 #include "nvs.h"
 #include "esp_random.h"
 
 namespace {
-struct TopCommand { char raw[768]; };
+struct TopCommand { char raw[kP16FrameBytes]; };
 QueueHandle_t g_top_queue=nullptr;
 void (*g_top_emit)(const char*)=nullptr;
 i2c_master_dev_handle_t g_top_touch=nullptr;
@@ -15,6 +16,9 @@ bool g_top_quiet=false, g_top_reverse=false, g_top_sound=true;
 uint64_t g_top_next_poll=0, g_top_next_led=0, g_top_save_due=0, g_top_volume_until=0;
 kadence_top::Touch g_top_gesture;
 kadence_top::Memory g_top_memory;
+struct TopOverlay { bool game=false; int phase=0, score=0; uint64_t volume_until=0; };
+TopOverlay g_top_overlay;
+portMUX_TYPE g_top_overlay_lock=portMUX_INITIALIZER_UNLOCKED;
 
 bool top_write(i2c_master_dev_handle_t device, uint8_t reg, uint8_t value) {
     const uint8_t bytes[]{reg,value};
@@ -86,28 +90,22 @@ const char* top_phase() {
     }
 }
 cJSON* top_status(bool ok) {
-    cJSON* p=cJSON_CreateObject();
-    if (!p) return nullptr;
-    cJSON_AddBoolToObject(p,"ok",ok);
-    cJSON_AddNumberToObject(p,"volume",g_user_volume.load());
-    cJSON_AddBoolToObject(p,"muted",g_user_mute.load());
-    cJSON_AddNumberToObject(p,"maximum",g_top_max_volume);
-    cJSON_AddNumberToObject(p,"brightness",g_top_brightness);
-    cJSON_AddBoolToObject(p,"quiet",g_top_quiet);
-    cJSON_AddBoolToObject(p,"reverse",g_top_reverse);
-    cJSON_AddBoolToObject(p,"sound",g_top_sound);
-    cJSON_AddBoolToObject(p,"leds",g_top_led_ready);
-    cJSON_AddBoolToObject(p,"top_touch",g_top_touch_ready);
-    cJSON_AddBoolToObject(p,"camera_active",g_camera_active.load());
-    cJSON_AddBoolToObject(p,"media_busy",g_voice_lane_busy.load());
-    cJSON_AddStringToObject(p,"presentation",presentation_state_name(presentation_requested_state()));
-    cJSON_AddStringToObject(p,"game",top_phase());
-    cJSON_AddNumberToObject(p,"score",g_top_memory.score);
-    cJSON_AddNumberToObject(p,"best",g_top_memory.best);
-    cJSON_AddNumberToObject(p,"zone",g_top_memory.lit);
-    cJSON_AddNumberToObject(p,"free_heap",esp_get_free_heap_size());
-    cJSON_AddNumberToObject(p,"free_psram",heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    return p;
+    kadence_status::Snapshot s;
+    s.volume=g_user_volume.load(); s.muted=g_user_mute.load();
+    s.maximum=g_top_max_volume; s.brightness=g_top_brightness;
+    s.quiet=g_top_quiet; s.reverse=g_top_reverse; s.sound=g_top_sound;
+    s.leds=g_top_led_ready; s.top_touch=g_top_touch_ready;
+    s.front_touch=g_probe8_surface.touch_ready;
+    s.camera_active=g_camera_active.load(); s.media_busy=g_voice_lane_busy.load();
+    s.presentation=presentation_state_name(presentation_requested_state());
+    s.game=top_phase(); s.firmware=esp_app_get_description()->version;
+    s.score=g_top_memory.score; s.best=g_top_memory.best; s.zone=g_top_memory.lit;
+    s.free_heap=esp_get_free_heap_size(); s.free_psram=heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    s.touch_seq=presentation_touch_action_sequence();
+    const uint64_t now=static_cast<uint64_t>(esp_timer_get_time())/1000;
+    const uint64_t end=g_presentation_capture_end_ms.load();
+    s.capture_remaining_ms=end>now?static_cast<uint32_t>(end-now):0;
+    return kadence_status::payload(s,ok);
 }
 void top_end_game() {
     const bool was_active=g_top_game_active.exchange(false);
@@ -186,17 +184,20 @@ bool top_front_cancel() {
     g_top_stop_game.store(true); voice_cancel_request(); return true;
 }
 void top_controls_overlay(uint16_t* pixels, uint64_t now) {
-    if(!g_top_game_active.load() && now>=g_top_volume_until && !g_camera_active.load()) return;
+    portENTER_CRITICAL(&g_top_overlay_lock);
+    const TopOverlay overlay=g_top_overlay;
+    portEXIT_CRITICAL(&g_top_overlay_lock);
+    if(!overlay.game && now>=overlay.volume_until && !g_camera_active.load()) return;
     kadence_scene::Canvas canvas(pixels);
     canvas.box(0,204,320,36,{0,0,0});
     char line[64]{};
     if(g_camera_active.load()) snprintf(line,sizeof(line),"CAMERA ACTIVE");
-    else if(g_top_game_active.load()) {
-        const char* phase=g_top_memory.phase==kadence_top::Phase::Show?"WATCH":g_top_memory.phase==kadence_top::Phase::Input?"REPEAT":"FINISHED";
-        snprintf(line,sizeof(line),"MEMORY %s  SCORE %d",phase,g_top_memory.score);
+    else if(overlay.game) {
+        const char* phase=overlay.phase==static_cast<int>(kadence_top::Phase::Show)?"WATCH":overlay.phase==static_cast<int>(kadence_top::Phase::Input)?"REPEAT":"FINISHED";
+        snprintf(line,sizeof(line),"MEMORY %s  SCORE %d",phase,overlay.score);
     } else snprintf(line,sizeof(line),g_user_mute.load()?"AUDIO MUTED":"VOLUME %d",g_user_volume.load());
     canvas.text((320-static_cast<int>(strlen(line))*4)/2,212,line,{155,235,183});
-    if(g_top_game_active.load()) canvas.text(104,225,"TOUCH FACE TO STOP",{110,150,120});
+    if(overlay.game) canvas.text(104,225,"TAP SCREEN TO STOP",{110,150,120});
 }
 void top_controls_tick(uint64_t now) {
     if (!g_top_queue) return;
@@ -233,6 +234,9 @@ void top_controls_tick(uint64_t now) {
         bool idle=false;
         if(g_voice_lane_busy.compare_exchange_strong(idle,true)) { top_save(); g_top_save_due=0; g_voice_lane_busy.store(false); }
     }
+    portENTER_CRITICAL(&g_top_overlay_lock);
+    g_top_overlay={g_top_game_active.load(),static_cast<int>(g_top_memory.phase),g_top_memory.score,g_top_volume_until};
+    portEXIT_CRITICAL(&g_top_overlay_lock);
     if (!g_top_led_ready || now<g_top_next_led) return;
     g_top_next_led=now+80;
     uint8_t bytes[25]{}; bytes[0]=0x30;

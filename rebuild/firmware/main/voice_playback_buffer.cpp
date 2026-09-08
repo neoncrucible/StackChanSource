@@ -113,7 +113,7 @@ esp_err_t voice_lan_buffered_write(esp_codec_dev_handle_t dev, void* data, int l
     return ESP_OK;
 }
 
-bool voice_lan_buffered_close_output()
+bool voice_lan_buffered_close_output(bool announce_speech = true)
 {
     if (!g_voice_playback_buffering || g_voice_playback_psram == nullptr ||
         g_voice_playback_length == 0) {
@@ -131,7 +131,10 @@ bool voice_lan_buffered_close_output()
     const std::size_t audio_bytes = g_voice_playback_length;
     g_voice_playback_buffering = false;
 
-    presentation_set_state(PresentationState::Speaking, "voice-buffer-ready");
+    if (announce_speech) {
+        presentation_set_state(PresentationState::Speaking, "voice-buffer-ready");
+        voice_phase("speaking");
+    }
     if (!open_output()) {
         ESP_LOGE(kLogTag, "VOICE_PLAYBACK status=failed stage=hardware-open");
         voice_playback_buffer_reset();

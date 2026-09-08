@@ -214,6 +214,7 @@ async def process_wire_turn(
     settings: VoiceProviderSettings | None = None,
     companion: Companion | None = None,
     state_sink: StateSink | None = None,
+    progress_sink: StateSink | None = None,
 ) -> VoiceWireResult:
     resolved = VoiceProviderSettings.from_env() if settings is None else settings
     missing = resolved.missing_credentials()
@@ -228,6 +229,7 @@ async def process_wire_turn(
     )
     timings = {}
     started = time.perf_counter()
+    if progress_sink: await progress_sink("stt")
     try:
         async with asyncio.timeout(15):
             transcript = await providers.stt.transcribe_file(
@@ -238,6 +240,7 @@ async def process_wire_turn(
     except VoiceNoSpeechDetected:
         timings["stt"] = round((time.perf_counter()-started)*1000)
         started = time.perf_counter()
+        if progress_sink: await progress_sink("tts")
         pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY)
         timings["tts"] = round((time.perf_counter()-started)*1000)
         return VoiceWireResult(
@@ -250,6 +253,7 @@ async def process_wire_turn(
 
     timings["stt"] = round((time.perf_counter()-started)*1000)
     started = time.perf_counter()
+    if progress_sink: await progress_sink("reasoning")
     if companion is not None:
         reply = await companion.respond(transcript, providers.thinker, state_sink=state_sink)
     else:
@@ -266,6 +270,7 @@ async def process_wire_turn(
 
     timings["reasoning"] = round((time.perf_counter()-started)*1000)
     started = time.perf_counter()
+    if progress_sink: await progress_sink("tts")
     pcm = await _synthesize_reply(providers, reply)
     timings["tts"] = round((time.perf_counter()-started)*1000)
     return VoiceWireResult(transcript=transcript, reply=reply, pcm=pcm, timings=timings)

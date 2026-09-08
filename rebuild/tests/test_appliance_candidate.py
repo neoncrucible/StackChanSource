@@ -155,10 +155,11 @@ class ApplianceTests(unittest.IsolatedAsyncioTestCase):
     async def test_touch_cancel_cancels_provider_and_releases_connection(self):
         self.adapters.hang = True
         self.app._voice_task = asyncio.create_task(self.app._run_voice_turn(self.device))
+        turn = self.app._voice_task
         await asyncio.wait_for(self.adapters.entered.wait(),1)
         await self.app._handle_touch_cancel(self.device, Envelope(MessageKind.EVENT,"voice.touch-cancel",{"trigger":"touch"}))
         await asyncio.wait_for(self.adapters.cancelled.wait(),1)
-        await asyncio.wait_for(self.app._voice_task,1)
+        await asyncio.wait_for(asyncio.gather(turn,return_exceptions=True),1)
         self.assertEqual(len(self.app._companion.history),0)
         self.assertIsNone(self.app._turn_token)
         self.adapters.hang = False

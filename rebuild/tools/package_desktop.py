@@ -26,17 +26,19 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.3.0','firmware_version':'0.21.0','source_commit':commit,
+        'host_version':'0.3.1','firmware_version':'0.21.1','source_commit':commit,
         'physical_signoff':False,'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
         'KADENCE RC2\n\nExtract the entire ZIP to a new folder.\n'
         '1. Close any running Kadence server and serial monitor.\n'
         '2. Put the robot in download mode. In PowerShell here, run:\n'
-        '   .\\Flash-Kadence.ps1 -Port COM4\n'
+        '   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Flash-Kadence.ps1 -Port COM4\n'
         '   The flash helper uses your existing ESP-IDF 5.5.4 installation.\n'
         '3. Restart the robot normally if it remains in download mode.\n'
         '4. Open Kadence.exe, enter the connection fields and click START SERVER.\n'
-        '   Daily operation needs no Python or ESP-IDF terminal.\n\n'
+        '   Daily operation needs no Python or ESP-IDF terminal.\n'
+        '5. Keep USB connected to the awake PC while using the robot.\n'
+        '6. Tap once, wait for the cue and REC countdown, then speak.\n\n'
         'Read USER_MANUAL.md for reminders, workbench, vision and top controls.\n'
         'RC2 is a hardware qualification candidate. The approved RC1 remains your rollback build.\n')
     sums=[]
@@ -57,7 +59,7 @@ def build(commit: str, firmware: Path):
     work.mkdir(parents=True,exist_ok=True)
     entry=work/'desktop_entry.py'
     entry.write_text('from kcore.desktop import main\nif __name__ == "__main__": raise SystemExit(main())\n')
-    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.0'}))
+    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.1'}))
     # Keep standard streams for the same executable's private worker mode.
     # hide-early hides the bootloader's window, without disabling stdin/stdout.
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean',

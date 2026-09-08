@@ -9,12 +9,13 @@
 
 #include <cstdio>
 #include <cstring>
+#include "control_frame.h"
 
 namespace {
 
 constexpr int kP16OffsetTenths = 40;
 constexpr int kP16HoldMs = 200;
-constexpr size_t kP16FrameBytes = 384;
+constexpr size_t kP16FrameBytes = kadence_control::FrameBytes;
 
 bool p16_extract_request_id(const char* raw, char* output, size_t output_size)
 {

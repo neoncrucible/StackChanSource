@@ -5,8 +5,10 @@
 #include "freertos/semphr.h"
 
 #include "voice_cancel_io.cpp"
+#include "voice_progress.h"
 #include "top_logic.h"
 #include "voice_playback_buffer.cpp"
+#include "voice_cue.cpp"
 #include "camera_capture.cpp"
 
 // Probe21 alone stages network-delivered PCM before touching the speaker and
@@ -156,8 +158,8 @@ bool run_probe21()
     }
 
     usb_serial_jtag_driver_config_t usb_cfg = {
-        .tx_buffer_size = 1024,
-        .rx_buffer_size = 1024,
+        .tx_buffer_size = 2048,
+        .rx_buffer_size = 2048,
     };
     const esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);
     if (usb_err != ESP_OK && usb_err != ESP_ERR_INVALID_STATE) {

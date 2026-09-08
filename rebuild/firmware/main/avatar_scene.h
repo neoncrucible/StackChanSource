@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 
 namespace kadence_scene {
 
@@ -80,108 +81,116 @@ public:
                 case '6': g=0b011100111101111; break; case '7': g=0b111001010010010; break;
                 case '8': g=0b111101111101111; break; case '9': g=0b111101111001110; break;
                 case ':': g=0b000010000010000; break;
+                case '.': g=0b000000000000010; break; case '/': g=0b001001010100100; break;
             }
             for(int row=0;row<5;++row) for(int col=0;col<3;++col)
                 if(g & (1<<(14-row*3-col))) box(x+col*scale,y+row*scale,scale,scale,c);
         }
     }
-    void eye(float cx,float cy,float openness,float gaze_x,float gaze_y,Colour accent,float focus) {
-        const float rx=49, ry=36*openness;
-        // One composited pass: no erase/show alternation and no network assets.
-        for(int y=static_cast<int>(cy-43);y<=static_cast<int>(cy+43);++y) {
-            for(int x=static_cast<int>(cx-57);x<=static_cast<int>(cx+57);++x) {
-                float dx=(x-cx)/rx, dy=(y-cy)/std::max(ry,1.5f);
-                float edge=std::sqrt(dx*dx+dy*dy);
-                if(edge>1.16f) continue;
-                Colour c=Ink;
-                if(edge>1.0f) c=mix(Ink,accent,(1.16f-edge)*1.8f);
-                else if(edge>0.9f) c=mix(accent,White,0.3f+(1-edge)*2);
-                else {
-                    c=mix(Ink,accent,0.03f+(1-edge)*0.16f);
-                    float ix=x-cx-gaze_x, iy=y-cy-gaze_y;
-                    float iris=std::sqrt(ix*ix+iy*iy);
-                    float radius=18+focus*4;
-                    if(iris<radius+4) c=mix(c,accent,std::clamp((radius+4-iris)/4,0.0f,1.0f)*0.72f);
-                    if(iris<radius) {
-                        float angle=std::atan2(iy,ix);
-                        float spokes=0.65f+0.22f*std::sin(angle*19+iris*0.6f);
-                        c=mix(accent,White,spokes*0.3f);
-                        if(iris<9) c=Ink;
-                        if((ix+6)*(ix+6)+(iy+7)*(iy+7)<13) c=White;
-                        if((ix-8)*(ix-8)+(iy-8)*(iy-8)<3) c=accent;
-                    }
-                }
-                pixel(x,y,c);
-            }
+    void line(int x0,int y0,int x1,int y1,Colour colour) {
+        const int dx=std::abs(x1-x0), sx=x0<x1?1:-1;
+        const int dy=-std::abs(y1-y0), sy=y0<y1?1:-1;
+        int error=dx+dy;
+        for (;;) {
+            pixel(x0,y0,colour);
+            if(x0==x1 && y0==y1) break;
+            const int twice=error*2;
+            if(twice>=dy) { error+=dy; x0+=sx; }
+            if(twice<=dx) { error+=dx; y0+=sy; }
         }
-        // Small asymmetric upper accents give the gaze expression at a distance.
-        box(static_cast<int>(cx-38),static_cast<int>(cy-ry-9),26,2,mix(Ink,accent,0.65f));
     }
 };
 
 struct Animation {
-    float gaze_x=0, gaze_y=0, openness=1, level=0;
-    uint64_t previous=0;
+    float level=0;
+    uint64_t previous=0, entered=0;
+    State last=State::Booting;
 
-    void render(uint16_t* pixels,State state,uint64_t now,float audio_level) {
+    void render(uint16_t* pixels,State state,uint64_t now,float audio_level,
+                uint32_t remaining_ms=0) {
         Canvas c(pixels);
-        const float dt=previous==0 ? 0.066f : std::clamp(static_cast<float>(now-previous)/1000,0.0f,0.2f);
+        const float dt=previous==0 ? 0.05f : std::clamp(static_cast<float>(now-previous)/1000,0.0f,0.2f);
+        if(previous==0 || state!=last) { entered=now; last=state; }
         previous=now;
         const float t=static_cast<float>(now%600000)/1000;
-        const bool active=state==State::Listening || state==State::Speaking || state==State::Thinking || state==State::ToolWorking;
-        const uint32_t bucket=static_cast<uint32_t>(now/4100);
-        float target_x=static_cast<float>(hash(bucket)%17)-8;
-        float target_y=static_cast<float>(hash(bucket+57)%7)-3;
-        if(active || state==State::Attentive) { target_x=0; target_y=0; }
-        if(state==State::Thinking) { target_x=9; target_y=-5; }
-        gaze_x+=(target_x-gaze_x)*std::min(1.0f,dt*5);
-        gaze_y+=(target_y-gaze_y)*std::min(1.0f,dt*5);
-        level+=(std::clamp(audio_level,0.0f,1.0f)-level)*std::min(1.0f,dt*9);
-        float target_open=state==State::Offline ? 0.38f : state==State::Thinking ? 0.64f : state==State::Attentive ? 1.13f : 1.0f;
-        if(state==State::ToolWorking) target_open=0.7f;
-        openness+=(target_open-openness)*std::min(1.0f,dt*6);
-        const uint64_t blink_phase=now%5300;
-        float blink=(blink_phase>4750 && blink_phase<4960) ? std::abs(static_cast<float>(blink_phase)-4855)/105 : 1;
-        float open=std::max(0.05f,openness*ease(blink));
-        Colour accent=state==State::ToolWorking ? Copper : state==State::Degraded ? Copper : state==State::Fault ? Colour{241,100,113} : Ice;
-        if(state==State::Offline) accent=Dim;
-        // A single exact RGB565 background value: no gradients or banding.
-        std::fill(pixels, pixels+Width*Height, rgb(Ink));
-        c.box(20,37,280,1,Dim);
-        c.text(22,18,"KADENCE",White,2);
-        if ((now / 600) % 2 == 0) c.box(81,26,7,2,Ice);
-        constexpr const char* labels[]={"STARTING","READY","HERE","LISTENING","THINKING","SPEAKING","WORKING","OFFLINE","RETRY","FAULT","RECOVERING"};
+        const bool audio=state==State::Listening || state==State::Speaking;
+        const bool working=state==State::Thinking || state==State::ToolWorking;
+        const bool waiting=state==State::Booting || state==State::Attentive || state==State::Recovery;
+        level+=(std::clamp(audio_level,0.0f,1.0f)-level)*std::min(1.0f,dt*12);
+        const Colour green{100,255,136}, bright{190,255,198}, faint{18,51,28};
+        Colour accent=state==State::Offline ? Dim : green;
+        if(state==State::Fault || state==State::Degraded) accent={185,225,118};
+        std::fill(pixels,pixels+Width*Height,rgb(Ink));
+
+        c.box(20,18,4,12,accent);
+        c.text(32,19,"KADENCE",bright,2);
+        c.box(20,41,280,1,Dim);
+        constexpr const char* labels[]={"BOOT","READY","ARMING","REC","PROCESS","VOICE","TOOL","OFFLINE","RETRY","FAULT","RESET"};
         const auto index=std::min(static_cast<unsigned>(state),10U);
         const char* label=labels[index];
-        const int label_x=298-static_cast<int>(std::strlen(label))*4;
-        c.ellipse(static_cast<float>(label_x-8),22,2,2,accent);
-        c.text(label_x,20,label,accent);
-        float breathe=std::sin(t*1.7f)*1.5f;
-        c.eye(91+gaze_x*0.14f,112+breathe,open,gaze_x,gaze_y,accent,state==State::Listening ? 1.0f : 0.0f);
-        c.eye(229+gaze_x*0.14f,112+breathe,open,gaze_x,gaze_y,accent,state==State::Listening ? 1.0f : 0.0f);
-        c.box(21,100,2,26,Dim); c.box(297,100,2,26,Dim);
-        c.box(26,162,11,2,Dim); c.box(283,162,11,2,Dim);
-        if(state==State::Speaking) {
-            c.ellipse(160,171,15+level*10,2+level*12,accent);
-            if(level>0.12f) c.ellipse(160,170,11+level*6,1+level*7,Ink);
-        } else if(state==State::Thinking || state==State::ToolWorking || state==State::Booting || state==State::Recovery) {
-            for(int i=0;i<3;++i) c.ellipse(148+i*12,171,2,2,mix(Dim,accent,(std::sin(t*4-i*1.2f)+1)*0.5f));
-        } else {
-            for(int x=-15;x<=15;++x) c.box(160+x,170-static_cast<int>(x*x/100),1,2,accent);
+        c.text(298-static_cast<int>(std::strlen(label))*8,20,label,accent,2);
+
+        // Instrument frame: chamfered corners, sparse calibration marks and one
+        // signal. No eyes, mouth, skin, gradients or prerecorded animation.
+        c.line(28,88,42,74,Dim); c.line(42,74,112,74,Dim);
+        c.line(208,74,278,74,Dim); c.line(278,74,292,88,Dim);
+        c.line(28,150,42,164,Dim); c.line(42,164,112,164,Dim);
+        c.line(208,164,278,164,Dim); c.line(278,164,292,150,Dim);
+        for(int x=40;x<=280;x+=20) {
+            c.box(x,118,1,x%40==0?5:3,faint);
+            if(x%40==0) { c.box(x,84,1,3,faint); c.box(x,153,1,3,faint); }
         }
-        c.box(20,204,280,1,Dim);
-        if(state==State::Listening) {
-            for(int i=0;i<19;++i) {
-                float envelope=1-std::abs(i-9)/10.0f;
-                int h=2+static_cast<int>(level*envelope*(8+5*std::sin(t*11+i*1.9f)));
-                c.box(69+i*10,191-h/2,3,h,accent);
+        c.text(20,56,audio ? "AUDIO" : working ? "COMPUTE" : "SIGNAL",Dim);
+        c.text(264,56,"01 / 01",Dim);
+
+        const float amplitude=audio ? level*37 : working ? 8.0f : waiting ? 4.5f : 0.0f;
+        int previous_y=120;
+        for(int x=36;x<=284;++x) {
+            const float u=(x-36)/248.0f;
+            const float envelope=std::sin(u*3.14159265f);
+            const float wave=std::sin(u*35-t*(audio?13:4))*0.66f + std::sin(u*71+t*7)*0.25f;
+            const int y=120+static_cast<int>(wave*envelope*amplitude);
+            if(x>36) {
+                c.line(x-1,previous_y+2,x,y+2,mix(Ink,accent,0.2f));
+                c.line(x-1,previous_y,x,y,accent);
+                if(audio && level>0.12f) c.line(x-1,previous_y-1,x,y-1,bright);
             }
-        } else if(active) {
-            int x=static_cast<int>((std::sin(t*2)+1)*125);
-            c.box(20+x,203,30,2,accent);
-        } else c.box(151,203,18,2,mix(Dim,accent,0.5f+0.25f*std::sin(t*2)));
-        const char* hint=active ? "> TOUCH TO CANCEL" : state==State::Fault ? "> CHECK HOST" : "> TOUCH TO TALK";
-        c.text((Width-static_cast<int>(std::strlen(hint))*4)/2,219,hint,mix(Dim,White,0.65f));
+            previous_y=y;
+        }
+        // A moving cursor supplies quiet presence without fabricating audio.
+        if(!audio) {
+            const int scan=40+static_cast<int>((now/18)%240);
+            c.box(scan,117,2,7,bright);
+        }
+        if(state==State::Idle || state==State::Offline) {
+            c.line(145,108,175,108,accent);
+            c.line(137,116,145,108,accent); c.line(175,108,183,116,accent);
+            c.line(137,124,145,132,accent); c.line(175,132,183,124,accent);
+            c.line(145,132,175,132,accent);
+        }
+
+        char detail[40]{};
+        if(state==State::Listening) {
+            const unsigned tenths=(remaining_ms+99)/100;
+            std::snprintf(detail,sizeof(detail),"MIC OPEN   %u.%u S",tenths/10,tenths%10);
+        } else if(working) {
+            const unsigned elapsed=static_cast<unsigned>(std::min<uint64_t>((now-entered)/1000,999));
+            std::snprintf(detail,sizeof(detail),"MIC CLOSED   %u S",elapsed);
+        } else {
+            const char* details[]={"INITIALISING","SYSTEM STANDBY","PREPARING AUDIO","","","AUDIO OUTPUT","","HOST DISCONNECTED","TRY AGAIN","CHECK SERVER","RETURNING TO IDLE"};
+            std::snprintf(detail,sizeof(detail),"%s",details[index]);
+        }
+        c.text((Width-static_cast<int>(std::strlen(detail))*8)/2,180,detail,bright,2);
+        c.box(20,202,280,1,Dim);
+        if(state==State::Listening) {
+            const int length=std::clamp(static_cast<int>(remaining_ms*280/8000),0,280);
+            c.box(20,201,length,3,accent);
+        } else if(working || waiting) {
+            const int sweep=static_cast<int>((now/14)%248);
+            c.box(20+sweep,201,32,3,accent);
+        } else c.box(20,201,24,3,accent);
+        const char* hint=audio || working || waiting ? "> TAP TO CANCEL" : state==State::Fault || state==State::Offline ? "> CHECK SERVER" : "> TAP TO TALK";
+        c.text((Width-static_cast<int>(std::strlen(hint))*4)/2,220,hint,accent);
     }
 };
 } // namespace kadence_scene

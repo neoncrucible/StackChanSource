@@ -7,6 +7,11 @@ enrolled-person profiles and Home Assistant actions retain their separate review
 boundaries. RC1 at `997654857c3dd6aa2f78c92501c2eda2bf6744fe` remains physically
 approved; this candidate does not relabel that approval as proof of new hardware.
 
+The current maintenance candidate is **host 0.3.1 / firmware 0.21.1**. Boss approved
+the Windows console's appearance, requested dependable front touch and a listening
+cue, and authorised replacing the expressive face with a utilitarian green signal
+display. USB control remains required; wireless control is outside this update.
+
 ## Runtime ownership
 
 `desktop_ui` uses Qt and supervises one `desktop_worker` through bounded private
@@ -30,6 +35,47 @@ Volume applies bounded Q15 attenuation with a short gain ramp; codec gain stays
 at the previously accepted setting of 55. The top module has no motor calls.
 Body execution, calibration, torque release and post-execution ACKs retain the
 existing executor and protocol.
+
+## Interaction timing and signal presentation
+
+- Front touch and top controls have one dedicated input owner with a 10 ms loop.
+  Rendering has its own lower-priority task and takes a short snapshot of overlay
+  data. The front-controller read has a 15 ms timeout. A 15 ms stable press triggers
+  once; a 70 ms released interval and 300 ms action spacing prevent contact bounce
+  and held/double taps from immediately cancelling the same request.
+- One original 200 ms ascending sine cue uses the existing media worker, PSRAM
+  staging, internal DMA scratch, volume ceiling and output close. It finishes
+  before input opens. Mute/zero volume silence the cue without disabling the mic.
+- Opus packets are staged in bounded PSRAM while recording. No socket send occurs
+  with the microphone open. The fixed frame count and an elapsed-time guard bound
+  capture; each codec read already has a 1 s SDK timeout. Capture failure closes
+  input and reports a typed failure. The normal countdown is the configured
+  2.4–8 s capture duration; the guard also allows bounded driver/scheduling overhead.
+- Nonblocking TCP connect has a 10 s deadline; upload has an 8 s total budget,
+  reply wait 55 s and reply download 15 s. Small incoming packets cannot renew a
+  deadline. The host caps provider work at 45 s and deliberate snapshot commands
+  at 45 s. Cancellation still interrupts sockets and staged local playback.
+- Device `voice.phase` events correlate to the pending command. They report actual
+  capture start/close and playback start. Retired phases cannot restore LISTENING.
+  Confirmed cancellation retires the original host wait even if its final ACK is
+  missing. Live STT/reasoning/TTS phase labels and typed diagnostics remain secret-free.
+- Control frames now have a 1024-byte capacity. The full status builder is exercised
+  with the same cJSON implementation as firmware and includes front touch, accepted
+  touch sequence, capture time remaining, hardware state and firmware version.
+- Servo send/response exchanges use one recursive transaction mutex, including a
+  read's nested send, so cancel cleanup cannot consume another transaction's reply.
+  Touch requests cancellation without issuing a duplicate direct UART release.
+  The existing worker/control release and verification paths remain authoritative.
+
+The display is a code-rendered green signal instrument on exact black RGB565.
+Its audio amplitude reflects measured microphone/playback levels. Idle uses a
+quiet cursor, recording has a countdown, and processing explicitly says MIC CLOSED
+with elapsed time. The allocation-failure renderer uses the same line identity.
+
+The supplied 8 September owner diagnostics were from `af07887c1068`: device status
+was unavailable throughout, a camera attempt timed out, and two voice attempts
+advanced from listening to thinking before cancellation-related failures. Those
+observations do not establish successful RC2 camera or voice qualification.
 
 ## Time and storage
 
@@ -109,6 +155,11 @@ real Qt-to-worker IPC, refresh stability, lifecycle and diagnostic/credential
 separation. Windows additionally exercises a unique fake Credential Manager entry
 and removes it afterwards. Native sanitizer checks cover the avatar, Wi-Fi state,
 top gestures, the complete 24-round game and gain/no-amplification behaviour.
+`interaction_gate.py` adds native press/bounce/hold/rearm and cue bounds checks,
+real loopback TCP stalls/trickles/cancellation, and a full cJSON status reply test.
+The latter reproduces rejection at the old 384-byte limit and verifies the new
+capacity, escaped correlation ID and buffer guards. Host tests cover phase
+correlation, the initial arming indication and cancellation with a lost final ACK.
 The existing CP23, A4, voice cancellation, self-init, Phase B and voice-wire gates
 remain required.
 
@@ -125,8 +176,11 @@ application 0x10000, with a 4 MiB application slot. No calibration erase is adde
 
 After flashing the complete matched RC2 package and starting the desktop:
 
-1. Complete one ordinary front-touch voice turn; check both strips during thinking
-   and a smooth spoken reply with the familiar avatar/body/idle behaviour.
+1. Wait for live device status. Tap the front screen once, wait for the cue and
+   REC countdown, and speak. Confirm MIC CLOSED during processing and a smooth
+   reply followed by the established body reaction and idle. Repeat five times;
+   a held finger must not immediately cancel its own turn. During one capture and
+   one processing wait, tap again to cancel and confirm prompt return to idle.
 2. Try top swipes and one hold; check the acknowledged Windows volume/mute. Reverse
    direction if preferred. Repeat during speech, then front-touch cancel.
 3. Schedule a short reminder while connected, another while the server is stopped,

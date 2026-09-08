@@ -24,11 +24,11 @@ def main() -> None:
     require('std::atomic<uint32_t> g_presentation_touch_action_seq' in presentation,
             "touch action publication is not atomic")
     require('fetch_add(1, std::memory_order_release)' in presentation,
-            "deliberate touch release does not publish an action")
+            "deliberate touch press does not publish an action")
     require('presentation_touch_action_sequence()' in presentation,
             "touch action sequence accessor is missing")
     require('action=voice-toggle' in presentation,
-            "touch release is not explicitly classified as the voice action")
+            "touch press is not explicitly classified as the voice action")
 
     require('voice.request' in bridge and 'voice.touch-cancel' in bridge,
             "touch bridge does not emit both voice events")

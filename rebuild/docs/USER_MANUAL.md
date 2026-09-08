@@ -1,6 +1,6 @@
 # Kadence operator manual
 
-**Release:** RC2 — Windows console 0.3.0 / firmware 0.21.0
+**Release:** RC2 — Windows console 0.3.1 / firmware 0.21.1
 
 **Hardware:** M5Stack StackChan K151 / CoreS3, ESP32-S3
 
@@ -22,7 +22,7 @@ is recorded in [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md).
 4. Open PowerShell in the extracted folder and run:
 
    ```powershell
-   .\Flash-Kadence.ps1 -Port COM4
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Flash-Kadence.ps1 -Port COM4
    ```
 
 5. Wait for `KADENCE_FLASH PASS`. Restart the robot normally if it remains in
@@ -35,6 +35,8 @@ includes its own Python and dependencies and needs no ESP-IDF terminal.
 The flash helper verifies the package pairing and firmware hashes and preserves
 calibration and stored device settings. Keep the complete approved RC1 package
 and its matching source available for rollback.
+The command permits the unsigned launcher for that PowerShell process only.
+It does not change the saved execution policy or override an organisation's Group Policy.
 
 ## 2. Connect and control the server
 
@@ -44,6 +46,9 @@ refreshes ports and LAN choices and can fill the current Windows Wi-Fi SSID.
 from the robot's 2.4 GHz Wi-Fi network; PC Ethernet is also suitable when it
 reaches that network. The PC and robot must be able to communicate across the LAN.
 Normal voice and online descriptions also need Internet access.
+Keep **USB connected to the PC during normal use**, and keep the PC awake with
+the server running. Wi-Fi carries audio/images; USB carries control and events.
+This release does not provide cable-free operation.
 
 Enter the OpenAI key, Gemini key and Wi-Fi password locally. Each field has its
 own **Show/Hide** control. Session-only storage is the default. To reuse credentials
@@ -76,8 +81,9 @@ conversation requires the configured speech providers.
 ## 3. Talk and cancel
 
 1. Tap the **front touchscreen** once.
-2. Wait for the listening indication, then speak one short request. Recording is
-   4.8 seconds by default; Overview allows 2.4–8 seconds.
+2. Wait for the short ascending two-tone cue and **REC / MIC OPEN**, then speak
+   one short request. The display counts down the remaining recording time.
+   Recording is 4.8 seconds by default; Overview allows 2.4–8 seconds.
 3. Let Kadence finish thinking and speaking. A successful voice turn ends with
    the established body reaction and return to idle.
 4. Tap again for another turn.
@@ -86,6 +92,13 @@ Tap the front screen during an active turn to cancel recording, provider work or
 playback. Wait for idle before trying again. If no speech is detected, Kadence
 asks you to try again. During LED Memory the front screen stops the game; tap
 again after it stops to begin a conversation.
+One deliberate press is enough; holding your finger does not start another turn.
+The microphone closes before upload and processing. **MIC CLOSED** and an elapsed
+timer distinguish processing from recording. The Windows overview also identifies
+transcription, reasoning and voice preparation. A stalled service returns an
+error instead of waiting indefinitely; check the status message before retrying.
+When speaker output is muted or its volume is zero, the listening cue is silent;
+use the REC indicator and countdown. Speaker mute does not disable recording.
 
 Kadence uses OpenAI transcription, Gemini reasoning and Sonia's British female
 voice by default. Up to eight successfully played exchanges are kept in bounded
@@ -95,14 +108,16 @@ Each reasoning turn receives fresh local date/time context.
 
 ## 4. Avatar, strips and volume
 
-The robot retains the approved animated avatar, solid black background and green
-terminal appearance. Local gaze, blinking and attention continue independently
-of host/provider delays. Overview reflects acknowledged device activity.
+The robot uses a utilitarian signal display on a solid black background, with
+green terminal lettering and an animated waveform. Listening and playback drive
+the signal amplitude from actual audio levels. Idle uses a quiet sweep; processing
+has its own animation and elapsed timer. Display animation remains local and
+touch input runs independently of drawing. Overview reflects device activity.
 
 | Indication | Meaning |
 |---|---|
-| Idle / attentive | Local presence or attention between turns. |
-| Listening | This turn is recording; both top strips show a steady listening colour. |
+| Ready / arming | Standby or preparation before the listening cue. |
+| REC / MIC OPEN | Recording with a countdown; both top strips show a steady listening colour. |
 | Thinking / tool working | Green movement travels along both strips. |
 | Speaking | Strip intensity responds to the playback level. |
 | Camera active | Amber strips and a screen label identify a requested capture. |

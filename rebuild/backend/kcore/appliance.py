@@ -82,6 +82,7 @@ class KadenceAppliance:
         self._wire_result = None
         self._connections: dict[asyncio.Task, asyncio.StreamWriter] = {}
         self._companion: Companion | None = None
+        self._provider_stage: str | None = None
 
     def _report_issue(self, stage: str, error: Exception) -> None:
         # Status crosses the GUI boundary; arbitrary exception text never does.
@@ -89,6 +90,8 @@ class KadenceAppliance:
         if isinstance(error, VoiceTurnFailure):
             data.update(reason="device_proof", device_stage=error.stage,
                         error_code=error.error_code, wifi_reason=error.wifi_reason)
+        if stage == "providers" and self._provider_stage in {"stt", "reasoning", "tts"}:
+            data["provider_stage"] = self._provider_stage
         self.emit("runtime_issue", data)
 
     async def run_forever(self) -> None:
@@ -258,7 +261,7 @@ class KadenceAppliance:
         try:
             await request_device(body.host, name, {"ssid": self.settings.ssid, "password": self.settings.password,
                 "host": self.settings.lan_host, "port": self._server_port, "capture_ms": self.settings.capture_ms,
-                "token": self._turn_token}, timeout=100)
+                "token": self._turn_token}, timeout=45 if name == "camera.snapshot" else 190)
             if self._media_result is None: raise RuntimeError("media transfer was not confirmed")
             return self._media_result
         except BaseException as exc:
@@ -329,6 +332,25 @@ class KadenceAppliance:
                 self._begin_voice_turn(body, event)
             elif event.name == "voice.touch-cancel":
                 await self._handle_touch_cancel(body, event)
+            elif event.name == "voice.phase":
+                self._handle_voice_phase(body, event)
+
+    def _handle_voice_phase(self, body: RuntimeBody, event: Envelope) -> None:
+        # A delayed phase from an earlier turn cannot resurrect LISTENING.
+        request_id = event.payload.get("request_id")
+        if (body is not self._body or self._turn_token is None or not isinstance(request_id, str)
+                or request_id not in body.host._pending):
+            return
+        state = event.payload.get("state")
+        if state not in {"attentive", "listening", "thinking", "speaking", "degraded"}:
+            return
+        data = {"state": state}
+        if state == "listening":
+            duration = event.payload.get("capture_ms")
+            if type(duration) is not int or not 2400 <= duration <= 8000:
+                return
+            data["capture_ms"] = duration
+        self.emit("activity", data)
 
     def _begin_voice_turn(self, body: RuntimeBody, event: Envelope) -> None:
         active = self._voice_task
@@ -344,7 +366,7 @@ class KadenceAppliance:
         )
         self._voice_task.add_done_callback(self._voice_task_done)
         print("KADENCE_RUNTIME TURN start trigger=touch")
-        self.emit("activity", {"state": "listening"})
+        self.emit("activity", {"state": "attentive"})
 
     def _voice_task_done(self, task: asyncio.Task[None]) -> None:
         if self._voice_task is task:
@@ -360,6 +382,7 @@ class KadenceAppliance:
         self._turn_token = secrets.token_hex(16)
         self._wire_claimed = False
         self._wire_result = None
+        self._provider_stage = None
         try:
             ack = await body.send_voice_turn(
                 ssid=self.settings.ssid,
@@ -454,6 +477,11 @@ class KadenceAppliance:
                     f"reason={type(exc).__name__}:{_safe_message(exc)}"
                 )
 
+        if cancel_ok:
+            # Retire the original wait after the device confirmed cancellation.
+            # A dropped final voice ACK must not hold the UI busy for 210 seconds.
+            await self._cancel_active_voice_task()
+
         print(
             "KADENCE_RUNTIME CANCEL touch=1 "
             f"provider={int(provider_cancelled)} control={int(cancel_ok)}"
@@ -508,7 +536,7 @@ class KadenceAppliance:
                         writer.write(b"KDAK")
                         await writer.drain()
                     return
-                turn = await asyncio.wait_for(read_wire_turn(reader, expected_token=token), timeout=15.0)
+                turn = await asyncio.wait_for(read_wire_turn(reader, expected_token=token), timeout=20.0)
                 if self._turn_token != token or self._body is not body or not body.connected:
                     return
                 self._wire_claimed = True
@@ -534,14 +562,22 @@ class KadenceAppliance:
                     self.emit("activity", {"state": state})
 
                 await state_sink("thinking")
+
+                async def provider_progress(stage: str) -> None:
+                    if self._turn_token != token:
+                        raise asyncio.CancelledError()
+                    self._provider_stage = stage
+                    self.emit("provider_stage", {"stage": stage})
+
                 provider_task = asyncio.create_task(
                     process_wire_turn(turn, settings=self.settings.providers,
-                                      companion=self._companion, state_sink=state_sink),
+                                      companion=self._companion, state_sink=state_sink,
+                                      progress_sink=provider_progress),
                     name="kadence-provider-turn",
                 )
                 self._provider_task = provider_task
                 try:
-                    async with asyncio.timeout(90):
+                    async with asyncio.timeout(45):
                         result = await provider_task
                 finally:
                     if self._provider_task is provider_task:

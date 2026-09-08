@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "driver/uart.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -67,6 +68,13 @@ struct Probe9Runtime {
 };
 
 Probe9Runtime g_probe9;
+SemaphoreHandle_t g_p9_transaction_lock = nullptr;
+
+struct P9Transaction {
+    bool held = g_p9_transaction_lock &&
+        xSemaphoreTakeRecursive(g_p9_transaction_lock,pdMS_TO_TICKS(1000)) == pdTRUE;
+    ~P9Transaction() { if (held) xSemaphoreGiveRecursive(g_p9_transaction_lock); }
+};
 
 int p9_abs(int value)
 {
@@ -143,6 +151,10 @@ bool p9_set_power(bool enabled)
 
 bool p9_initialise_uart()
 {
+    // Created before any runtime task starts. Read-register owns its complete
+    // send/read exchange; nested send_packet retains that same recursive lock.
+    if (!g_p9_transaction_lock) g_p9_transaction_lock=xSemaphoreCreateRecursiveMutex();
+    if (!g_p9_transaction_lock) return false;
     uart_config_t config{};
     config.baud_rate = kP9ServoBaud;
     config.data_bits = UART_DATA_8_BITS;
@@ -244,6 +256,8 @@ bool p9_send_packet(uint8_t id,
                     std::size_t data_length,
                     bool expect_ack)
 {
+    P9Transaction transaction;
+    if (!transaction.held) return false;
     if (!g_probe9.uart_ready || data_length > 8) return false;
 
     std::array<uint8_t, 16> packet{};
@@ -285,6 +299,8 @@ bool p9_read_register(uint8_t id,
                       uint8_t* output,
                       std::size_t length)
 {
+    P9Transaction transaction;
+    if (!transaction.held) return false;
     if (output == nullptr || length == 0 || length > 8) return false;
     const uint8_t requested = static_cast<uint8_t>(length);
     if (!p9_send_packet(id, kP9InstructionRead, address, &requested, 1, false)) {

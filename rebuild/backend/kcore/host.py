@@ -25,7 +25,8 @@ class VoiceTurnFailure(RuntimeError):
         "opus-frame", "opus-encode", "input-open", "capture-read", "opus-send", "input-close",
         "uplink-finish", "reply-header", "provider", "reply-magic", "reply-length",
         "reply-range", "output-open", "output-unmute", "reply-read", "playback-write",
-        "output-close", "audio-transport", "torque-precondition", "torque-release", "cancelled", "busy", "camera-transfer", "camera-capture"))
+        "output-close", "audio-transport", "torque-precondition", "torque-release", "cancelled", "busy", "camera-transfer", "camera-capture",
+        "listening-cue", "capture-memory", "capture-timeout"))
 
     def __init__(self, missing: list[str], payload: dict):
         stage = payload.get("stage")

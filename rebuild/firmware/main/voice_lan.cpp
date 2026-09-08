@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -24,7 +25,6 @@ constexpr std::size_t kVoiceLanMaxOpusPacket = 1500;
 constexpr std::size_t kVoiceLanEncodedBuffer = 2048;
 constexpr uint32_t kVoiceLanMaxPcmReply = 4U * 1024U * 1024U;
 constexpr int kVoiceLanConnectTimeoutMs = 15000;
-constexpr int kVoiceLanSocketTimeoutSec = 60;
 constexpr EventBits_t kVoiceLanWifiReadyBit = BIT0;
 constexpr EventBits_t kVoiceLanWifiFailedBit = BIT1;
 constexpr EventBits_t kVoiceLanWifiStoppedBit = BIT2;
@@ -305,18 +305,13 @@ int voice_lan_connect_server(const VoiceLanRequest& request)
         return -1;
     }
 
-    timeval timeout{};
-    timeout.tv_sec = kVoiceLanSocketTimeoutSec;
-    timeout.tv_usec = 0;
-    (void)setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    (void)setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-
     if (connect(sock, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
         voice_lan_fail("tcp-connect", errno);
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=tcp-connect");
         close(sock);
         return -1;
     }
+    voice_io_timeout(18000);
     return sock;
 }
 
@@ -333,14 +328,6 @@ bool voice_lan_send_hello(int sock, const char* token)
     if (token != nullptr && token[0] != '\0' && !voice_lan_send_all(sock, token, 32))
         return voice_lan_fail("uplink-auth", errno);
     return true;
-}
-
-bool voice_lan_send_packet(int sock, const uint8_t* packet, std::size_t length)
-{
-    if (packet == nullptr || length == 0 || length > kVoiceLanMaxOpusPacket) return false;
-    const uint16_t network_length = htons(static_cast<uint16_t>(length));
-    return voice_lan_send_all(sock, &network_length, sizeof(network_length)) &&
-           voice_lan_send_all(sock, packet, length);
 }
 
 bool voice_lan_send_end(int sock)
@@ -385,16 +372,31 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
         return voice_lan_fail("opus-frame", frame_err);
     }
 
-    if (!open_input()) {
+    const uint32_t packet_count =
+        std::max<uint32_t>(1, (capture_ms + kVoiceLanFrameMs - 1) / kVoiceLanFrameMs);
+    const size_t uplink_capacity=packet_count*(kVoiceLanMaxOpusPacket+2);
+    std::unique_ptr<uint8_t,void(*)(void*)> uplink(
+        static_cast<uint8_t*>(heap_caps_malloc(uplink_capacity,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)),
+        heap_caps_free);
+    if (!uplink) { esp_opus_enc_close(encoder); return voice_lan_fail("capture-memory"); }
+    if (!voice_listening_cue()) {
+        esp_opus_enc_close(encoder);
+        return voice_lan_fail("listening-cue");
+    }
+    if (voice_cancel_is_requested() || !open_input()) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=input-open");
         esp_opus_enc_close(encoder);
         return voice_lan_fail("input-open");
     }
 
     bool ok = true;
-    const uint32_t packet_count =
-        std::max<uint32_t>(1, (capture_ms + kVoiceLanFrameMs - 1) / kVoiceLanFrameMs);
+    size_t uplink_length=0;
+    const uint64_t capture_deadline=voice_io_now_ms()+capture_ms+1000;
+    presentation_capture_begin(capture_ms);
+    voice_phase("listening",capture_ms);
     for (uint32_t packet_index = 0; packet_index < packet_count; ++packet_index) {
+        if (voice_cancel_is_requested()) { ok=false; break; }
+        if (voice_io_now_ms() >= capture_deadline) { ok=voice_lan_fail("capture-timeout",ETIMEDOUT); break; }
         const esp_err_t read_err = static_cast<esp_err_t>(esp_codec_dev_read(
             g_audio.input_dev,
             g_voice_lan_stereo.data(),
@@ -425,18 +427,24 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
             ok = false;
             break;
         }
-        if (!voice_lan_send_packet(sock, output_frame.buffer, output_frame.encoded_bytes)) {
-            ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=opus-send");
-            voice_lan_fail("opus-send", errno);
-            ok = false;
-            break;
-        }
+        // No network call while the microphone is open. A slow peer cannot
+        // stretch a 4.8-second recording into a minute of apparent listening.
+        const uint16_t packet_length=htons(static_cast<uint16_t>(output_frame.encoded_bytes));
+        if (uplink_length+2+output_frame.encoded_bytes > uplink_capacity) { ok=voice_lan_fail("capture-memory"); break; }
+        std::memcpy(uplink.get()+uplink_length,&packet_length,2);
+        std::memcpy(uplink.get()+uplink_length+2,output_frame.buffer,output_frame.encoded_bytes);
+        uplink_length+=2+output_frame.encoded_bytes;
     }
 
-    if (!close_input()) { voice_lan_fail("input-close"); ok = false; }
+    const bool input_closed=close_input();
+    if (!input_closed) { voice_lan_fail("input-close"); ok = false; }
+    presentation_capture_end(input_closed);
+    voice_phase(input_closed ? "thinking" : "degraded");
     esp_opus_enc_close(encoder);
 
     if (!ok) return false;
+    voice_io_timeout(8000);
+    if (!voice_lan_send_all(sock,uplink.get(),uplink_length)) return voice_lan_fail("opus-send",errno);
     if (!voice_lan_send_end(sock)) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=uplink-finish");
         return voice_lan_fail("uplink-finish", errno);
@@ -466,6 +474,7 @@ bool voice_lan_send_image(int sock)
 
 bool voice_lan_receive_playback(int sock)
 {
+    voice_io_timeout(55000); // Host provider deadline is shorter than this.
     std::array<char, 4> magic{};
     if (!voice_lan_recv_all(sock, magic.data(), magic.size())) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-header");
@@ -492,6 +501,7 @@ bool voice_lan_receive_playback(int sock)
         return voice_lan_fail("reply-magic");
     }
 
+    voice_io_timeout(15000); // One total download budget, not one per packet.
     uint32_t network_pcm_bytes = 0;
     if (!voice_lan_recv_all(sock, &network_pcm_bytes, sizeof(network_pcm_bytes))) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-length");
@@ -575,7 +585,8 @@ VoiceLanProof voice_lan_run_turn(const VoiceLanRequest& request)
     }
 
     presence_interaction_begin();
-    presentation_set_state(PresentationState::Thinking, "voice-lan-connect");
+    presentation_set_state(PresentationState::Attentive, "voice-lan-connect");
+    voice_phase("attentive");
 
     if (!voice_lan_connect_wifi(request)) {
         presentation_set_state(PresentationState::Degraded, "voice-lan-network");
@@ -598,7 +609,6 @@ VoiceLanProof voice_lan_run_turn(const VoiceLanRequest& request)
         return proof;
     }
 
-    presentation_set_state(PresentationState::Listening, "voice-lan-capture");
     proof.capture = true;
     proof.opus = voice_lan_capture_opus(sock, request.capture_ms);
     if (!proof.opus) {
@@ -798,6 +808,7 @@ VoiceLanCommandResult voice_lan_execute_command(const char* raw,
     request.capture_ms = static_cast<uint32_t>(capture_ms->valueint);
     if (token != nullptr) std::memcpy(request.token, token->valuestring, 32);
     cJSON_Delete(root);
+    std::snprintf(g_voice_phase_request_id,sizeof(g_voice_phase_request_id),"%s",request.request_id);
 
     const VoiceLanProof proof = operation==0?voice_lan_run_turn(request):voice_lan_run_media(request);
     if (!voice_lan_make_ack(request, proof, ack, ack_size)) {

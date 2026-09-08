@@ -92,7 +92,7 @@ void voice_lane_worker(void*)
                         samples[i]=(static_cast<int>(i)%period<period/2?1200:-1200)*fade/160;
                     }
                     voice_lan_buffered_write(g_audio.output_dev,samples.data(),sizeof(samples));
-                    voice_lan_buffered_close_output();
+                    voice_lan_buffered_close_output(false);
                 }
                 presentation_set_state(g_top_game_active.load()?state:PresentationState::Idle,"game-note");
                 voice_cancel_finish(); g_voice_lane_busy.store(false);
@@ -104,6 +104,7 @@ void voice_lane_worker(void*)
         const VoiceLanCommandResult result =
             voice_lan_execute_command(message.raw, ack, sizeof(ack));
         voice_cancel_finish();
+        g_voice_phase_request_id[0] = '\0';
 
         if (result == VoiceLanCommandResult::Accepted && g_voice_lane_emit != nullptr) {
             g_voice_lane_emit(ack);
@@ -125,6 +126,7 @@ bool voice_lane_start(VoiceLaneEmitFn emit)
     if (g_voice_lane_queue != nullptr) return true;
 
     g_voice_lane_emit = emit;
+    g_voice_phase_emit = emit;
     g_voice_lane_queue = xQueueCreate(1, sizeof(VoiceLaneMessage));
     if (g_voice_lane_queue == nullptr) return false;
 
