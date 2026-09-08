@@ -39,10 +39,14 @@ There is no additional cloud provider, credential or audio-device owner.
 Cancellation deliberately bypasses fallback. Heard conversation state still
 requires the original physical playback acknowledgement.
 
-A Windows qualification run exceeded the initial eight-second local budget while
-a parallel Windows run succeeded. Local generation now allows 12 seconds, with
-separate loading and rendering substages retained in diagnostics. The deadline
-is enforced by the same kill-and-reap parent, including on first use.
+Windows qualification caught a local-input difference between Python 3.12 and
+3.14: the former timed out before synthesis, including with a longer budget.
+The local child now receives one explicitly terminated ASCII/base64 record,
+which preserves UTF-8/newlines without console encoding changes or an EOF wait.
+Input, engine loading and rendering remain separate diagnostic substages.
+The local deadline remains 12 seconds and is enforced by the kill-and-reap parent.
+The corrected input plus real local speech and Sonia child paths passed on both
+Windows Python 3.12 and 3.14 in [34282957235](https://github.com/neoncrucible/StackChanSource/actions/runs/34282957235).
 
 The overall provider budget is restored to RC1's 52 seconds, below firmware's
 55-second reply deadline. Diagnostics distinguish connection, receipt, decoding,

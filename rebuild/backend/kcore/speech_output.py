@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import os
@@ -15,7 +16,7 @@ MAX_PCM = 4 * 1024 * 1024
 EDGE_SECONDS = 12
 LOCAL_SECONDS = 12
 STAGES = frozenset({"tts_connect", "tts_audio", "tts_decode", "tts_fallback",
-                    "tts_local_load", "tts_local_render", "tts_ready"})
+                    "tts_local_input", "tts_local_load", "tts_local_render", "tts_ready"})
 
 # Static program only. Spoken text travels over stdin, never through shell code,
 # arguments or a temporary file. System.Speech writes PCM to RAM, not PC speakers.
@@ -27,9 +28,10 @@ function Report-Stage([string]$name) {
     $status = [Text.Encoding]::ASCII.GetBytes('{"stage":"' + $name + '"}' + "`n")
     $output.Write($status, 0, $status.Length); $output.Flush()
 }
+Report-Stage 'tts_local_input'
+$encoded = [Console]::In.ReadLine()
+$spoken = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
 Report-Stage 'tts_local_load'
-[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
-$spoken = [Console]::In.ReadToEnd()
 Add-Type -AssemblyName System.Speech
 $synth = [System.Speech.Synthesis.SpeechSynthesizer]::new()
 $stream = [IO.MemoryStream]::new()
@@ -128,4 +130,4 @@ async def synthesize_local(text, *, progress_sink=None):
     if not isinstance(text, str) or not 0 < len(text) <= 8000: raise ValueError("Invalid speech length")
     powershell = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
     return await _render([str(powershell), "-NoProfile", "-NonInteractive", "-Command", WINDOWS_SPEECH],
-        text.encode("utf-8"), timeout=LOCAL_SECONDS, progress_sink=progress_sink)
+        base64.b64encode(text.encode("utf-8"))+b"\n", timeout=LOCAL_SECONDS, progress_sink=progress_sink)

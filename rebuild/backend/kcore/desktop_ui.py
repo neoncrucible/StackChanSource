@@ -547,7 +547,7 @@ class MainWindow(QMainWindow):
         elif name=="provider_stage":
             self.provider_stage={"stt":"TRANSCRIBING","reasoning":"THINKING","tts":"PREPARING VOICE",
                 "tts_connect":"CONNECTING VOICE","tts_audio":"RECEIVING VOICE","tts_decode":"DECODING VOICE",
-                "tts_fallback":"LOCAL VOICE","tts_local_load":"STARTING LOCAL VOICE",
+                "tts_fallback":"LOCAL VOICE","tts_local_input":"LOCAL VOICE","tts_local_load":"STARTING LOCAL VOICE",
                 "tts_local_render":"RENDERING LOCAL VOICE","tts_ready":"VOICE READY"}.get(data.get("stage"),"")
             if data.get("stage")=="tts_fallback":
                 self.message.setText("Sonia did not complete. This reply is using the installed Windows voice.")
@@ -655,7 +655,7 @@ class MainWindow(QMainWindow):
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive"}
         from .host import VoiceTurnFailure
-        stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
+        stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
         for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
