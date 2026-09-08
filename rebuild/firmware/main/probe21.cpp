@@ -5,7 +5,9 @@
 #include "freertos/semphr.h"
 
 #include "voice_cancel_io.cpp"
+#include "top_logic.h"
 #include "voice_playback_buffer.cpp"
+#include "camera_capture.cpp"
 
 // Probe21 alone stages network-delivered PCM before touching the speaker and
 // wraps the LAN socket operations with a cancellation hook. The proven lower-
@@ -30,6 +32,7 @@
 #undef connect
 
 #include "voice_turn_lane.cpp"
+#include "top_controls.cpp"
 #include "touch_voice_bridge.cpp"
 
 namespace {
@@ -72,6 +75,7 @@ void p21_protocol_task(void*)
         if (touch_voice_consume_host_event_ack(line)) {
             continue;
         }
+        if (top_controls_route(line)) continue;
 
         const VoiceLaneRouteResult voice_result = voice_lane_route_command(line);
         if (voice_result == VoiceLaneRouteResult::Consumed) {
@@ -169,6 +173,7 @@ bool run_probe21()
         ESP_LOGE(kLogTag, "PROBE21 status=failed stage=tx-lock");
         return false;
     }
+    if (!top_controls_start(p21_emit_line)) return false;
 
     if (!voice_lane_start(p21_emit_line)) {
         ESP_LOGE(kLogTag, "PROBE21 status=failed stage=voice-worker");

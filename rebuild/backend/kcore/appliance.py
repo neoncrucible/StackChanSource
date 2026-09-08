@@ -9,6 +9,9 @@ import os
 import re
 import secrets
 import socket
+import math
+import struct
+import time
 import subprocess
 import sys
 from dataclasses import dataclass, field, replace
@@ -25,6 +28,11 @@ from .runtime import RuntimeBody
 from .runtime_bridge import RuntimePresentationBridge
 from .voice_providers import VoiceProviderSettings
 from .voice_wire import process_wire_turn, read_wire_turn, send_wire_error, send_wire_reply
+from .services import LocalServices
+from .device_control import request_device
+from .vision import DeskVision, read_media_auth, read_image
+from .voice_wire import _synthesize_reply
+from .voice_providers import LiveVoiceProviders
 
 
 DEFAULT_PORT = "COM4"
@@ -43,13 +51,24 @@ class ApplianceSettings:
     password: str = field(repr=False)
     lan_host: str
     providers: VoiceProviderSettings
+    timezone_name: str = "Europe/London"
 
 
 class KadenceAppliance:
     """Normal companion runtime composed from the signed-off hardware owners."""
 
-    def __init__(self, settings: ApplianceSettings):
+    def __init__(self, settings: ApplianceSettings, *, services: LocalServices | None = None, emit=None):
         self.settings = settings
+        self.emit = emit or (lambda name, data: None)
+        self.services = services
+        self._owns_services = services is None
+        self.vision = DeskVision(self.emit)
+        self._utility_task = None
+        self._media_mode = "voice"
+        self._media_result = None
+        self._alert_pcm = b""
+        self._capture_in_voice = None
+        self._last_device_status = {}
         self._server: asyncio.AbstractServer | None = None
         self._server_port = 0
         self._body: RuntimeBody | None = None
@@ -67,6 +86,8 @@ class KadenceAppliance:
     async def run_forever(self) -> None:
         await self._start_companion()
         await self._start_voice_server()
+        self._utility_task = asyncio.create_task(self._utility_loop(), name="kadence-device-status")
+        self.emit("server", {"state": "running", "port": self.settings.port, "lan": self.settings.lan_host, "media_port": self._server_port})
         print(
             "KADENCE_RUNTIME READY "
             f"port={self.settings.port} lan={self.settings.lan_host}:{self._server_port} "
@@ -84,6 +105,7 @@ class KadenceAppliance:
                         ready_timeout=30.0,
                     )
                     self._body = body
+                    self.emit("robot", {"connected": True})
                     print("KADENCE_RUNTIME DEVICE ready presence=local")
                     await self._run_connected(body)
                 except asyncio.CancelledError:
@@ -95,6 +117,7 @@ class KadenceAppliance:
                             f"reason={type(exc).__name__}:{_safe_message(exc)}"
                         )
                 finally:
+                    self.emit("robot", {"connected": False})
                     self._turn_token = None
                     await self._cancel_active_provider()
                     await self._cancel_active_voice_task()
@@ -123,13 +146,22 @@ class KadenceAppliance:
 
     async def close(self) -> None:
         self._stop.set()
+        if self._utility_task:
+            self._utility_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError): await self._utility_task
+            self._utility_task = None
+        if self._body and self._voice_task and not self._voice_task.done():
+            with contextlib.suppress(Exception): await self._body.send_voice_cancel(timeout=3)
         self._turn_token = None
         await self._cancel_active_provider()
         await self._cancel_active_voice_task()
         await self._close_connections()
         if self._companion:
             self._companion.abort_turn()
-            await self._companion.tools.close()
+            if self.services is None: await self._companion.tools.close()
+        if self.services:
+            self.services.look_handler = None
+            if self._owns_services: await self.services.close()
         body = self._body
         self._body = None
         if body is not None:
@@ -140,8 +172,22 @@ class KadenceAppliance:
             await self._server.wait_closed()
             self._server = None
         print("KADENCE_RUNTIME STOPPED clean=1")
+        self.emit("server", {"state": "stopped"})
 
     async def _start_companion(self) -> None:
+        if self.services is None:
+            candidate = LocalServices(timezone_name=self.settings.timezone_name, emit=self.emit)
+            try:
+                await candidate.start()
+                self.services = candidate
+            except Exception:
+                await candidate.close()
+                print("KADENCE_RUNTIME UTILITIES unavailable local_store=unavailable")
+        if self.services:
+            self.services.look_handler = self._look_during_voice
+            self._companion = Companion(self.services.tools, self.services.context,
+                reminders=self.services.reminders, timezone_name=self.settings.timezone_name)
+            return
         store = ContextStore(default_data_dir())
         try:
             await asyncio.wait_for(store.start(), timeout=2)
@@ -154,6 +200,83 @@ class KadenceAppliance:
         except ValueError:
             print("KADENCE_RUNTIME INTEGRATION unavailable configuration=invalid")
         self._companion = Companion(tools, store)
+
+    async def _utility_loop(self):
+        while not self._stop.is_set():
+            body = self._body
+            if body is not None and body.connected:
+                try:
+                    ack = await request_device(body.host, "device.status")
+                    self._last_device_status = ack.payload
+                    self.emit("device", ack.payload)
+                    idle = self._voice_task is None or self._voice_task.done()
+                    if self.services and idle and not ack.payload.get("media_busy") and ack.payload.get("game") == "off":
+                        reminders = await self.services.store.call("reminder_list")
+                        if (self._voice_task is None or self._voice_task.done()) and any(r["state"] == "due" and r["robot"] == "pending" for r in reminders):
+                            self._voice_task = asyncio.create_task(self._deliver_reminders(body), name="kadence-alert")
+                            self._voice_task.add_done_callback(self._voice_task_done)
+                except asyncio.CancelledError: raise
+                except Exception:
+                    self.emit("device_status", {"state": "unavailable"})
+            await asyncio.sleep(1)
+
+    async def _deliver_reminders(self, body):
+        rows = await self.services.store.call("claim_robot")
+        if not rows: return
+        reply = f"You have {len(rows)} reminders due. Open Kadence to review them." if len(rows) > 2 else "Reminder. " + ". ".join(row["text"] for row in rows)
+        try:
+            providers = LiveVoiceProviders.from_settings(self.settings.providers)
+            self._alert_pcm = await _synthesize_reply(providers, reply[:600])
+        except asyncio.CancelledError: raise
+        except Exception:
+            # A bounded local chime needs neither API credentials nor an Internet connection.
+            self._alert_pcm = b"".join(struct.pack("<h", int(2200*math.sin(i*2*math.pi*660/16000))) if i%8000<4000 else b"\0\0" for i in range(24000))
+        try:
+            await self._run_media(body, "voice.alert")
+            await self.services.store.call("robot_delivered", ids=[r["id"] for r in rows])
+            self.emit("alert", {"state": "delivered", "count": len(rows)})
+        except asyncio.CancelledError: raise
+        except Exception:
+            self.emit("alert", {"state": "review_in_windows", "count": len(rows)})
+        finally: self._alert_pcm = b""
+
+    async def _run_media(self, body, name):
+        self._media_mode = "alert" if name == "voice.alert" else "camera"
+        self._turn_token = secrets.token_hex(16)
+        self._wire_claimed = False
+        self._media_result = None
+        self.emit("activity", {"state": self._media_mode})
+        try:
+            await request_device(body.host, name, {"ssid": self.settings.ssid, "password": self.settings.password,
+                "host": self.settings.lan_host, "port": self._server_port, "capture_ms": self.settings.capture_ms,
+                "token": self._turn_token}, timeout=100)
+            if self._media_result is None: raise RuntimeError("media transfer was not confirmed")
+            return self._media_result
+        except BaseException:
+            with contextlib.suppress(Exception): await body.send_voice_cancel(timeout=3)
+            raise
+        finally:
+            self._turn_token = None
+            await self._close_connections()
+            self._media_mode = "voice"
+            self.emit("activity", {"state": "idle"})
+
+    async def capture_snapshot(self):
+        body = self._body
+        if body is None or not body.connected: raise RuntimeError("Connect the robot first.")
+        if self._voice_task is not None and not self._voice_task.done(): raise RuntimeError("Wait for the current voice or camera task.")
+        if self._last_device_status.get("game", "off") != "off": raise RuntimeError("Stop the memory game before capturing.")
+        self._voice_task = asyncio.create_task(self._run_media(body, "camera.snapshot"), name="kadence-snapshot")
+        self._voice_task.add_done_callback(self._voice_task_done)
+        raw = await self._voice_task
+        await self.vision.accept(raw)
+        return {"message": "Snapshot captured. Local QR decoding complete."}
+
+    async def _look_during_voice(self, question):
+        if self._capture_in_voice is None: raise RuntimeError("No active camera request channel")
+        raw = await self._capture_in_voice()
+        await self.vision.accept(raw)
+        return await self.vision.describe(question, self.settings.providers)
 
     async def _close_connections(self) -> None:
         connections = tuple(self._connections.items())
@@ -211,16 +334,19 @@ class KadenceAppliance:
         )
         self._voice_task.add_done_callback(self._voice_task_done)
         print("KADENCE_RUNTIME TURN start trigger=touch")
+        self.emit("activity", {"state": "listening"})
 
     def _voice_task_done(self, task: asyncio.Task[None]) -> None:
         if self._voice_task is task:
             self._voice_task = None
+            self.emit("activity", {"state": "idle"})
         if task.cancelled():
             return
         with contextlib.suppress(Exception):
             task.result()
 
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
+        self._media_mode = "voice"
         self._turn_token = secrets.token_hex(16)
         self._wire_claimed = False
         self._wire_result = None
@@ -270,6 +396,8 @@ class KadenceAppliance:
         self._wire_result = None
 
         self._turn_sequence += 1
+        self.emit("turn", {"completed": self._turn_sequence})
+        self.emit("activity", {"state": "idle"})
         body_ok = False
         try:
             movement = await body.send_body_pose(0, 430, timeout=8.0)
@@ -344,6 +472,7 @@ class KadenceAppliance:
     ) -> None:
         task = asyncio.current_task()
         body, token = self._body, self._turn_token
+        mode = self._media_mode
         if (task is None or body is None or token is None or self._wire_claimed
                 or self._provider_lock.locked() or len(self._connections) >= 4):
             writer.close()
@@ -354,17 +483,42 @@ class KadenceAppliance:
         phase = "UPLINK"
         try:
             async with self._provider_lock:
+                if mode in {"alert", "camera"}:
+                    await asyncio.wait_for(read_media_auth(reader, magic=b"KDA1" if mode == "alert" else b"KDC1", token=token), 5)
+                    if self._turn_token != token or self._body is not body or not body.connected: return
+                    self._wire_claimed = True
+                    if mode == "alert":
+                        await asyncio.wait_for(send_wire_reply(writer, self._alert_pcm), 10)
+                        self._media_result = True
+                    else:
+                        self._media_result = await asyncio.wait_for(read_image(reader), 12)
+                        writer.write(b"KDAK")
+                        await writer.drain()
+                    return
                 turn = await asyncio.wait_for(read_wire_turn(reader, expected_token=token), timeout=15.0)
                 if self._turn_token != token or self._body is not body or not body.connected:
                     return
                 self._wire_claimed = True
                 phase = "PROVIDERS"
                 bridge = RuntimePresentationBridge(body)
+                camera_requested = False
+
+                async def capture_in_voice():
+                    nonlocal camera_requested
+                    if camera_requested or self._turn_token != token: raise RuntimeError("Only one snapshot is available per voice turn")
+                    camera_requested = True
+                    self.emit("activity", {"state": "camera"})
+                    writer.write(b"KDQ1")
+                    await writer.drain()
+                    return await asyncio.wait_for(read_image(reader), 10)
+
+                self._capture_in_voice = capture_in_voice
 
                 async def state_sink(state: str) -> None:
                     if self._turn_token != token or self._body is not body or not body.connected:
                         raise asyncio.CancelledError()
                     await bridge.set_state(state)
+                    self.emit("activity", {"state": state})
 
                 await state_sink("thinking")
                 provider_task = asyncio.create_task(
@@ -374,7 +528,7 @@ class KadenceAppliance:
                 )
                 self._provider_task = provider_task
                 try:
-                    async with asyncio.timeout(52):
+                    async with asyncio.timeout(90):
                         result = await provider_task
                 finally:
                     if self._provider_task is provider_task:
@@ -382,6 +536,8 @@ class KadenceAppliance:
                 if self._turn_token != token:
                     return
                 self._wire_result = result
+                for stage, elapsed_ms in result.timings.items():
+                    self.emit("timing", {"stage": stage, "elapsed_ms": elapsed_ms})
                 await asyncio.wait_for(send_wire_reply(writer, result.pcm), timeout=10)
                 print(
                     "KADENCE_RUNTIME PROVIDERS complete "
@@ -402,6 +558,10 @@ class KadenceAppliance:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(send_wire_error(writer, "voice service failure"), timeout=1)
         finally:
+            self._capture_in_voice = None
+            if self.services and mode == "voice":
+                with contextlib.suppress(Exception):
+                    self.emit("utilities", await self.services.snapshot())
             writer.close()
             self._connections.pop(task, None)
             with contextlib.suppress(ConnectionError, TimeoutError):
@@ -537,6 +697,7 @@ def _make_settings(args: argparse.Namespace) -> ApplianceSettings:
         password=password,
         lan_host=lan_host,
         providers=providers,
+        timezone_name=os.environ.get("KADENCE_TIMEZONE", "Europe/London"),
     )
 
 

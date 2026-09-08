@@ -54,6 +54,7 @@ bool voice_lan_fail(const char* stage, int code = 0)
 }
 
 struct VoiceLanRequest {
+    int operation = 0; // 0 conversation, 1 scheduled alert, 2 requested snapshot
     char request_id[48]{};
     char ssid[33]{};
     char password[64]{};
@@ -448,12 +449,30 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
     return true;
 }
 
+bool voice_lan_send_image(int sock)
+{
+    CameraFrame frame;
+    if (!camera_capture_frame(frame)) return voice_lan_send_all(sock,"KDI0",4);
+    const uint16_t width=htons(320), height=htons(240);
+    const uint32_t length=htonl(frame.size);
+    // Sensor RGB565 high byte first; fixed dimensions and size are validated at
+    // both ends. Image transport is bounded and never overlaps speaker DMA.
+    bool ok=voice_lan_send_all(sock,"KDI1",4) && voice_lan_send_all(sock,&width,2) &&
+        voice_lan_send_all(sock,&height,2) && voice_lan_send_all(sock,&length,4) &&
+        voice_lan_send_all(sock,frame.data,frame.size);
+    heap_caps_free(frame.data);
+    return ok;
+}
+
 bool voice_lan_receive_playback(int sock)
 {
     std::array<char, 4> magic{};
     if (!voice_lan_recv_all(sock, magic.data(), magic.size())) {
         ESP_LOGE(kLogTag, "VOICE_LAN status=failed stage=reply-header");
         return voice_lan_fail("reply-header", errno);
+    }
+    if (std::memcmp(magic.data(),"KDQ1",4)==0) {
+        if(!voice_lan_send_image(sock) || !voice_lan_recv_all(sock,magic.data(),4)) return voice_lan_fail("camera-transfer",errno);
     }
 
     if (std::memcmp(magic.data(), kVoiceLanErrorMagic, 4) == 0) {
@@ -615,6 +634,37 @@ VoiceLanProof voice_lan_run_turn(const VoiceLanRequest& request)
     return proof;
 }
 
+VoiceLanProof voice_lan_run_media(const VoiceLanRequest& request)
+{
+    VoiceLanProof proof{};
+    g_voice_lan_failure_stage="starting"; g_voice_lan_failure_code=0;
+    if(!p9_release_torque() || !p10_verify_torque_released()) { voice_lan_fail("torque-precondition"); return proof; }
+    presence_interaction_begin();
+    presentation_set_state(PresentationState::Thinking,"media-request");
+    int sock=-1;
+    bool completed=[&]() {
+        if(!voice_lan_connect_wifi(request)) return false;
+        proof.network=true;
+        sock=voice_lan_connect_server(request);
+        if(sock<0) return false;
+        const char* magic=request.operation==1?"KDA1":"KDC1";
+        if(!voice_lan_send_all(sock,magic,4) || !voice_lan_send_all(sock,request.token,32)) return voice_lan_fail("uplink-auth",errno);
+        if(request.operation==1) return proof.playback=voice_lan_receive_playback(sock);
+        if(!voice_lan_send_image(sock)) return voice_lan_fail("camera-transfer",errno);
+        char answer[4]{};
+        proof.capture=voice_lan_recv_all(sock,answer,4) && !memcmp(answer,"KDAK",4);
+        if(!proof.capture) return voice_lan_fail("camera-capture");
+        return true;
+    }();
+    if(sock>=0) close(sock);
+    proof.handoff=completed;
+    proof.torque_released=p9_release_torque()&&p10_verify_torque_released();
+    if(!proof.torque_released) voice_lan_fail("torque-release");
+    presentation_set_state(PresentationState::Idle,"media-complete");
+    presence_interaction_end();
+    return proof;
+}
+
 bool voice_lan_make_ack(const VoiceLanRequest& request,
                         const VoiceLanProof& proof,
                         char* output,
@@ -630,13 +680,15 @@ bool voice_lan_make_ack(const VoiceLanRequest& request,
         return false;
     }
 
+    const bool successful=request.operation==0?proof.ok():proof.network&&proof.handoff&&proof.torque_released;
+    const char* command=request.operation==0?"voice.turn":request.operation==1?"voice.alert":"camera.snapshot";
     bool built = true;
     built = built && cJSON_AddNumberToObject(root, "v", 1) != nullptr;
     built = built && cJSON_AddStringToObject(root, "id", request.request_id) != nullptr;
     built = built && cJSON_AddStringToObject(root, "ts", "device") != nullptr;
     built = built && cJSON_AddStringToObject(root, "kind", "ack") != nullptr;
-    built = built && cJSON_AddStringToObject(root, "name", "voice.turn") != nullptr;
-    built = built && cJSON_AddBoolToObject(payload, "ok", proof.ok()) != nullptr;
+    built = built && cJSON_AddStringToObject(root, "name", command) != nullptr;
+    built = built && cJSON_AddBoolToObject(payload, "ok", successful) != nullptr;
     built = built && cJSON_AddBoolToObject(payload, "network", proof.network) != nullptr;
     built = built && cJSON_AddBoolToObject(payload, "capture", proof.capture) != nullptr;
     built = built && cJSON_AddBoolToObject(payload, "opus", proof.opus) != nullptr;
@@ -645,7 +697,7 @@ bool voice_lan_make_ack(const VoiceLanRequest& request,
     built = built && cJSON_AddBoolToObject(payload, "torque_released", proof.torque_released) != nullptr;
     built = built && cJSON_AddBoolToObject(payload, "cancelled", voice_cancel_is_requested()) != nullptr;
     built = built && cJSON_AddStringToObject(payload, "stage",
-        proof.ok() ? "complete" : voice_cancel_is_requested() ? "cancelled" : g_voice_lan_failure_stage) != nullptr;
+        successful ? "complete" : voice_cancel_is_requested() ? "cancelled" : g_voice_lan_failure_stage) != nullptr;
     built = built && cJSON_AddNumberToObject(payload, "error_code", g_voice_lan_failure_code) != nullptr;
     built = built && cJSON_AddNumberToObject(payload, "wifi_reason", g_voice_lan_wifi_state.reason()) != nullptr;
     if (built) {
@@ -680,7 +732,7 @@ VoiceLanCommandResult voice_lan_execute_command(const char* raw,
 
     const cJSON* name = cJSON_GetObjectItemCaseSensitive(root, "name");
     if (!cJSON_IsString(name) || name->valuestring == nullptr ||
-        std::strcmp(name->valuestring, "voice.turn") != 0) {
+        (std::strcmp(name->valuestring, "voice.turn") != 0 && std::strcmp(name->valuestring,"voice.alert")!=0 && std::strcmp(name->valuestring,"camera.snapshot")!=0)) {
         cJSON_Delete(root);
         return VoiceLanCommandResult::NotVoiceTurn;
     }
@@ -695,6 +747,8 @@ VoiceLanCommandResult voice_lan_execute_command(const char* raw,
     const cJSON* port = payload ? cJSON_GetObjectItemCaseSensitive(payload, "port") : nullptr;
     const cJSON* capture_ms = payload ? cJSON_GetObjectItemCaseSensitive(payload, "capture_ms") : nullptr;
     const cJSON* token = payload ? cJSON_GetObjectItemCaseSensitive(payload, "token") : nullptr;
+    const int operation=!strcmp(name->valuestring,"voice.turn")?0:!strcmp(name->valuestring,"voice.alert")?1:2;
+    if(operation && !token) { cJSON_Delete(root); return VoiceLanCommandResult::Rejected; }
     if (token != nullptr && (!cJSON_IsString(token) || token->valuestring == nullptr ||
                             std::strlen(token->valuestring) != 32 ||
                             std::strspn(token->valuestring, "0123456789abcdef") != 32)) {
@@ -735,6 +789,7 @@ VoiceLanCommandResult voice_lan_execute_command(const char* raw,
     }
 
     VoiceLanRequest request{};
+    request.operation=operation;
     std::snprintf(request.request_id, sizeof(request.request_id), "%s", request_id->valuestring);
     std::memcpy(request.ssid, ssid->valuestring, ssid_len);
     std::memcpy(request.password, password->valuestring, password_len);
@@ -744,7 +799,7 @@ VoiceLanCommandResult voice_lan_execute_command(const char* raw,
     if (token != nullptr) std::memcpy(request.token, token->valuestring, 32);
     cJSON_Delete(root);
 
-    const VoiceLanProof proof = voice_lan_run_turn(request);
+    const VoiceLanProof proof = operation==0?voice_lan_run_turn(request):voice_lan_run_media(request);
     if (!voice_lan_make_ack(request, proof, ack, ack_size)) {
         return VoiceLanCommandResult::Rejected;
     }

@@ -27,12 +27,13 @@ class ContextStore:
             with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
                 db.execute("PRAGMA journal_mode=WAL")
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1):
+                if version not in (0, 1, 2):
                     raise RuntimeError("unsupported context database version")
                 db.execute("CREATE TABLE IF NOT EXISTS records ("
                            "id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, "
                            "text TEXT NOT NULL, created TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
-                db.execute("PRAGMA user_version=1")
+                if version == 0:
+                    db.execute("PRAGMA user_version=1")
             if os.name != "nt":
                 self.path.chmod(0o600)
         await asyncio.to_thread(initialise)

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import struct
 import hmac
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Iterable, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -42,6 +43,7 @@ class VoiceWireResult:
     reply: str
     pcm: bytes
     no_speech: bool = False
+    timings: dict[str, int] = field(default_factory=dict, compare=False)
 
 
 def _ogg_crc(page: bytes) -> int:
@@ -224,6 +226,8 @@ async def process_wire_turn(
         sample_rate=turn.sample_rate,
         frame_ms=turn.frame_ms,
     )
+    timings = {}
+    started = time.perf_counter()
     try:
         async with asyncio.timeout(15):
             transcript = await providers.stt.transcribe_file(
@@ -232,14 +236,20 @@ async def process_wire_turn(
                 content_type="audio/ogg",
             )
     except VoiceNoSpeechDetected:
+        timings["stt"] = round((time.perf_counter()-started)*1000)
+        started = time.perf_counter()
         pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY)
+        timings["tts"] = round((time.perf_counter()-started)*1000)
         return VoiceWireResult(
             transcript="",
             reply=NO_SPEECH_REPLY,
             pcm=pcm,
             no_speech=True,
+            timings=timings,
         )
 
+    timings["stt"] = round((time.perf_counter()-started)*1000)
+    started = time.perf_counter()
     if companion is not None:
         reply = await companion.respond(transcript, providers.thinker, state_sink=state_sink)
     else:
@@ -254,8 +264,11 @@ async def process_wire_turn(
     if not reply:
         raise RuntimeError("Thinker returned an empty reply")
 
+    timings["reasoning"] = round((time.perf_counter()-started)*1000)
+    started = time.perf_counter()
     pcm = await _synthesize_reply(providers, reply)
-    return VoiceWireResult(transcript=transcript, reply=reply, pcm=pcm)
+    timings["tts"] = round((time.perf_counter()-started)*1000)
+    return VoiceWireResult(transcript=transcript, reply=reply, pcm=pcm, timings=timings)
 
 
 async def send_wire_reply(writer: asyncio.StreamWriter, pcm: bytes) -> None:

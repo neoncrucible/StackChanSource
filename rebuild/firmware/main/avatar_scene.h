@@ -74,6 +74,12 @@ public:
                 case 'W': g=0b101101111111101; break; case 'X': g=0b101101010101101; break;
                 case 'Y': g=0b101101010010010; break; case 'Z': g=0b111001010100111; break;
                 case '>': g=0b100010001010100; break;
+                case '0': g=0b111101101101111; break; case '1': g=0b010110010010111; break;
+                case '2': g=0b110001010100111; break; case '3': g=0b110001010001110; break;
+                case '4': g=0b101101111001001; break; case '5': g=0b111100110001110; break;
+                case '6': g=0b011100111101111; break; case '7': g=0b111001010010010; break;
+                case '8': g=0b111101111101111; break; case '9': g=0b111101111001110; break;
+                case ':': g=0b000010000010000; break;
             }
             for(int row=0;row<5;++row) for(int col=0;col<3;++col)
                 if(g & (1<<(14-row*3-col))) box(x+col*scale,y+row*scale,scale,scale,c);

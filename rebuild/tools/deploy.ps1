@@ -26,7 +26,7 @@ if ($Bundle) {
 }
 $hostPython = (& python -c 'import sys; print(sys.executable)').Trim()
 if ($LASTEXITCODE -ne 0 -or !(Test-Path $hostPython)) { throw 'Could not resolve the host Python interpreter.' }
-& $hostPython -m pip install -e "$root\rebuild[voice,dev]"
+& $hostPython -m pip install -e "$root\rebuild[voice,vision,dev]"
 if ($LASTEXITCODE -ne 0) { throw 'Host dependency install failed.' }
 & $hostPython -m kcore.appliance --check
 if ($LASTEXITCODE -ne 0) { throw 'Runtime setup check failed; firmware was not flashed.' }
@@ -41,7 +41,7 @@ if ($HostOnly) {
 }
 if (!$Bundle) {
     & "$PSScriptRoot\sdk_process.ps1" -Script "$PSScriptRoot\build_firmware.ps1"
-    $firmware = "$root\rebuild\dist\Kadence-RC1"
+    $firmware = "$root\rebuild\dist\Kadence-RC2-Firmware-$($commit.Substring(0,12))"
 }
 if (!$BuildOnly) {
     & "$PSScriptRoot\sdk_process.ps1" -Script (Join-Path $firmware 'flash.ps1') -ScriptArguments @('-Port', $Port)

@@ -7,15 +7,16 @@
 **Hardware:** M5Stack StackChan / CoreS3 / K151, ESP32-S3  
 **Normal serial:** `COM4` @ `115200`  
 **ESP-IDF:** 5.5.4  
-**State date:** 7 Sep 2026  
+**State date:** 8 Sep 2026
 **Phase A starting anchor for RC1:** `70e7d80baa81ef3b280e96e0f3de25e0c52618ed`
 **Approved build:** RC1, host 0.2.0 / firmware 0.20.1, source `997654857c3dd6aa2f78c92501c2eda2bf6744fe`; owner-approved on 7 Sep 2026.
-**Current authority:** publish the approved-build manual and research the requested next release; new implementation awaits Boss's explicit sign-off.
+**Current authority:** Boss approved the first next-release bundle, excluded Quiz Night and explicitly added dated natural-language reminders. Implement that scope; later face-tracking/enrollment qualification remains separate.
+**Current candidate:** RC2, host 0.3.0 / firmware 0.21.0. The implemented approved scope, ownership details, automated checks and physical acceptance procedure are in [RC2_ENGINEERING.md](RC2_ENGINEERING.md). Match source with the package `RELEASE.json`. New hardware features are not yet owner-signed-off.
 **Operator manual:** [USER_MANUAL.md](USER_MANUAL.md)
 
 **Acceptance:** [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md)
 
-**Next-release review:** [NEXT_RELEASE_PROPOSAL.md](NEXT_RELEASE_PROPOSAL.md) — proposed, not approved.
+**Next-release review:** [NEXT_RELEASE_PROPOSAL.md](NEXT_RELEASE_PROPOSAL.md) — first bundle approved; quiz excluded.
 
 > **This file is the authoritative continuation document.** In a fresh chat, read this file before proposing work. Do not ask the user to reconstruct prior context unless this document and the referenced repo files are demonstrably insufficient.
 
@@ -33,9 +34,9 @@ implementation freedom for the next release:
   implemented features may be fully documented and explained.
 - Boss requested feedback on a Windows server UI, practical/fun utilities, top
   LEDs, top-touch volume and camera capabilities. Those proposals may be discussed.
-- **Do not implement the proposed changes until Boss explicitly signs off their
-  scope.** Research and a reviewable proposal are authorised now. Neither the
-  historical blind-build freedom nor the existence of a proposal grants approval.
+- **Boss has now signed off the first bundle**, excluding Quiz Night and adding
+  natural dated reminders. Proceed with that implementation. Continuous tracking
+  and enrolled-person recognition remain behind the documented camera review.
 - Keep unrelated unrevealed features, personality details and surprises private.
 - Once a scope is approved, lead its implementation autonomously, batch safe work
   and request only the physical observations needed to validate it.
@@ -142,7 +143,7 @@ Do not delete them casually.
 
 # 4. CURRENT STATE IN ONE SENTENCE
 
-**Runtime/body foundation, Phase A and the current RC1 build are owner-approved. RC1 adds the Phase B host boundary and useful capabilities to normal voice, with the approved avatar and solid terminal presentation. The 9976548 physical run completed voice, body reaction, idle return and clean shutdown. Next-release research is complete in the proposal; implementation awaits Boss's sign-off. Do not restart B1 or replay Phase A.**
+**Runtime/body foundation, Phase A and the current RC1 build are owner-approved. RC1 adds the Phase B host boundary and useful capabilities to normal voice, with the approved avatar and solid terminal presentation. The 9976548 physical run completed voice, body reaction, idle return and clean shutdown. The first next-release bundle is approved, with Quiz Night excluded and natural dated reminders explicitly added. Do not restart B1 or replay Phase A.**
 
 Do not reopen CP19–23 or A1–A4 without concrete regression evidence.
 
@@ -398,7 +399,7 @@ Expected healthy output:
 PHASE_A3_VOICE_PREFLIGHT PASS httpx=1 edge_tts=1 openai_key=1 gemini_key=1 stt=gpt-transcribe thinker=gemini-3.5-flash-lite voice=en-GB-SoniaNeural
 ```
 
-Credentials are supplied by process environment or local prompts. Prompted secrets are process-only; there is currently no application credential vault. Use `python -m kcore.appliance --visible-input` for the owner-approved visible local entry, or omit the flag to hide it.
+Credentials are supplied by process environment or local prompts. Prompted secrets are process-only in the CLI. The RC2 desktop offers optional Windows Credential Manager storage. Use `python -m kcore.appliance --visible-input` for the owner-approved visible local entry, or omit the flag to hide it.
 
 Never place secrets in repo code, documentation, logs or chat.
 
@@ -507,9 +508,9 @@ Use `git log` / GitHub history if finer-grained archaeology is needed.
 
 These are not Phase A failures, but future work should know they exist:
 
-- Current normal initiation is front-screen touch. Additional initiation/notification paths are proposed work and require owner approval; older branches do not authorise them.
+- Normal conversation starts from front-screen touch. RC2 adds the approved host reminder notification path; older branches do not authorise other initiation modes.
 - Current capture window is turn-based/fixed-duration (normal default 4.8 s). Do not casually replace it without preserving cancellation and device/host ownership.
-- Provider credentials come from process environment or local prompts; prompted values are not saved for a fresh terminal/reboot.
+- CLI credentials come from environment/prompts. The RC2 desktop supports session-only fields and optional Windows Credential Manager; ordinary JSON never stores secrets.
 - Wi-Fi password is currently requested locally when needed; firmware stores Wi-Fi credentials in RAM only.
 - LAN host selection can be affected by VPN/multiple adapters; `KADENCE_LAN_HOST` exists as an override.
 - The product runtime currently depends on external OpenAI/Gemini/Edge providers for full cognition/voice, while local presence and physical safety remain independent.
@@ -571,7 +572,7 @@ rebuild/backend/kcore/host.py
 rebuild/docs/ARCHITECTURE.md
 ```
 
-Boss now requires sign-off before next-release implementation. Use the concrete proposal to obtain scope approval; earlier design freedom does not bypass that requirement.
+Boss approved the first RC2 bundle, excluded Quiz Night and added dated reminders. That scope is implemented. Continuous tracking/enrollment and account-specific Home Assistant actions retain the documented later boundary.
 
 ## B2 / B3 / B4 — accepted release scope
 
@@ -594,35 +595,31 @@ they are not a reason to withhold or reopen the owner's recorded RC1 approval.
 
 # 14. EXACT NEXT MOVE IN A FRESH CHAT
 
-**Current build approved; next implementation awaits scope approval.**
+**Continue RC2 qualification/delivery; do not rebuild completed Phase A or ask for scope approval again.**
 
-1. Read `RC1_ACCEPTANCE.md`, `USER_MANUAL.md` and `NEXT_RELEASE_PROPOSAL.md`.
-   The latter is a proposal only. Check subsequent owner messages for an explicit
-   approval or revision before acting on it.
-2. The accepted software source is `997654857c3dd6aa2f78c92501c2eda2bf6744fe`,
-   host 0.2.0 / firmware 0.20.1. Its Windows host and firmware CI run
-   `34143759796` succeeded. The owner then reported `KADENCE_FLASH PASS`,
-   device-ready, provider completion, `TURN complete seq=1 voice=1
-   body_reaction=1 idle_return=1`, and `STOPPED clean=1`.
-3. The requested direction is a themed Windows server/credentials application,
-   at least three useful utilities and two fun ones, thinking animations on both
-   top strips, top-touch volume, and camera use. The proposal recommends a shared
-   utility/UI release with snapshots, then separately qualified face tracking
-   and enrolled-person profiles. No additional hardware or cloud account has been
-   approved merely by the research.
-4. Official M5Stack RGB control uses the PY32 I2C expander, not an ESP32 LED GPIO.
-   The top Si12T panel is distinct from front-screen touch. The camera shares
-   SDA12/SCL11 and memory bandwidth with the running device. Read the cited
-   official examples and preserve all current ownership/safety invariants.
-5. Fetch the actual branch before meaningful engineering work. After scope
-   approval, work through the existing runtime/tool and hardware boundaries,
-   build a matching commit-named delivery and test the combined workload.
-6. No build or flash is needed for the manual/sign-off update. The deployment
-   script compares full HEAD to the bundle source, including documentation
-   commits. Preserve the approved bundle's original manifest and hashes; do not
-   bypass its guard or tell the owner to flash an older ZIP against a new HEAD.
-7. Keep real credentials out of all stored documentation, diagnostic excerpts
-   and future UI exports. Current visible input is local to the owner's lab.
+1. Read `RC2_ENGINEERING.md`, `USER_MANUAL.md` and the current package identity.
+   RC2 implements the approved Windows console, reminders/focus, workbench,
+   snapshots/QR/Gemini descriptions, LEDs, touch volume and LED Memory. Quiz is out.
+2. Fetch the actual `kadence/rebuild-kade` branch. Inspect the current Actions run
+   before changing code. The `windows-desktop` job depends on host and firmware
+   success and runs the actual frozen worker before publishing one combined ZIP.
+   If a job fails, resolve its concrete evidence and rerun/build a fresh matched
+   commit. Never deliver a package from a different source commit.
+3. Deliver the complete `Kadence-RC2-<12-character-commit>.zip`. Extract all files;
+   `Flash-Kadence.ps1 -Port COM4` checks desktop/firmware identity and invokes the
+   preserved calibration-safe flash helper. Everyday startup is `Kadence.exe`.
+   No daily ESP-IDF/Python environment is required by the executable.
+4. Perform the short owner hardware procedure in `RC2_ENGINEERING.md`: normal
+   voice/strips, top volume/mute, timed reminders, LED Memory, repeated deliberate
+   camera captures and cancellation, then stop/restart/reconnect. Automated tests
+   cannot supply those physical observations. Retain RC1 `9976548` as rollback.
+5. Record actual RC2 observations and owner approval when supplied. Do not mark
+   new hardware signed off on the strength of the earlier RC1 voice log.
+6. Face tracking/enrolled-person recognition follow measured camera qualification;
+   do not enable them or invent recognition proof in this release. Home Assistant
+   device actions need the owner's actual entity/action scope.
+7. Keep credentials and image/QR/conversation contents out of commits and diagnostic
+   exports. Preserve unrelated surprises and all existing hardware owners.
 
 ---
 
@@ -630,7 +627,7 @@ they are not a reason to withhold or reopen the owner's recorded RC1 approval.
 
 The user can start a new chat with exactly this:
 
-> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`. RC1 is approved. Continue from the current proposal and my latest scope decision; new implementation needs my sign-off. Preserve unrelated surprises and batch safe commands where sensible.
+> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`. RC1 is approved and the first RC2 bundle is implemented. Continue from its current CI/package and hardware qualification state; the quiz is excluded and dated reminders are included. Preserve unrelated surprises and batch safe commands where sensible.
 
 That should be sufficient to restore the project without the user repeating history.
 
@@ -644,4 +641,12 @@ The user requested and has now approved a substantial integrated RC1 build, incl
 
 Do not make the user spend another day admiring infrastructure for its own sake.
 
-After the next scope is approved, build useful capability **behind the proven boundaries**, preserve unrelated surprises and test vertically. Until then, provide the requested engineering feedback and wait for the owner's decision.
+Build and qualify the approved scope **behind the proven boundaries**, preserve unrelated surprises and test vertically. Do not ask again for already recorded approval.
+
+## Latest owner scope decision
+
+Boss: drop the quiz game; approve the rest of the first bundle; add date-aware
+“remind me at…” and “tomorrow remind me I need to…” requests. This explicit
+approval supersedes earlier awaiting-approval statements for the first bundle.
+Do not request that approval again. Keep the approved 9976548 firmware as the
+physical rollback baseline while building and verifying its successor.

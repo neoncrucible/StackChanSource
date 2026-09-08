@@ -34,7 +34,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install -e './rebuild[voice,dev]'
+          python -m pip install -e './rebuild[voice,vision,dev]'
           if ($LASTEXITCODE -ne 0) { throw 'Host install failed' }
           python -m kcore.appliance --check
           if ($LASTEXITCODE -ne 0) { throw 'Actual runtime entry point failed its setup check' }
@@ -45,7 +45,7 @@ jobs:
           python rebuild/tools/phase_a3_voice_wire_gate.py
           if ($LASTEXITCODE -ne 0) { throw 'Voice wire gate failed' }
           & ./rebuild/tests/test_sdk_process.ps1
-          foreach ($script in @('deploy.ps1', 'flash_bundle.ps1', 'build_firmware.ps1', 'sdk_process.ps1')) {
+          foreach ($script in @('deploy.ps1', 'flash_bundle.ps1', 'build_firmware.ps1', 'sdk_process.ps1', 'flash_desktop.ps1')) {
               $tokens = $null
               $parseErrors = $null
               $path = Join-Path (Get-Location) "rebuild/tools/$script"
@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           source "$IDF_PATH/export.sh"
-          python -m pip install -e './rebuild[voice,dev]'
+          python -m pip install -e './rebuild[voice,vision,dev]'
           python -m kcore.appliance --check
           python -m pytest rebuild/tests -q
           python rebuild/tools/phase_b_gate.py
@@ -80,6 +80,8 @@ jobs:
           /tmp/avatar-scene-test
           g++ -std=c++17 -Wall -Wextra -Werror -O2 -fsanitize=address,undefined rebuild/tests/voice_wifi_state_test.cpp -o /tmp/voice-wifi-state-test
           /tmp/voice-wifi-state-test
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -fsanitize=address,undefined rebuild/tests/top_logic_test.cpp -o /tmp/top-logic-test
+          /tmp/top-logic-test
 
       - name: Build current ESP32-S3 candidate
         shell: bash
@@ -101,8 +103,8 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: kadence-rc1-firmware
-          path: rebuild/dist/Kadence-RC1.zip
+          name: kadence-rc2-firmware
+          path: rebuild/dist/Kadence-RC2-Firmware-*.zip
           if-no-files-found: error
 
       - name: Upload build log
@@ -112,3 +114,43 @@ jobs:
           name: kadence-rebuild-body-build-log
           path: rebuild/firmware/body-build.log
           if-no-files-found: warn
+
+  windows-desktop:
+    needs: [windows-host, build]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install desktop build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -e './rebuild[voice,desktop,package,dev]'
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop install failed' }
+      - name: Exercise Windows GUI and credential vault
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest rebuild/tests/test_desktop.py rebuild/tests/test_rc2_services.py rebuild/tests/test_rc2_media.py -q
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop integration tests failed' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: kadence-rc2-firmware
+          path: rebuild/dist/firmware-download
+      - name: Package the matching Windows and firmware release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = @(Get-ChildItem rebuild/dist/firmware-download -Filter *.zip)
+          if ($zip.Count -ne 1) { throw 'Expected one matching firmware artifact' }
+          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath rebuild/dist/firmware-input
+          python rebuild/tools/package_desktop.py --source-commit "$env:GITHUB_SHA" --firmware rebuild/dist/firmware-input
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging or frozen worker check failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kadence-rc2-windows-complete
+          path: rebuild/dist/Kadence-RC2-????????????.zip
+          if-no-files-found: error
+          compression-level: 0

@@ -6,6 +6,7 @@
 #include <cstring>
 #include "esp_heap_caps.h"
 #include "avatar_scene.h"
+#include "top_controls.h"
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
@@ -369,6 +370,7 @@ bool presentation_render(PresentationState state, uint32_t frame)
     float level = static_cast<float>(g_presentation_audio_level.load(std::memory_order_relaxed)) / 1000;
     if (state != PresentationState::Listening && state != PresentationState::Speaking) level = 0;
     animation.render(pixels, state, now, level);
+    top_controls_overlay(pixels, now);
     for (int row = 0; row < kadence_scene::Height; row += 8) {
         kadence_scene::encode_rgb565(pixels + row * kadence_scene::Width,
                                     scratch.data(), kadence_scene::Width * 8);
@@ -463,6 +465,7 @@ void presentation_task(void*)
     while (true) {
         const uint64_t now_ms = static_cast<uint64_t>(esp_timer_get_time()) / 1000ULL;
         presentation_poll_touch(now_ms);
+        top_controls_tick(now_ms);
 
         PresentationState requested = presentation_requested_state();
         if (requested == PresentationState::Booting &&

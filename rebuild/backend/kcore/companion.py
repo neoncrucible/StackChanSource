@@ -13,6 +13,8 @@ from .context_store import ContextStore
 from .identity import KADENCE_IDENTITY
 from .providers import Thinker
 from .tool_bridge import KadenceToolBoundary
+from .reminder_time import clock_context
+from .reminders import Reminders, ReminderDraft
 
 StateSink = Callable[[str], Awaitable[None]]
 
@@ -25,12 +27,17 @@ class PendingChange:
 
 
 class Companion:
-    def __init__(self, tools: KadenceToolBoundary, store: ContextStore | None = None):
+    def __init__(self, tools: KadenceToolBoundary, store: ContextStore | None = None, *, reminders: Reminders | None = None, timezone_name: str = "Europe/London"):
         self.tools = tools
         self.store = store
         self.history: deque[tuple[str, str]] = deque(maxlen=8)
         self._pending: PendingChange | None = None
         self._proposed: PendingChange | None = None
+        self.reminders = reminders
+        self.timezone_name = timezone_name
+        self._reminder_pending: ReminderDraft | None = None
+        self._reminder_proposed: ReminderDraft | None = None
+        self._reminder_expires = 0.0
 
     def commit_spoken(self, transcript: str, reply: str) -> None:
         """Called only after the device confirms completed playback."""
@@ -40,10 +47,14 @@ class Companion:
                 self.history.popleft()
         self._pending = replace(self._proposed, created=time.monotonic()) if self._proposed else None
         self._proposed = None
+        self._reminder_pending = self._reminder_proposed
+        self._reminder_proposed = None
+        self._reminder_expires = time.monotonic() + 120
 
     def abort_turn(self) -> None:
         self._pending = None
         self._proposed = None
+        self._reminder_pending = self._reminder_proposed = None
 
     async def respond(self, transcript: str, thinker: Thinker, *, state_sink: StateSink | None = None) -> str:
         text = transcript.strip()
@@ -51,6 +62,16 @@ class Companion:
             raise ValueError("invalid conversation input")
         pending, self._pending = self._pending, None
         self._proposed = None
+        reminder_draft, self._reminder_pending = self._reminder_pending, None
+        self._reminder_proposed = None
+        if self.reminders:
+            try:
+                result = await self.reminders.voice_request(text, reminder_draft if time.monotonic() < self._reminder_expires else None)
+                if result is not None:
+                    reply, self._reminder_proposed = result
+                    return reply
+            except (ValueError, RuntimeError):
+                return "I couldn't schedule that reminder. Please give me the task, date and time."
         normal = re.sub(r"[.!?,]", "", text.casefold()).strip()
         if pending and time.monotonic() - pending.created < 60:
             if normal in {"yes", "yes please", "confirm", "confirmed", "do it", "go ahead"}:
@@ -66,6 +87,8 @@ class Companion:
         if plan is None:
             prompt = (
                 KADENCE_IDENTITY.system_context()
+                + '\nCURRENT LOCAL CLOCK (authoritative for this turn): '
+                + json.dumps(clock_context(self.timezone_name, self.reminders.now() if self.reminders else None))
                 + '\nReturn exactly one JSON object: {"reply":"natural spoken answer"} '
                 'or {"tool":"registered_name","arguments":{...}}. No markdown. '
                 'Use tools for current facts, arithmetic, saved notes and tasks. '
@@ -107,6 +130,8 @@ class Companion:
         if set(plan) != {"tool", "arguments"}:
             return "I couldn't safely interpret that request."
         name, arguments = plan["tool"], plan["arguments"]
+        if name == "desk_look" and not re.search(r"\b(look at|what (?:am i holding|do you see|is this|can you see)|read this|describe (?:this|what)|identify this|scan (?:this|the) (?:qr|code))\b", text, re.I):
+            return "Ask me to look at something when you want a camera snapshot."
         rejection = self.tools.validate(name, arguments)
         if rejection:
             return self._format_result(rejection)
@@ -140,6 +165,14 @@ class Companion:
         return None
 
     async def _describe_change(self, name: str, arguments: dict) -> str | None:
+        if name == "project_create":
+            return f"Shall I create the project {arguments['name']}?"
+        if name in {"project_note", "project_step"}:
+            project=arguments.get('project',arguments.get('project_id'))
+            if project is None: return None
+            return f"Shall I add this to project {project}: {arguments['text']}?"
+        if name == "project_step_done":
+            return f"Shall I complete checklist entry {arguments['id']}?"
         if name == "remember":
             return f"Shall I save this note: {arguments['text']}?"
         if name == "task_add":
@@ -152,6 +185,8 @@ class Companion:
         return None
 
     async def _execute(self, name: str, arguments: dict, state_sink: StateSink | None, *, confirmed: bool = False) -> str:
+        if name == "clock" and "timezone" not in arguments:
+            arguments = {**arguments, "timezone": self.timezone_name}
         try:
             if state_sink:
                 await state_sink("tool-working")
@@ -171,6 +206,19 @@ class Companion:
                 return "I can't carry out that request through my available tools."
             return "That service isn't available just now. We can carry on talking."
         data, name = result["data"], result["tool"]
+        if name in {"convert_units", "ohms_law", "resistor_bands", "desk_look"}:
+            return data["spoken"]
+        if name in {"project_create", "project_note", "project_step"}:
+            return f"Saved as {data['id']}: {data.get('name', data.get('text', ''))}"
+        if name == "project_step_done":
+            return "Checklist step completed." if data["changed"] else "That step was not found."
+        if name in {"project_list", "project_read"}:
+            rows = data["items"]
+            return "; ".join(f"{x['id']}: {x.get('name', x.get('text', ''))}" + (" (done)" if x.get('done') else "") for x in rows[:5])[:1200] or "No matching project entries."
+        if name == "reminder_list":
+            from datetime import datetime, timezone
+            from .reminder_time import spoken_due
+            return "; ".join(f"{x['id']}: {x['text']}, {spoken_due(datetime.fromtimestamp(x['due'], timezone.utc), x['timezone'])}" for x in data["items"][:5])[:1200] or "No active reminders."
         if name == "clock":
             return f"It's {data['spoken']}, {data['timezone'].replace('_', ' ')}."
         if name == "calculate":

@@ -1,14 +1,16 @@
-# Kadence next release — proposal for owner review
+# Kadence next release — approved implementation scope
 
-**Status: PROPOSED, NOT APPROVED FOR IMPLEMENTATION.**
+**Status: FIRST BUNDLE APPROVED by Boss on 7 September 2026; quiz removed.**
 
 **Date:** 7 September 2026
 
 **Baseline:** approved RC1 at `997654857c3dd6aa2f78c92501c2eda2bf6744fe`
 
-This document responds to the owner's request for feedback before committing to
-new functionality. It specifies a reviewable scope; no dashboard, utility,
-camera, LED or volume implementation is authorised by this document alone.
+Boss approved the first bundle, removed Quiz Night, and explicitly added natural
+dated reminders: “remind me at…” and “tomorrow remind me I need to…”. Implement
+the approved scope without requesting approval again. Continuous tracking and
+enrolled-person profiles retain the later camera qualification/review boundary.
+Home Assistant actions still need the owner's actual configured devices.
 
 ## Recommended release shape
 
@@ -17,7 +19,7 @@ commands, status and stored data first, then connect both voice and UI to those
 same services. Deliver one coherent desktop-and-device release after approval.
 
 The first proposed bundle contains the Windows console, three practical
-utilities, two games, both top LED strips, top-touch volume and deliberate camera
+utilities, one game, both top LED strips, top-touch volume and deliberate camera
 snapshots. Face tracking and enrolled-person recognition follow a separate camera
 qualification step. Reserve their UI space now without making the first bundle
 depend on continuous video performance.
@@ -96,15 +98,14 @@ This is optional and is not one of the three baseline utilities. Existing NFC
 and infrared hardware are promising later inputs, but adding those drivers is
 outside this first proposed bundle.
 
-## Two fun utilities
+## LED memory game
 
 | Game | Interaction | UI / device requirements |
 |---|---|---|
 | LED memory game | Repeat a growing sequence across three clearly marked top-touch zones, with the two strips showing the pattern and progress. | Explicit game mode, score/best score, sound option and front-screen cancel. Top-zone game input temporarily replaces volume gestures only while this visible mode is active. |
-| Quiz night | Short scored quizzes, hints and selectable topics/difficulty, with avatar and light feedback. | Topic selection, current question and score; a checked local question pack provides a provider-independent baseline. Speech remains optional through the normal voice path. |
 
-Both should be bounded sessions that can be stopped immediately. Light feedback
-and avatar responses should use the normal presentation state system. The games
+The game should be a bounded session that can be stopped immediately. Light feedback
+and avatar responses should use the normal presentation state system. The game
 must not create another motor, audio, touchscreen or top-touch polling loop.
 
 ## Official top-strip control
@@ -193,15 +194,28 @@ video is needed for tracking or familiar-face matching.
 
 ## Delivery and approval boundary
 
-After owner approval, implement shared utility/status interfaces and desktop
+Within the approved scope, implement shared utility/status interfaces and desktop
 supervision first, then LED/top-touch integration and the camera snapshot path.
 Test the combined workload and deliver a commit-named desktop/firmware pair with
 its updated operator manual. Preserve the approved RC1 artifact for rollback.
 
-The review requested now is the first bundle's scope and interaction choices:
+The owner approved the first bundle's scope and interaction choices:
 Windows console, Focus and Reminders, Lab Workbench, Visual Desk Assistant,
-LED Memory, Quiz Night, thinking/status strips and swipe-volume controls.
+LED Memory, thinking/status strips and swipe-volume controls. Quiz Night was
+explicitly excluded by the owner.
 Recommend separate approval for continuous tracking/enrolled-person recognition
 after the camera measurements, and for Home Assistant actions once the desired
-devices are known. No implementation should proceed merely because this proposal
-exists in the repository.
+devices are known. Approval is recorded above; proceed with the first bundle. The later qualification
+and account-specific boundaries do not block the approved work.
+
+## Dated reminders — explicit owner addition
+
+Use the host clock and configured IANA timezone (Europe/London by default) as
+authoritative current-date context, refreshed for every reasoning turn. Resolve
+“tomorrow” by local calendar date, store the actual UTC instant with timezone,
+and read back the resolved date and time. Support “remind me at…”, “tomorrow
+remind me I need to…”, named weekdays, explicit dates and relative countdowns.
+Ask for missing times, AM/PM ambiguity, past times and daylight-saving gaps or
+repeated hours; do not silently invent a default. Keep clarification attached to
+the requested reminder across the next completed turn. Persist reminders and
+provide list, snooze, cancel and dismiss controls shared by voice and Windows.

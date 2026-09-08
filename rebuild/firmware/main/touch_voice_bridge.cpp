@@ -76,6 +76,7 @@ void touch_voice_task(void*)
         const uint32_t current = presentation_touch_action_sequence();
         if (current != seen) {
             seen = current;
+            if (top_front_cancel()) continue;
             const bool active = g_voice_lane_busy.load();
             const char* event_name = active ? "voice.touch-cancel" : "voice.request";
 

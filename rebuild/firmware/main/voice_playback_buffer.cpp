@@ -149,6 +149,7 @@ bool voice_lan_buffered_close_output()
         ok = false;
     }
 
+    int gain = g_user_mute.load() ? 0 : g_user_volume.load() * 32768 / 100;
     std::size_t offset = 0;
     while (ok && offset < audio_bytes) {
         if (voice_cancel_is_requested()) {
@@ -166,6 +167,8 @@ bool voice_lan_buffered_close_output()
             g_voice_playback_dma_scratch.data(),
             g_voice_playback_psram + offset,
             chunk);
+        kadence_top::apply_gain(reinterpret_cast<int16_t*>(g_voice_playback_dma_scratch.data()),
+            chunk / sizeof(int16_t), g_user_volume.load(), g_user_mute.load(), gain);
         presentation_audio_samples(
             reinterpret_cast<const int16_t*>(g_voice_playback_dma_scratch.data()), chunk / sizeof(int16_t));
         const esp_err_t write_err = static_cast<esp_err_t>(esp_codec_dev_write(

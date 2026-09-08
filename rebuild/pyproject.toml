@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kade-runtime"
-version = "0.2.0"
+version = "0.3.0"
 description = "Host runtime for the Kadence clean rebuild"
 requires-python = ">=3.12"
 dependencies = ["pyserial>=3.5,<4", "tzdata>=2025.2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+vision = ["Pillow>=11,<13", "opencv-python-headless>=4.11,<5"]
+desktop = ["PySide6>=6.8,<7", "Pillow>=11,<13", "opencv-python-headless>=4.11,<5"]
+package = ["pyinstaller>=6.12,<7"]
 voice = [
     "httpx>=0.28,<1",
     "edge-tts>=7,<8",
@@ -19,6 +22,7 @@ voice = [
 
 [project.scripts]
 kadence = "kcore.appliance:main"
+kadence-desktop = "kcore.desktop:main"
 
 [tool.setuptools]
 package-dir = {"" = "backend"}

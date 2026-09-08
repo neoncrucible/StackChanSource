@@ -1,274 +1,335 @@
 # Kadence operator manual
 
-**Approved build:** RC1, host 0.2.0 / firmware 0.20.1
+**Release:** RC2 — Windows console 0.3.0 / firmware 0.21.0
 
-**Approved source:** `997654857c3dd6aa2f78c92501c2eda2bf6744fe`
+**Hardware:** M5Stack StackChan K151 / CoreS3, ESP32-S3
 
-**Hardware:** M5Stack StackChan K151 / CoreS3
+**Package identity:** the full source commit is in `RELEASE.json`; use its matched desktop and firmware together.
 
-**Owner approval:** 7 September 2026
+Kadence combines spoken conversation and the animated terminal avatar with a
+Windows control console, date-aware reminders, a lab workbench, deliberate camera
+snapshots, animated top strips, touch volume and an LED memory game. This guide
+covers the implemented RC2 candidate. New hardware functions await the owner's
+physical check. The approved RC1 remains the rollback baseline; its acceptance
+is recorded in [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md).
 
-Kadence is a desktop companion with a local animated avatar, spoken conversation,
-saved notes, a to-do list, time and arithmetic tools, weather forecasts, and an
-optional Home Assistant status connection. This manual describes the features
-in the approved build. The [acceptance record](RC1_ACCEPTANCE.md) identifies the
-observed hardware run and the approved source.
+## 1. Install the matched release
 
-## 1. Start Kadence
+1. Extract the **whole** `Kadence-RC2-<commit>.zip` to a new folder. Keep
+   `Kadence.exe`, `_internal`, `Firmware` and the accompanying files together.
+2. Quit any existing Kadence server and close serial monitors.
+3. Connect the robot by USB and put it in download mode.
+4. Open PowerShell in the extracted folder and run:
 
-Keep the robot connected to the Windows PC by USB. The PC and robot also need
-LAN access to each other over the robot's 2.4 GHz Wi-Fi network. Internet access
-is required for the normal speech services. Leave the robot in normal boot mode
-for everyday use; download mode is only for flashing firmware.
+   ```powershell
+   .\Flash-Kadence.ps1 -Port COM4
+   ```
 
-Open PowerShell in the installed source folder and run:
+5. Wait for `KADENCE_FLASH PASS`. Restart the robot normally if it remains in
+   download mode. Download mode is only for flashing.
+6. Open `Kadence.exe` from this same folder.
+
+Flashing uses the existing ESP-IDF 5.5.4 installation at
+`C:\Espressif\frameworks\esp-idf-v5.5.4`. Normal use of the desktop executable
+includes its own Python and dependencies and needs no ESP-IDF terminal.
+The flash helper verifies the package pairing and firmware hashes and preserves
+calibration and stored device settings. Keep the complete approved RC1 package
+and its matching source available for rollback.
+
+## 2. Connect and control the server
+
+In **Overview**, set the robot port, Wi-Fi network and PC LAN address. **Scan**
+refreshes ports and LAN choices and can fill the current Windows Wi-Fi SSID.
+`COM4` is the established port for this robot. Choose the PC address reachable
+from the robot's 2.4 GHz Wi-Fi network; PC Ethernet is also suitable when it
+reaches that network. The PC and robot must be able to communicate across the LAN.
+Normal voice and online descriptions also need Internet access.
+
+Enter the OpenAI key, Gemini key and Wi-Fi password locally. Each field has its
+own **Show/Hide** control. Session-only storage is the default. To reuse credentials
+on this Windows account, select **Remember on this Windows account**, then start
+the server. Kadence uses Windows Credential Manager. **Forget** removes its saved
+entry and clears the fields; a running server retains its session values until
+stopped. Ordinary settings and diagnostic exports contain no credentials.
+
+Set **Timezone** to your IANA zone, normally `Europe/London`. The displayed local
+clock and new reminders use this setting even while the robot server is stopped.
+Stop the server before changing its timezone. Existing reminders keep their
+original scheduled instant and timezone. Windows' date and time must be correct.
+
+| Control or status | Operation |
+|---|---|
+| Start server | Starts one robot runtime with the current connection and credential fields. |
+| Stop | Cancels active robot work and closes the connection. Local desktop utilities keep running. |
+| Restart | Stops the current runtime before starting another with the current fields. |
+| Server running | The server is available; check robot connection separately. |
+| Robot connected | The robot has completed the control connection handshake. |
+| Keep in tray | Closing the window hides it while local utilities and the server continue. Reopen from the tray. |
+| Quit | Stops the server and local reminder service and exits the application. |
+
+Keep Windows awake and Kadence open, or in its tray, for timely reminders. A
+running server can reconnect after a robot reset. Local reminders, projects and
+calculations remain available when the robot is disconnected. Without speech
+credentials, direct local utilities and camera capture/QR still work; ordinary
+conversation requires the configured speech providers.
+
+## 3. Talk and cancel
+
+1. Tap the **front touchscreen** once.
+2. Wait for the listening indication, then speak one short request. Recording is
+   4.8 seconds by default; Overview allows 2.4–8 seconds.
+3. Let Kadence finish thinking and speaking. A successful voice turn ends with
+   the established body reaction and return to idle.
+4. Tap again for another turn.
+
+Tap the front screen during an active turn to cancel recording, provider work or
+playback. Wait for idle before trying again. If no speech is detected, Kadence
+asks you to try again. During LED Memory the front screen stops the game; tap
+again after it stops to begin a conversation.
+
+Kadence uses OpenAI transcription, Gemini reasoning and Sonia's British female
+voice by default. Up to eight successfully played exchanges are kept in bounded
+session context. Stopping the robot server clears that conversational context.
+Use a saved note, project record or reminder for information that must survive.
+Each reasoning turn receives fresh local date/time context.
+
+## 4. Avatar, strips and volume
+
+The robot retains the approved animated avatar, solid black background and green
+terminal appearance. Local gaze, blinking and attention continue independently
+of host/provider delays. Overview reflects acknowledged device activity.
+
+| Indication | Meaning |
+|---|---|
+| Idle / attentive | Local presence or attention between turns. |
+| Listening | This turn is recording; both top strips show a steady listening colour. |
+| Thinking / tool working | Green movement travels along both strips. |
+| Speaking | Strip intensity responds to the playback level. |
+| Camera active | Amber strips and a screen label identify a requested capture. |
+| Volume bar / muted | Brief strip and screen feedback follows a volume gesture. |
+| Offline / degraded / fault / recovery | A connection or operation is unavailable or recovering. |
+
+In **Device / Play**, use the volume slider, **Mute**, or a **Volume ceiling**.
+The displayed numeric level comes back from the robot. Level 100 is the existing
+maximum speaker level. A lower ceiling limits both desktop and touch adjustment.
+
+Slide across the three **top sensor zones** to change volume by five points.
+The opposite direction reduces it. Use **Reverse swipe direction** if you prefer
+the physical direction reversed. Hold still for about 1.2 seconds to toggle mute;
+release before the next gesture. Muting preserves the selected volume. These
+controls also work during playback. Front-screen talk/cancel remains separate.
+
+Set strip brightness from 0–60 and select **Dark when idle** as desired. A camera
+indicator retains a small minimum brightness during capture. Device settings and
+the game's best score are saved after about five settled seconds; leave the
+robot powered briefly after changing them.
+
+## 5. Reminders, timers and focus
+
+Use the **Reminders** page to enter a short task and a time, then select
+**Schedule**. The result reads back the actual date, time and timezone. If Kadence
+asks a date/time question, type the answer and select **Answer**. A clarification
+expires after two minutes; enter the full request again if it expires.
+
+You can also use voice:
+
+| Request | Behaviour |
+|---|---|
+| “Remind me at 7 pm to check the print.” | Schedules today at 19:00 if that time is still ahead. |
+| “Tomorrow remind me I need to order filament.” | Asks what time tomorrow; answer in the next touch-initiated turn. |
+| “Remind me tomorrow at nine am to order filament.” | Uses tomorrow's local calendar date and reads back 09:00. |
+| “Remind me to check the print in twenty minutes.” | Starts a named countdown. |
+| “Set a timer for five minutes.” | Schedules a timer notification. |
+| “Read my reminders.” | Reads up to five active reminders with IDs and scheduled times. |
+| “Snooze reminder one for five minutes.” | Reschedules that active reminder. |
+| “Cancel reminder one.” / “Dismiss reminder one.” | Removes it from the active list. |
+| “Start a twenty-five minute focus.” | Starts a focus session with a completion reminder. |
+
+Supported time expressions include `tomorrow`, `today`, named weekdays,
+`19:30`, `9 am`, `noon`, `half past seven pm`, `25 December 2026`,
+`25/12/2026`, `2026-12-25`, and delays in seconds, minutes, hours or days.
+Named weekdays mean their next occurrence. A missing time, an ambiguous `7`, a
+past time or a daylight-saving gap/repeated hour requires clarification. For an
+unambiguous morning clock entry use `09:00` or `9 am`. No default reminder time
+is silently chosen. Deadlines can be five seconds to one year ahead.
+
+“Tomorrow” follows the selected local calendar. A relative “in a day” means
+24 elapsed hours; these differ around clock changes. Reminders persist as UTC
+instants with their timezone and survive application restarts. Unheard or
+cancelled voice clarification questions do not remain pending.
+
+When due, a reminder stays highlighted until dismissed, cancelled or snoozed.
+Windows provides a local sound and, when available, a tray notification. The robot
+waits until voice, camera and games are idle, then gives one combined notification.
+If speech is unavailable it can play a local chime. Missed reminders remain
+visible after restart/wake. An uncertain robot delivery is not automatically
+replayed. The Reminders page remains the authoritative list.
+
+For focus, choose 1–180 minutes and **Begin focus**. When the focus reminder is
+due, select it and choose **Start break** for five minutes. Starting the break
+dismisses that focus reminder. Start another focus session when ready. Sessions
+do not repeat automatically. Up to 200 active reminders are supported.
+
+## 6. Lab workbench
+
+In **Workbench**, create or select a project. Add a **Note** for a finding or a
+**Step** for a checklist action. Select a step and choose **Mark done**. Search
+narrows that project's records by text; completed steps remain available. **Delete**
+asks before removing a selected record.
+
+Voice can create a project, add notes/steps, read a project by its exact name and
+complete returned checklist entry IDs. For example: “Create a project called
+Sensor bench”, “Add a step to Sensor bench: measure idle current”, or “Read the
+Sensor bench checklist”. Proposed stored changes are read back for confirmation.
+Answer “Yes” in the next completed voice turn within 60 seconds.
+
+The calculator offers arithmetic, unit conversions, Ohm's law and four/five-band
+resistors. Enter the input shown beneath its selector, then calculate:
+
+| Mode | Input example |
+|---|---|
+| Arithmetic | `(12 + 3) * 4` |
+| Conversion | `1`, from `in` to `mm` gives `25.4 mm`. |
+| Ohm's law | `V=5, R=1000` gives current and power as well as voltage/resistance. |
+| Resistor bands | `yellow, violet, red, gold` gives 4,700 ohms ±5%. |
+
+Ohm's law requires exactly two positive values: volts, amperes and ohms. Unit
+conversions cover length, mass, volume, temperature, voltage, current and resistance.
+Resistance units use explicit `megohm` and `milliohm` names. Resistor band order
+must be supplied by the user. These calculations are deterministic and run locally.
+There are limits of 100 projects and 5,000 project records, each up to 800 characters;
+a project view returns up to 250 matching records.
+
+## 7. Visual desk assistant
+
+In **Vision**, select **Capture** for one 320×240 camera image. Capture is allowed
+when the robot is idle. The preview and local QR result appear in Windows. **Cancel**
+stops an active camera operation; **Clear** releases the transient preview/result.
+QR contents are displayed as text and are never opened or executed automatically.
+
+After capture, enter a short question if desired and choose **Describe with Gemini**.
+This deliberately sends that image to Gemini for common objects or readable labels.
+Local capture and QR decoding need no Gemini key. An ordinary voice request such
+as “What am I holding?” or “Look at this and read the label” can request one image
+within that voice turn, followed by a spoken description.
+
+Use good lighting and hold the object steady. Common objects and large labels are
+suitable first checks. Small component markings, distant labels and tiny QR codes
+may exceed the camera's useful detail. Descriptions should express uncertainty.
+
+Images remain temporary unless you select a project and choose **Save observation**.
+Saving retains a PNG and a timestamped project note with the current description.
+Clearing the preview does not delete saved observations. Saved PNGs live in the
+`observations` data folder; deleting a project note does not remove its PNG.
+Continuous video, face tracking and enrolled-person recognition remain a later
+camera qualification stage.
+
+## 8. LED Memory
+
+In **Device / Play**, choose **Play memory** with the robot idle. Watch the
+sequence, then repeat it by tapping and releasing the three top zones.
+
+- Red corresponds to zone 1, green to zone 2 and blue to zone 3.
+- Each successful round adds a step. The score is the number of completed rounds.
+- An incorrect zone or 20 seconds without the next input ends the round.
+- A session has a maximum of 24 rounds. Best score is stored on the robot.
+- Toggle **Sound cues** for optional short notes.
+- Select **Stop game** or touch the front screen to stop.
+
+During this explicit game, top taps are game inputs. Volume gestures resume when
+it finishes. Set some strip brightness before starting. The quiz is excluded.
+
+## 9. Existing companion utilities
+
+The previously approved features remain available through voice:
+
+| Feature | Example |
+|---|---|
+| Date/time | “What time is it?” / “What day is it?” / “What time is it in Tokyo?” |
+| General arithmetic | “Calculate eighteen times twenty-four.” |
+| Saved notes | “Remember that the spare cables are in the blue drawer.” |
+| Recall/search | “Read my notes.” / “Search my notes about cables.” |
+| Delete a note | “Delete note three.” Then confirm. |
+| To-do list | “Add replace the printer filament to my list.” / “Read my list.” |
+| Complete a to-do | “Mark item four as done.” Then confirm. |
+| Weather | “What is tomorrow's forecast for Bristol, England?” |
+| Home status | “What is the status of my home?” with Home Assistant configured. |
+
+Direct “Remember that…”, “Remember this…”, “Make a note…” and “Add … to my list”
+requests authorise the local addition. Deletions, completions and other proposed
+stored changes ask for confirmation; answer within 60 seconds in a new voice
+turn. Cancellation, disconnection or a change of topic discards the proposal.
+Read a list before retrying a write whose outcome was not confirmed.
+
+Legacy notes/tasks support 1,000 records of up to 800 characters. Spoken lists
+return at most five items. Completed tasks remain stored. Note editing, reopening
+completed tasks and purging completed records are not current voice operations.
+To-do items are separate from timed reminders.
+
+Weather uses Open-Meteo without an API key, covers today through six days ahead,
+and reports Celsius, daily high/low and precipitation probability. Use a full
+location if a place name is ambiguous. Home Assistant remains read-only and
+returns only configured entities.
+
+## 10. Diagnostics and data
+
+**Diagnostics** shows connection/activity events, available device memory,
+completed-turn counts and STT/reasoning/TTS durations. **Export diagnostics** saves
+only selected status fields and package identity, excluding credentials,
+conversation text, images, QR contents and saved notes.
+
+The Windows data directory is `%LOCALAPPDATA%\Kadence`, unless overridden by
+`KADENCE_DATA_DIR`. It contains `context.sqlite3`, ordinary desktop preferences
+and any explicitly saved `observations` images. The first RC2 store migration
+creates `context-before-utilities.sqlite3` and preserves RC1 notes/tasks. To back
+up or restore, quit Kadence and copy the complete data directory. Retain that
+migration backup when returning to the older RC1 host.
+
+Kadence does not automatically save recordings, transcripts or camera images.
+Voice sends microphone audio to OpenAI, request context to Gemini when needed,
+and reply text to the speech service. Selected saved records can enter that
+context. Describing an image sends the requested image to Gemini. Direct local
+utilities, local QR and device presence remain independent of those services.
+
+## 11. Source/terminal operation and optional configuration
+
+For a matching source checkout, install `rebuild[voice,vision]` into the selected
+Python 3.12+ environment and run:
 
 ```powershell
-cd C:\KadenceX\source
 python -m kcore.appliance --visible-input
 ```
 
-Enter the OpenAI API key, Gemini API key and Wi-Fi password when requested.
-`--visible-input` displays what you type in your local terminal. To hide credential
-entry, use `python -m kcore.appliance` without that option. `kadence` is also an
-installed command for the same application; the module command uses the Python
-selected in the current terminal.
+Omit `--visible-input` to hide local credential entry. `kadence` invokes the same
+runtime. `Ctrl+C` stops it. The source desktop entry is `kadence-desktop` after
+installing `rebuild[voice,desktop]`. Run one host at a time.
 
-Kadence normally detects the PC's Wi-Fi network name. If it cannot, it asks for
-the SSID. Credentials supplied at the prompts are held for the running process.
-The robot holds its Wi-Fi settings in RAM. Enter credentials only on your PC;
-omit credential prompts and their contents from any log you share.
-
-Wait for:
-
-```text
-KADENCE_RUNTIME DEVICE ready presence=local
-```
-
-The preceding `KADENCE_RUNTIME READY` line identifies the control port and LAN
-listener. `DEVICE ready` means the host has also connected to the robot.
-
-## 2. Talk, cancel and stop
-
-1. Tap the front touchscreen once to start a turn.
-2. Wait for the listening indication, then speak. The default recording window
-   is 4.8 seconds, so use one short request at a time.
-3. Allow Kadence to think and finish speaking. A small body reaction follows a
-   successful turn, then the robot returns to idle.
-4. Tap again to begin another turn. You can continue without restarting the host.
-
-Tap the touchscreen during an active turn to cancel it. This also works while
-Kadence is waiting for a reply or playing speech. Let the robot return to its
-ready state before starting again. If no speech is detected, Kadence gives a
-short spoken invitation to try again.
-
-Press **Ctrl+C** in PowerShell to stop the server. A completed shutdown reports:
-
-```text
-KADENCE_RUNTIME STOPPED clean=1
-```
-
-The next startup uses the same command. Stop Kadence before flashing or opening
-a separate serial monitor. If the robot resets while the host remains running,
-the host automatically attempts to reconnect.
-
-## 3. Avatar and status display
-
-The approved presentation uses a solid black background, green terminal styling,
-monospaced labels and the animated avatar. Gaze, blinking, attention and audio
-response are rendered on the device. Local idle presence continues independently
-of the time taken by the host or a speech provider.
-
-| State | Meaning |
+| Source runtime option | Default / purpose |
 |---|---|
-| Booting | The local presentation is starting. |
-| Idle | Kadence is resting between interactions. |
-| Attentive | Local touch attention is active. |
-| Listening | The microphone is recording this turn. |
-| Thinking | Kadence is preparing or processing the turn. |
-| Speaking | The robot is playing the prepared spoken response. |
-| Tool working | A registered utility is running. |
-| Offline | A required connection is unavailable. |
-| Degraded | Part of the service is unavailable. |
-| Fault | An operation cannot complete normally. |
-| Recovery | Kadence is returning to an available state. |
+| `--port`, `--baud` | `COM4`, `115200`. |
+| `--capture-ms` | `4800`; 2400–8000 allowed. |
+| `--reconnect-delay` | `2` seconds. |
+| `--check` | Checks dependencies/timezone without hardware or credentials. |
+| `KADENCE_WIFI_SSID`, `KADENCE_WIFI_PASSWORD` | Process Wi-Fi input; otherwise detected/prompted. |
+| `KADENCE_LAN_HOST` | Reachable PC LAN IPv4 address override. |
+| `KADENCE_TIMEZONE` | `Europe/London`. The desktop uses its Overview setting. |
+| `KADENCE_DATA_DIR` | Alternate local storage directory. |
+| `OPENAI_API_KEY` | Process transcription credential. Desktop credentials use its fields/vault. |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Process reasoning credential. |
+| `KADENCE_STT_MODEL` | `gpt-transcribe`. |
+| `KADENCE_THINKER_MODEL` | `gemini-3.5-flash-lite`. |
+| `KADENCE_TTS_VOICE`, `KADENCE_TTS_RATE` | `en-GB-SoniaNeural`, `+0%`. |
 
-These are presentation states; the terminal provides the more detailed connection
-and turn status. A completed ordinary turn reports `voice=1 body_reaction=1
-idle_return=1`.
+Provider/model overrides above apply to the source CLI. The packaged desktop uses
+the release defaults. Enter credentials in local prompts/fields, not command
+history or shared logs.
 
-## 4. Conversation and short-term context
+For optional read-only Home Assistant, supply `KADENCE_HA_URL` (base URL),
+`KADENCE_HA_TOKEN` and `KADENCE_HA_ENTITIES` (up to eight comma-separated IDs)
+before launching Kadence. Omit all three if unused. No device/scene actions are
+included.
 
-Ask questions, discuss an idea, request a short explanation or continue the
-previous topic. Kadence uses a consistent conversational identity and British
-female voice. The current defaults are OpenAI transcription, Gemini reasoning
-and Edge speech with the Sonia voice.
-
-Kadence retains up to eight completed exchanges within the running session,
-subject to a total text limit. Only successfully played turns enter that history.
-Stopping the host clears this conversational context. Use an explicit saved note
-for information you want available after a restart.
-
-## 5. Current utilities
-
-Examples below are short enough for ordinary voice turns. Give one request at a
-time. Where a result contains a numbered item, use that returned number for a
-later change.
-
-| Feature | Example request | Result |
-|---|---|---|
-| Local date and time | “What time is it?” / “What day is it?” | Current time and date in the configured timezone. |
-| Time in another timezone | “What time is it in Tokyo?” | The clock tool can use another IANA timezone. |
-| Arithmetic | “Calculate eighteen times twenty-four.” | A calculated numeric result. |
-| Save a note | “Remember that the spare cables are in the blue drawer.” | Saves a numbered local note. |
-| Read notes | “Read my notes.” | Reads recent saved notes and their IDs. |
-| Find a note | “Search my notes about cables.” | Searches saved text by a literal keyword or phrase. |
-| Delete a note | “Delete note three.” | Asks you to confirm deletion of the identified note. |
-| Add a task | “Add replace the printer filament to my list.” | Saves a numbered to-do item. |
-| Read tasks | “Read my list.” | Reads unfinished items and their IDs. |
-| Complete a task | “Mark item four as done.” | Asks you to confirm the identified item. |
-| Weather | “What is tomorrow's forecast for Bristol, England?” | Daily high, low and precipitation probability, with Open-Meteo attribution. |
-| Home Assistant status, when configured | “What is the status of my home?” | Reads only the configured entities. |
-
-Arithmetic supports numbers, parentheses, addition, subtraction, multiplication,
-division, remainder and bounded powers. It does not execute code. Weather covers
-today and up to six days ahead, reports Celsius, and may ask for town, region or
-country to distinguish places with the same name. In that case, repeat the full
-weather request with the more specific location.
-
-Saved notes and tasks are available through the local store. The store allows
-up to 1,000 records of at most 800 characters each, including completed tasks.
-Spoken lists return at most five items per response; keyword searches help narrow
-longer collections. Completing a task removes it from the unfinished list but
-does not delete its stored record. The current voice tools do not edit note text,
-reopen completed tasks or purge completed records.
-
-The to-do list stores items for later retrieval. It does not yet schedule alarms
-or reminder notifications. Home Assistant access is currently read-only; it does
-not switch devices or run scenes.
-
-## 6. Confirm a change
-
-A direct request beginning “Remember that…”, “Remember this…”, “Make a note…” or
-“Add … to my list” already authorises that local addition. Kadence saves the item
-and reports its number.
-
-For a deletion, task completion, or another proposed stored change, Kadence reads
-back what it would do and asks for confirmation. After the question finishes:
-
-1. Start a new touch-initiated turn within 60 seconds.
-2. Say “Yes” or “Yes please” to approve, or “No” to leave it unchanged.
-
-A cancellation, disconnection or change of topic discards a pending confirmation.
-If a write's outcome is uncertain, read the notes or list before repeating the
-request; Kadence does not automatically retry such writes.
-
-## 7. Configure the host
-
-Set optional configuration in the same PowerShell session before starting the
-application. For example:
-
-```powershell
-$env:KADENCE_TIMEZONE = 'Europe/London'
-python -m kcore.appliance --visible-input
-```
-
-| Setting | Purpose / default |
-|---|---|
-| `--port` | USB control port; `COM4`. |
-| `--baud` | Serial baud rate; `115200`. Keep the firmware's rate. |
-| `--capture-ms` | Recording duration; `4800`, allowed range `2400`–`8000`. |
-| `--reconnect-delay` | Seconds between reconnection attempts; `2`, must be positive. |
-| `--visible-input` | Show credential input in the local terminal. |
-| `--check` | Check dependencies and timezone without credentials or hardware access. |
-| `KADENCE_WIFI_SSID` | Robot's Wi-Fi network; otherwise detected or prompted. |
-| `KADENCE_WIFI_PASSWORD` | Optional process environment input; otherwise prompted. |
-| `KADENCE_LAN_HOST` | PC's LAN IPv4 address reachable by the robot; normally automatic. Useful with Ethernet, VPNs or multiple adapters. |
-| `KADENCE_TIMEZONE` | IANA timezone; `Europe/London`. |
-| `KADENCE_DATA_DIR` | Override the local notes/tasks directory. |
-| `OPENAI_API_KEY` | Optional process environment input for transcription. |
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Optional process environment input for reasoning. |
-| `KADENCE_STT_MODEL` | Transcription model; current build default `gpt-transcribe`. |
-| `KADENCE_THINKER_MODEL` | Reasoning model; current build default `gemini-3.5-flash-lite`. |
-| `KADENCE_TTS_VOICE` | Spoken voice; `en-GB-SoniaNeural`. |
-| `KADENCE_TTS_RATE` | Speech rate; `+0%`. |
-
-Model names above document this build's configuration. An override must be
-supported by its provider. The application does not save prompted credentials
-to a settings file; environment values are managed by the terminal that supplies
-them. Prompt entry avoids putting secret values in command history.
-
-### Optional Home Assistant connection
-
-Supply all three settings before startup:
-
-| Setting | Value |
-|---|---|
-| `KADENCE_HA_URL` | Your Home Assistant base URL, such as `http://homeassistant.local:8123`, without an API path. |
-| `KADENCE_HA_TOKEN` | Your locally supplied Home Assistant access token. |
-| `KADENCE_HA_ENTITIES` | Comma-separated entity IDs, up to eight; for example `sensor.lab_temperature,light.desk`. |
-
-Kadence reads the state and friendly name of those entities. Omit all three
-settings if you do not use Home Assistant. Weather is available independently
-and does not require an API key in this build.
-
-## 8. Data, backups and service availability
-
-On Windows, explicitly saved notes and tasks reside in:
-
-```text
-%LOCALAPPDATA%\Kadence\context.sqlite3
-```
-
-To back up or restore records, stop Kadence and copy the complete Kadence data
-directory, or the directory selected by `KADENCE_DATA_DIR`. Treat this directory
-as private: it contains the notes you chose to save.
-
-Kadence does not automatically save recordings or conversation transcripts.
-Normal speech processing sends audio to the transcription provider, request
-context to the reasoning provider when needed, and reply text to the speech
-service. Saved records can enter spoken conversation and subsequent session
-context. Local storage does not make the complete voice interaction offline.
-
-Some exact local requests can bypass the reasoning provider, but speaking to
-Kadence still needs the transcription and speech services. If an optional tool
-is unavailable, other capabilities can remain usable. Local presence and device
-safety operate independently of those services.
-
-## 9. Software maintenance
-
-No reflash is needed to read this manual or obtain its documentation changes.
-Keep using the approved installation. The accepted firmware remains tied to
-source `9976548`; later documentation commits do not rename that firmware.
-
-For a future approved release, use the source and firmware bundle supplied
-together. The deployment script fetches the branch and requires the bundle's
-full source commit to equal the updated checkout. It deliberately rejects an
-older ZIP, including after a documentation-only branch update. Do not disable
-that check or reuse an old bundle for a new deployment.
-
-Stop the host, put the robot in download mode, and use the new release's exact
-ZIP filename with:
-
-```powershell
-.\rebuild\tools\deploy.ps1 -Port COM4 -Bundle 'C:\path\to\the-matching-release.zip'
-```
-
-The supplied path must point to the new release file. Deployment checks the host,
-verifies the manifest and flashes the specified images. For a source build of
-an approved release, omit `-Bundle`; ESP-IDF 5.5.4 must be installed. `-BuildOnly`
-performs preparation without flashing. `-HostOnly` maintains an already compatible
-host installation without touching the firmware; it also fetches the branch, so
-use it only when that branch's host is approved for the installed firmware.
-
-After `KADENCE_FLASH PASS`, reset into normal boot if necessary and use the ordinary
-startup command. Device calibration is preserved by the prescribed flash layout.
-
-## 10. Release scope
-
-All current operator capabilities are described above. The Windows dashboard,
-top-strip animations, top-touch volume controls, scheduled reminders, camera
-utilities and recognition features are proposed next-release work. They are not
-controls available in this approved firmware. Factory StackChan documentation
-describes additional features of M5Stack's firmware and is not a feature list for
-the Kadence rebuild.
+Source deployment remains available through `rebuild/tools/deploy.ps1`. A supplied
+firmware-only ZIP must match the updated checkout's **full commit**, including
+documentation commits. Preserve that check. The complete desktop ZIP instead
+carries its own matched executable and firmware and uses `Flash-Kadence.ps1`.

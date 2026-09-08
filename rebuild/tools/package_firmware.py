@@ -54,7 +54,7 @@ def package(build: Path, output: Path, *, source_commit: str | None = None) -> P
         entries[relative_path.as_posix()]={"sha256":hashlib.sha256(target.read_bytes()).hexdigest(),"bytes":size,"offset":offset}
     shutil.copyfile(build / "flasher_args.json",output / "flasher_args.json")
     shutil.copyfile(ROOT / "rebuild" / "tools" / "flash_bundle.ps1",output / "flash.ps1")
-    release={"format":1,"candidate":"Kadence RC1","source_commit":source_commit,"branch":"kadence/rebuild-kade",
+    release={"format":1,"candidate":"Kadence RC2","source_commit":source_commit,"branch":"kadence/rebuild-kade",
              "idf":"5.5.4","chip":"esp32s3","flash_size":"16MB","files":entries,"physical_signoff":False}
     (output / "RELEASE.json").write_text(json.dumps(release,indent=2)+"\n")
     sums=[]
@@ -72,8 +72,10 @@ def package(build: Path, output: Path, *, source_commit: str | None = None) -> P
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--build",type=Path,default=ROOT / "rebuild" / "firmware" / "build")
-    parser.add_argument("--output",type=Path,default=ROOT / "rebuild" / "dist" / "Kadence-RC1")
+    parser.add_argument("--output",type=Path)
     parser.add_argument("--source-commit",help="Full checkout SHA supplied by the CI runner; defaults to local HEAD")
     args=parser.parse_args()
-    archive=package(args.build,args.output,source_commit=args.source_commit)
+    commit=args.source_commit or subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
+    output=args.output or ROOT / "rebuild" / "dist" / ("Kadence-RC2-Firmware-"+commit[:12])
+    archive=package(args.build,output,source_commit=commit)
     print(f"KADENCE_PACKAGE PASS file={archive.name} offsets=verified calibration=preserved hashes=1")
