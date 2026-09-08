@@ -53,6 +53,13 @@ def package(build: Path, output: Path, *, source_commit: str | None = None) -> P
         shutil.copyfile(source,target)
         entries[relative_path.as_posix()]={"sha256":hashlib.sha256(target.read_bytes()).hexdigest(),"bytes":size,"offset":offset}
     shutil.copyfile(build / "flasher_args.json",output / "flasher_args.json")
+    stack_report = build / "boot_stack_report.json"
+    if stack_report.is_file():
+        report = json.loads(stack_report.read_text())
+        app_path = next(relative for offset, relative in files.items() if int(offset, 0) == 0x10000)
+        if report.get("binary_sha256") != entries[app_path]["sha256"]:
+            raise ValueError("startup stack report belongs to a different firmware image")
+        shutil.copyfile(stack_report, output / stack_report.name)
     shutil.copyfile(ROOT / "rebuild" / "tools" / "flash_bundle.ps1",output / "flash.ps1")
     release={"format":1,"candidate":"Kadence RC2","source_commit":source_commit,"branch":"kadence/rebuild-kade",
              "idf":"5.5.4","chip":"esp32s3","flash_size":"16MB","files":entries,"physical_signoff":False}

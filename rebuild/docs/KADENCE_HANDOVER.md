@@ -11,7 +11,8 @@
 **Phase A starting anchor for RC1:** `70e7d80baa81ef3b280e96e0f3de25e0c52618ed`
 **Approved build:** RC1, host 0.2.0 / firmware 0.20.1, source `997654857c3dd6aa2f78c92501c2eda2bf6744fe`; owner-approved on 7 Sep 2026.
 **Current authority:** Boss approved the Windows console appearance and explicitly requested front-touch reliability, a listening cue, bounded listening feedback, and a utilitarian animated green signal display in place of the expressive face. Complete this maintenance release and qualify it. The approved utility bundle remains; quiz is excluded. Continuous tracking/enrollment and wireless control remain separate.
-**Current candidate:** RC2 maintenance, host 0.3.1 / firmware 0.21.1. The implemented approved scope, ownership details, automated checks and physical acceptance procedure are in [RC2_ENGINEERING.md](RC2_ENGINEERING.md). Match source with the package `RELEASE.json`. New hardware features are not yet owner-signed-off.
+**Current candidate:** RC2 boot recovery, host 0.3.1 / firmware 0.21.2. The implemented approved scope, ownership details, automated checks and physical acceptance procedure are in [RC2_ENGINEERING.md](RC2_ENGINEERING.md). Match source with the package `RELEASE.json`. New hardware features are not yet owner-signed-off.
+**Withdrawn build:** Firmware 0.21.1, source `b3fc07035c711affa3ded5b1c9dd0bf5b19eedfa`, repeatedly overflows the main task stack during panel startup. The owner supplied the confirming boot log. Do not redeliver it or suggest it for rollback. The 0.21.2 correction separates small startup buffers from runtime frames, increases main's stack, and gates actual linked startup frames before packaging.
 **Operator manual:** [USER_MANUAL.md](USER_MANUAL.md)
 
 **Acceptance:** [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md)
@@ -595,7 +596,7 @@ they are not a reason to withhold or reopen the owner's recorded RC1 approval.
 
 # 14. EXACT NEXT MOVE IN A FRESH CHAT
 
-**Continue the 0.3.1 / 0.21.1 interaction maintenance release through CI/package delivery and physical qualification. Do not ask for this scope approval again.**
+**Deliver and qualify the 0.3.1 / 0.21.2 boot recovery. First confirm stable boot, then one voice turn. Do not ask for this scope approval again.**
 
 1. Read `RC2_ENGINEERING.md`, `USER_MANUAL.md` and the current package identity.
    The maintenance update implements dedicated/debounced input, a pre-capture cue,
@@ -614,7 +615,11 @@ they are not a reason to withhold or reopen the owner's recorded RC1 approval.
    preserved calibration-safe flash helper. Everyday startup is `Kadence.exe`.
    No daily ESP-IDF/Python environment is required by the executable. USB must
    remain connected to the awake PC: Wi-Fi media does not replace serial control.
-4. Perform the short owner hardware procedure in `RC2_ENGINEERING.md`: normal
+4. First confirm 0.21.2 stays booted with the server stopped, then completes one
+   voice turn with its matched host. `BOOT_STACK` logs expose actual minimum free
+   stack bytes. The 0.21.1 panel-startup reset is a confirmed regression, not a
+   credentials or download-mode issue. Then perform the short owner hardware
+   procedure in `RC2_ENGINEERING.md`: normal
    repeated deliberate front taps, held/bounced taps, cue/countdown/mic-closed
    feedback, capture/processing cancellation, voice/strips, top volume/mute, reminders,
    LED Memory, repeated deliberate
@@ -634,7 +639,7 @@ they are not a reason to withhold or reopen the owner's recorded RC1 approval.
 
 The user can start a new chat with exactly this:
 
-> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`. RC1 is approved; the RC2 interaction update is host 0.3.1 / firmware 0.21.1. Continue from its current CI/package and hardware qualification state; the quiz is excluded and dated reminders are included. Preserve unrelated surprises and batch safe commands where sensible.
+> Read `rebuild/docs/KADENCE_HANDOVER.md` from my `neoncrucible/StackChanSource` repo on branch `kadence/rebuild-kade`. RC1 is approved; the RC2 boot recovery is host 0.3.1 / firmware 0.21.2. Firmware 0.21.1 is withdrawn after a confirmed startup stack overflow. Continue from the current CI/package and hardware qualification state; the quiz is excluded and dated reminders are included. Preserve unrelated surprises and batch safe commands where sensible.
 
 That should be sufficient to restore the project without the user repeating history.
 
@@ -667,3 +672,9 @@ Boss authorised the listening cue, reliability work and utilitarian green signal
 facelift. `RC2_ENGINEERING.md` records the implementation and qualification scope.
 Do not restore the old eyes or call the new hardware behaviour approved until
 Boss has observed the new matched firmware/host. Preserve the Windows layout.
+
+The next supplied boot log confirmed a main-task stack overflow in 0.21.1 after
+`PROBE8 render-sync status=ready`, before the new signal UI or host starts.
+The compiled baseline reserved 2,192 bytes on the 4,096-byte main stack after
+runtime frame growth. The 0.21.2 correction and compiled-image gate are documented
+in `RC2_ENGINEERING.md`. Automated checks must not be called proof of hardware boot.

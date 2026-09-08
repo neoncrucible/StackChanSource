@@ -26,7 +26,7 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.3.1','firmware_version':'0.21.1','source_commit':commit,
+        'host_version':'0.3.1','firmware_version':'0.21.2','source_commit':commit,
         'physical_signoff':False,'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
         'KADENCE RC2\n\nExtract the entire ZIP to a new folder.\n'

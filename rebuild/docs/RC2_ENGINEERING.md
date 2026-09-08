@@ -7,12 +7,36 @@ enrolled-person profiles and Home Assistant actions retain their separate review
 boundaries. RC1 at `997654857c3dd6aa2f78c92501c2eda2bf6744fe` remains physically
 approved; this candidate does not relabel that approval as proof of new hardware.
 
-The current maintenance candidate is **host 0.3.1 / firmware 0.21.1**. Boss approved
+The current maintenance candidate is **host 0.3.1 / firmware 0.21.2**. Boss approved
 the Windows console's appearance, requested dependable front touch and a listening
 cue, and authorised replacing the expressive face with a utilitarian green signal
 display. USB control remains required; wireless control is outside this update.
 
 ## Runtime ownership
+
+### Startup stack recovery
+
+Firmware 0.21.1 (`b3fc07035c71`) is withdrawn: the owner's boot log reports
+`A stack overflow in task main has been detected` immediately after the first
+panel initialisation. The enlarged runtime frame capacity also enlarged CP16's
+two local startup buffers. The compiler reserved a 2,192-byte baseline frame
+across nested hardware initialisation on a 4,096-byte main task stack. The
+relevant entry instructions were checked against the delivered binary.
+
+Firmware 0.21.2 gives the fixed CP16 startup command/ACK their own 256-byte
+buffers, independent of runtime frame size. The rebuilt baseline frame is 672
+bytes; existing bounds checks remain in place. Main has an 8,192-byte stack.
+`BOOT_STACK` lines report its minimum free
+bytes after the hardware baseline and runtime initialisation. The existing
+stack-overflow detector remains enabled.
+
+CI runs `boot_stack_gate.py` after linking, before packaging. It checks the
+active generated configuration and actual Xtensa function prologues, rejects
+an undersized main task or excessive baseline frame, and packages a report
+with the image hashes. It rejects the pre-fix image. This guards this regression;
+it is not a complete worst-case call-graph proof or physical boot sign-off.
+
+### Runtime tasks
 
 `desktop_ui` uses Qt and supervises one `desktop_worker` through bounded private
 NDJSON pipes. Credentials travel through that pipe, never argv or settings JSON.
@@ -104,8 +128,8 @@ writes clean up the PNG. Camera content is excluded from diagnostic exports.
 The twelve LEDs use PY32 address 0x6f, expander pin 13 and high-byte bit 5. This is
 not ESP32 GPIO13 (audio). Register updates preserve the servo-power low byte.
 The count is twelve; RGB565 little-endian values go to LED RAM before refresh.
-Si12T address 0x68 supplies three two-bit top touch zones. Initialization, polling
-and strip writes are integrated into the existing presentation task and I2C bus.
+Si12T address 0x68 supplies three two-bit top touch zones. Initialization uses
+the existing I2C bus; polling and strip writes run in the dedicated input task.
 Settings use namespace `kade_ui`; settled saves reserve the media lane to avoid
 flash writes during capture or playback. Camera indication takes visual priority.
 LED Memory is bounded to 24 rounds with explicit start/stop, top-zone input,
@@ -173,6 +197,12 @@ The flash layout remains bootloader 0, table 0x8000, optional OTA-init 0xd000 an
 application 0x10000, with a 4 MiB application slot. No calibration erase is added.
 
 ## Owner hardware check
+
+For the 0.21.2 recovery, first confirm a normal cold boot reaches the green signal
+display and stays there without resetting, with the server stopped. Then start
+the matched Windows console and complete one voice turn. Capture `BOOT_STACK`
+watermarks if further boot investigation is needed. Resume the checks below only
+after that boot and voice check; 0.21.1 must not be used as a rollback candidate.
 
 After flashing the complete matched RC2 package and starting the desktop:
 

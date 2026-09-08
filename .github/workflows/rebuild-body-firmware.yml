@@ -92,6 +92,13 @@ jobs:
           cd rebuild/firmware
           idf.py build 2>&1 | tee body-build.log
 
+      - name: Verify linked startup stack budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          python rebuild/tools/boot_stack_gate.py --build rebuild/firmware/build
+
       - name: Collect flashable files
         if: success()
         shell: bash

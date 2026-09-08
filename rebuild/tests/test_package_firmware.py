@@ -56,6 +56,15 @@ class PackageTests(unittest.TestCase):
         with zipfile.ZipFile(self.base/"ci-release.zip") as z:
             self.assertEqual(json.loads(z.read("RELEASE.json"))["source_commit"],"b"*40)
 
+    def test_stack_report_must_match_the_packaged_binary(self):
+        report={"format":1,"binary_sha256":hashlib.sha256((self.build/"app.bin").read_bytes()).hexdigest()}
+        (self.build/"boot_stack_report.json").write_text(json.dumps(report))
+        with zipfile.ZipFile(self.package()) as z:
+            self.assertEqual(json.loads(z.read("boot_stack_report.json")),report)
+        (self.build/"app.bin").write_bytes(b"different firmware")
+        with self.assertRaisesRegex(ValueError,"different firmware image"):
+            self.package()
+
     def test_calibration_offset_and_bad_flash_settings_are_rejected(self):
         self.manifest["flash_files"]["0x9000"]="app.bin"
         with self.assertRaises(ValueError): self.package()

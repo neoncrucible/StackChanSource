@@ -1,6 +1,6 @@
 # Kadence operator manual
 
-**Release:** RC2 — Windows console 0.3.1 / firmware 0.21.1
+**Release:** RC2 — Windows console 0.3.1 / firmware 0.21.2
 
 **Hardware:** M5Stack StackChan K151 / CoreS3, ESP32-S3
 
@@ -17,7 +17,7 @@ is recorded in [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md).
 
 1. Extract the **whole** `Kadence-RC2-<commit>.zip` to a new folder. Keep
    `Kadence.exe`, `_internal`, `Firmware` and the accompanying files together.
-2. Quit any existing Kadence server and close serial monitors.
+2. Quit Kadence completely, including its tray icon, and close serial monitors.
 3. Connect the robot by USB and put it in download mode.
 4. Open PowerShell in the extracted folder and run:
 

@@ -43,6 +43,14 @@ constexpr size_t kP21LineBytes = kP16FrameBytes;
 constexpr uint32_t kP21TaskStackBytes = 32768;
 SemaphoreHandle_t g_p21_tx_lock = nullptr;
 
+void p21_report_main_stack(const char* stage)
+{
+    // IDF reports this watermark in bytes, including the deepest earlier call.
+    const unsigned minimum_free = uxTaskGetStackHighWaterMark(nullptr);
+    ESP_LOGI(kLogTag, "BOOT_STACK stage=%s minimum_free_bytes=%u allocated_bytes=%u",
+             stage, minimum_free, static_cast<unsigned>(CONFIG_ESP_MAIN_TASK_STACK_SIZE));
+}
+
 void p21_emit_line(const char* line)
 {
     if (line == nullptr || line[0] == '\0') return;
@@ -220,6 +228,7 @@ extern "C" void app_main(void)
              static_cast<unsigned>(esp_get_free_heap_size()));
 
     const bool ok = run_probe21();
+    p21_report_main_stack("hardware-baseline");
     const bool presentation_ok = presentation_start(ok);
     if (!presentation_ok) {
         ESP_LOGE(kLogTag, "PRESENTATION status=failed stage=start");
@@ -229,6 +238,7 @@ extern "C" void app_main(void)
     if (!presence_ok) {
         ESP_LOGE(kLogTag, "PRESENCE status=failed stage=start");
     }
+    p21_report_main_stack("runtime-initialised");
 
     uint32_t heartbeat_seq = 0;
     const int64_t heartbeat_epoch_us = esp_timer_get_time();

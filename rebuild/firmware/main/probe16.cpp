@@ -16,6 +16,10 @@ namespace {
 constexpr int kP16OffsetTenths = 40;
 constexpr int kP16HoldMs = 200;
 constexpr size_t kP16FrameBytes = kadence_control::FrameBytes;
+// Only the fixed, short CP16 startup exchange uses these buffers. Keep it
+// independent of runtime status/media frame growth: this frame is live across
+// the complete nested hardware baseline on the main task's stack.
+constexpr size_t kP16BootFrameBytes = 256;
 
 bool p16_extract_request_id(const char* raw, char* output, size_t output_size)
 {
@@ -200,7 +204,7 @@ bool run_probe16()
     if (requested.pitch > start.pitch) requested.pitch = start.pitch + kP16OffsetTenths;
     else requested.pitch = start.pitch - kP16OffsetTenths;
 
-    char command[kP16FrameBytes]{};
+    char command[kP16BootFrameBytes]{};
     const int command_len = std::snprintf(
         command, sizeof(command),
         "{\"v\":1,\"id\":\"cp16-execute\",\"ts\":\"host\",\"kind\":\"command\",\"name\":\"body.pose\",\"payload\":{\"yaw\":%d,\"pitch\":%d}}",
@@ -211,7 +215,7 @@ bool run_probe16()
     }
 
     ESP_LOGI(kLogTag, "PROBE16 phase=execute");
-    char ack[kP16FrameBytes]{};
+    char ack[kP16BootFrameBytes]{};
     if (!p16_execute_pose_command(command, ack, sizeof(ack))) {
         p11_fail_closed("cp16-execute");
         return false;
