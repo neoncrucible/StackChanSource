@@ -105,7 +105,7 @@ transcription, reasoning, voice connection, audio receipt and decoding.
 Sonia remains the preferred voice. If her request cannot finish within 12 seconds,
 Windows generates the same reply with an installed local voice. The server shows
 **LOCAL VOICE** when this happens; the fallback voice may sound different.
-Local speech has its own eight-second deadline, and a front touch cancels either
+Local speech has its own 12-second deadline, and a front touch cancels either
 voice. If both fail, check the server status message before retrying.
 
 In **Diagnostics**, **Check speech** generates a fixed test phrase and reports

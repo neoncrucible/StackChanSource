@@ -33,11 +33,16 @@ Host 0.3.2 retains that primary adapter/decoder and runs it in a disposable spee
 child. A parent-enforced 12-second deadline covers connection, MP3 receipt,
 native conversion and process exit. Cancellation kills and reaps the child.
 On Windows, failure uses System.Speech to render the same reply as raw PCM into
-RAM, under a separate eight-second child deadline. Text travels only through
+RAM, under a separate 12-second child deadline. Text travels only through
 stdin; PowerShell receives a fixed program, never interpolated reply text.
 There is no additional cloud provider, credential or audio-device owner.
 Cancellation deliberately bypasses fallback. Heard conversation state still
 requires the original physical playback acknowledgement.
+
+A Windows qualification run exceeded the initial eight-second local budget while
+a parallel Windows run succeeded. Local generation now allows 12 seconds, with
+separate loading and rendering substages retained in diagnostics. The deadline
+is enforced by the same kill-and-reap parent, including on first use.
 
 The overall provider budget is restored to RC1's 52 seconds, below firmware's
 55-second reply deadline. Diagnostics distinguish connection, receipt, decoding,

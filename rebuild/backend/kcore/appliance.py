@@ -90,7 +90,7 @@ class KadenceAppliance:
         if isinstance(error, VoiceTurnFailure):
             data.update(reason="device_proof", device_stage=error.stage,
                         error_code=error.error_code, wifi_reason=error.wifi_reason)
-        if stage == "providers" and self._provider_stage in {"stt", "reasoning", "tts", "tts_connect", "tts_audio", "tts_decode", "tts_fallback", "tts_ready"}:
+        if stage == "providers" and self._provider_stage in {"stt", "reasoning", "tts", "tts_connect", "tts_audio", "tts_decode", "tts_fallback", "tts_local_load", "tts_local_render", "tts_ready"}:
             data["provider_stage"] = self._provider_stage
         self.emit("runtime_issue", data)
 

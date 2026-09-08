@@ -13,14 +13,21 @@ from .voice_providers import VoiceProviderUnavailable
 
 MAX_PCM = 4 * 1024 * 1024
 EDGE_SECONDS = 12
-LOCAL_SECONDS = 8
-STAGES = frozenset({"tts_connect", "tts_audio", "tts_decode", "tts_fallback", "tts_ready"})
+LOCAL_SECONDS = 12
+STAGES = frozenset({"tts_connect", "tts_audio", "tts_decode", "tts_fallback",
+                    "tts_local_load", "tts_local_render", "tts_ready"})
 
 # Static program only. Spoken text travels over stdin, never through shell code,
 # arguments or a temporary file. System.Speech writes PCM to RAM, not PC speakers.
 WINDOWS_SPEECH = r"""
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$output = [Console]::OpenStandardOutput()
+function Report-Stage([string]$name) {
+    $status = [Text.Encoding]::ASCII.GetBytes('{"stage":"' + $name + '"}' + "`n")
+    $output.Write($status, 0, $status.Length); $output.Flush()
+}
+Report-Stage 'tts_local_load'
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 $spoken = [Console]::In.ReadToEnd()
 Add-Type -AssemblyName System.Speech
@@ -36,10 +43,10 @@ try {
         [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen,
         [System.Speech.AudioFormat.AudioChannel]::Mono)
     $synth.SetOutputToAudioStream($stream, $format)
+    Report-Stage 'tts_local_render'
     $synth.Speak($spoken)
     $bytes = $stream.ToArray()
     if ($bytes.Length -eq 0 -or $bytes.Length -gt 4194304 -or $bytes.Length % 2) { exit 2 }
-    $output = [Console]::OpenStandardOutput()
     $header = [Text.Encoding]::ASCII.GetBytes('{"pcm_bytes":' + $bytes.Length + "}`n")
     $output.Write($header, 0, $header.Length)
     $output.Write($bytes, 0, $bytes.Length)
@@ -111,14 +118,14 @@ async def synthesize_pcm(text, *, voice, rate, progress_sink=None):
         # never be resurrected or committed as heard.
         if os.name != "nt": raise
         if progress_sink: await progress_sink("tts_fallback")
-        pcm = await synthesize_local(spoken)
+        pcm = await synthesize_local(spoken, progress_sink=progress_sink)
     if progress_sink: await progress_sink("tts_ready")
     return pcm
 
 
-async def synthesize_local(text):
+async def synthesize_local(text, *, progress_sink=None):
     if os.name != "nt": raise VoiceProviderUnavailable("Local voice requires Windows")
     if not isinstance(text, str) or not 0 < len(text) <= 8000: raise ValueError("Invalid speech length")
     powershell = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
     return await _render([str(powershell), "-NoProfile", "-NonInteractive", "-Command", WINDOWS_SPEECH],
-        text.encode("utf-8"), timeout=LOCAL_SECONDS)
+        text.encode("utf-8"), timeout=LOCAL_SECONDS, progress_sink=progress_sink)

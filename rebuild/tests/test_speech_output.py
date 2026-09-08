@@ -53,12 +53,17 @@ class SpeechOutputTests(unittest.IsolatedAsyncioTestCase):
         async def progress(stage): stages.append(stage)
         with patch.object(speech, "_render", AsyncMock(side_effect=TimeoutError)), patch.object(speech, "synthesize_local", AsyncMock(return_value=b"\1\0")) as local, patch.object(speech.os, "name", "nt"):
             self.assertEqual(await speech.synthesize_pcm("The answer is ready.", voice="en-GB-SoniaNeural", rate="+0%", progress_sink=progress),b"\1\0")
-            local.assert_awaited_once_with("The answer is ready.")
+            local.assert_awaited_once_with("The answer is ready.", progress_sink=progress)
         self.assertEqual(stages,["tts_fallback","tts_ready"])
 
     @unittest.skipUnless(os.name=="nt", "Installed Windows voice")
     async def test_windows_voice_produces_non_silent_pcm_without_an_audio_device(self):
-        pcm=await speech.synthesize_local("Kadence local speech check. Café. Ready.")
+        stages=[]
+        async def progress(stage): stages.append(stage)
+        try:
+            pcm=await speech.synthesize_local("Kadence local speech check. Café. Ready.", progress_sink=progress)
+        except TimeoutError:
+            self.fail("Local speech deadline at " + (stages[-1] if stages else "process_start"))
         self.assertGreater(len(pcm), 16000)
         self.assertLess(len(pcm), speech.MAX_PCM)
         self.assertEqual(len(pcm)%2, 0)

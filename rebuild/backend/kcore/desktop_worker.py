@@ -120,7 +120,7 @@ class DesktopController:
                 async def progress(stage):
                     stages.append(stage); self.emit("provider_stage", {"stage": stage})
                 text = "Kadence speech check. System ready."
-                pcm = (await synthesize_local(text) if args.get("local") else
+                pcm = (await synthesize_local(text, progress_sink=progress) if args.get("local") else
                        await EdgeNeuralTTS().synthesize_pcm(text, progress_sink=progress))
                 local = bool(args.get("local")) or "tts_fallback" in stages
                 if not any(pcm): raise RuntimeError("Speech check returned silent audio.")
