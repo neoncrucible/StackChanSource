@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -110,7 +111,7 @@ class ReminderStorageTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_context_and_rollback_backup_preserved(self):
         await self.context.start()
         self.assertEqual((await self.context.perform("list", kind="memory"))["items"][0]["text"], "existing lab note")
-        with sqlite3.connect(self.directory / "context-before-utilities.sqlite3") as db:
+        with closing(sqlite3.connect(self.directory / "context-before-utilities.sqlite3")) as db:
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
         await self.store.call("project_add", name="Sensor")
         self.assertEqual(len(await self.store.call("project_list")), 1)
