@@ -3,6 +3,9 @@ import sys
 
 
 def main():
+    if "--speech-child" in sys.argv:
+        from .speech_child import main as speech_child
+        return speech_child()
     if "--build-info" in sys.argv:
         from .build_info import build_info
         import json

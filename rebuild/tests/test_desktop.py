@@ -67,6 +67,11 @@ class DesktopTests(unittest.TestCase):
                 window.on_event('provider_stage',{'stage':'tts'})
                 window.tick()
                 self.assertIn('PREPARING VOICE',window.activity.text())
+                window.on_event('provider_stage',{'stage':'tts_fallback','reply':fake})
+                self.assertIn('LOCAL VOICE',window.activity.text())
+                self.assertIn('installed Windows voice',window.message.text())
+                self.assertEqual(window.diagnostic[-1]['stage'],'tts_fallback')
+                self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
                 window.record_diagnostic('device',{'presentation':'listening','touch_seq':4,
                     'capture_remaining_ms':4200,'password':fake})
                 self.assertEqual(window.diagnostic[-1]['state'],'listening')

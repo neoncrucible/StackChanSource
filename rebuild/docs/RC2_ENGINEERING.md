@@ -7,10 +7,61 @@ enrolled-person profiles and Home Assistant actions retain their separate review
 boundaries. RC1 at `997654857c3dd6aa2f78c92501c2eda2bf6744fe` remains physically
 approved; this candidate does not relabel that approval as proof of new hardware.
 
-The current maintenance candidate is **host 0.3.1 / firmware 0.21.2**. Boss approved
+The current maintenance candidate is **host 0.3.2 / firmware 0.21.2**. Boss approved
 the Windows console's appearance, requested dependable front touch and a listening
 cue, and authorised replacing the expressive face with a utilitarian green signal
 display. USB control remains required; wireless control is outside this update.
+
+## Speech recovery and owner observations — 8 September
+
+Boss confirms firmware 0.21.2 stays booted and front touch is much more responsive.
+This is explicit boot/touch evidence; RC2 spoken replies and other new hardware
+functions are still not signed off. The supplied report shows two turns reaching
+TTS, one after successful reasoning, then touch cancellation. It contains no TTS
+substage or timeout event, so it cannot establish a network or decoder root cause.
+
+Cross-reference: the Sonia adapter, voice choice, MP3-to-16 kHz mono PCM decoder
+and 18-second synthesis call in approved RC1 `997654857c3d` were unchanged in
+RC2 `97b8899299fb`. A synthetic Windows source test reproduced the RC1 path in
+2.89 seconds. A second test using the RC2 service context and packaging options
+completed in 1.48 seconds from source and 1.16 seconds when frozen (workflow
+[34281113712](https://github.com/neoncrucible/StackChanSource/actions/runs/34281113712)).
+These tests rule out a universal adapter/packaging failure, not a PC-specific
+connectivity issue or a data-dependent stall. Do not claim a confirmed root cause.
+
+Host 0.3.2 retains that primary adapter/decoder and runs it in a disposable speech
+child. A parent-enforced 12-second deadline covers connection, MP3 receipt,
+native conversion and process exit. Cancellation kills and reaps the child.
+On Windows, failure uses System.Speech to render the same reply as raw PCM into
+RAM, under a separate 12-second child deadline. Text travels only through
+stdin; PowerShell receives a fixed program, never interpolated reply text.
+There is no additional cloud provider, credential or audio-device owner.
+Cancellation deliberately bypasses fallback. Heard conversation state still
+requires the original physical playback acknowledgement.
+
+A Windows qualification run exceeded the initial eight-second local budget while
+a parallel Windows run succeeded. Local generation now allows 12 seconds, with
+separate loading and rendering substages retained in diagnostics. The deadline
+is enforced by the same kill-and-reap parent, including on first use.
+
+The overall provider budget is restored to RC1's 52 seconds, below firmware's
+55-second reply deadline. Diagnostics distinguish connection, receipt, decoding,
+local fallback and PCM readiness; readiness is not physical playback proof.
+Both no-speech responses and scheduled reminder speech share the same renderer.
+
+The Signal Console uses the firmware's flat black/green palette, angular signal
+instrument and matching tray glyph. Its waveform indicates device state, not
+invented live microphone levels. `Check speech` in Diagnostics runs a fixed phrase
+while the server is stopped and reports successful PCM generation without using
+the microphone or either device's speakers. The packaged worker check now runs
+both automatic Sonia/local speech and forced local speech, in addition to its
+existing timezone, persistence, utility and shutdown checks.
+
+This is a host-only update. Firmware sources remain unchanged at 0.21.2; owners
+already on the proven boot recovery should replace the desktop app without
+flashing. The complete package still supplies matched firmware for first installs.
+The outstanding physical check is a completed spoken turn and return to idle on
+Boss's PC/robot, followed by cancellation and a second turn.
 
 ## Runtime ownership
 

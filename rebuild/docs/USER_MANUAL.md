@@ -1,10 +1,10 @@
 # Kadence operator manual
 
-**Release:** RC2 — Windows console 0.3.1 / firmware 0.21.2
+**Release:** RC2 — Signal Console 0.3.2 / firmware 0.21.2
 
 **Hardware:** M5Stack StackChan K151 / CoreS3, ESP32-S3
 
-**Package identity:** the full source commit is in `RELEASE.json`; use its matched desktop and firmware together.
+**Package identity:** the full source commit is in `RELEASE.json`; the included firmware and host are built from that source. Host 0.3.2 also supports the already-installed firmware 0.21.2.
 
 Kadence combines spoken conversation and the animated terminal avatar with a
 Windows control console, date-aware reminders, a lab workbench, deliberate camera
@@ -14,6 +14,12 @@ physical check. The approved RC1 remains the rollback baseline; its acceptance
 is recorded in [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md).
 
 ## 1. Install the matched release
+
+**Already running the stable boot recovery (firmware 0.21.2)?** Quit the old
+Kadence app, including its tray icon. Extract this whole ZIP to a new folder,
+open its `Kadence.exe`, and start the server. **No flash is needed.** Saved
+settings, reminders and the optional Windows credential entry remain available.
+Use the steps below only for a first install or older firmware.
 
 1. Extract the **whole** `Kadence-RC2-<commit>.zip` to a new folder. Keep
    `Kadence.exe`, `_internal`, `Firmware` and the accompanying files together.
@@ -95,8 +101,19 @@ again after it stops to begin a conversation.
 One deliberate press is enough; holding your finger does not start another turn.
 The microphone closes before upload and processing. **MIC CLOSED** and an elapsed
 timer distinguish processing from recording. The Windows overview also identifies
-transcription, reasoning and voice preparation. A stalled service returns an
-error instead of waiting indefinitely; check the status message before retrying.
+transcription, reasoning, voice connection, audio receipt and decoding.
+Sonia remains the preferred voice. If her request cannot finish within 12 seconds,
+Windows generates the same reply with an installed local voice. The server shows
+**LOCAL VOICE** when this happens; the fallback voice may sound different.
+Local speech has its own 12-second deadline, and a front touch cancels either
+voice. If both fail, check the server status message before retrying.
+
+In **Diagnostics**, **Check speech** generates a fixed test phrase and reports
+whether Sonia or the Windows voice produced audio. Stop the server first. This
+check uses no microphone, no API keys, and does not play audio through the PC or
+robot; a normal robot voice turn checks physical playback. The black-and-green
+Signal Console animation follows acknowledged device state. It is a state
+indicator, not a microphone level meter.
 When speaker output is muted or its volume is zero, the listening cue is silent;
 use the REC indicator and countdown. Speaker mute does not disable recording.
 

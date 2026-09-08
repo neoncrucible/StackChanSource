@@ -75,7 +75,7 @@ def main() -> None:
             "voice wire does not recover an empty transcription")
     require("NO_SPEECH_REPLY" in wire and "no_speech=True" in wire,
             "voice wire no-speech recovery has no spoken reply/proof")
-    require("_synthesize_reply(providers, NO_SPEECH_REPLY)" in wire,
+    require("_synthesize_reply(providers, NO_SPEECH_REPLY," in wire,
             "no-speech recovery does not produce valid device playback")
 
     require("phase_a3_" not in appliance.lower(),

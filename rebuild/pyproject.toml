@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kade-runtime"
-version = "0.3.1"
+version = "0.3.2"
 description = "Host runtime for the Kadence clean rebuild"
 requires-python = ">=3.12"
 dependencies = ["pyserial>=3.5,<4", "tzdata>=2025.2"]

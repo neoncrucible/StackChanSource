@@ -109,6 +109,24 @@ class DesktopController:
                 self.emit("server", {"state": "stopped", "error": failure})
 
     async def command(self, action, args):
+        if action == "speech_check":
+            if set(args)-{"local"} or type(args.get("local", False)) is not bool:
+                raise ValueError("Invalid speech check options.")
+            async with self._lifecycle:
+                if self.state != "stopped": raise ValueError("Stop the server before checking speech.")
+                from .speech_output import synthesize_local
+                from .voice_providers import EdgeNeuralTTS
+                started = time.monotonic(); stages = []
+                async def progress(stage):
+                    stages.append(stage); self.emit("provider_stage", {"stage": stage})
+                text = "Kadence speech check. System ready."
+                pcm = (await synthesize_local(text, progress_sink=progress) if args.get("local") else
+                       await EdgeNeuralTTS().synthesize_pcm(text, progress_sink=progress))
+                local = bool(args.get("local")) or "tts_fallback" in stages
+                if not any(pcm): raise RuntimeError("Speech check returned silent audio.")
+                return {"pcm_bytes": len(pcm), "elapsed_ms": round((time.monotonic()-started)*1000),
+                    "local_voice": local, "message": ("Windows voice" if local else "Sonia") +
+                    " generated audio successfully. Start the server and try a voice turn to check robot playback."}
         if action == "timezone" and self.state != "stopped":
             raise ValueError("Stop the server before changing its timezone.")
         if action in {"server_start", "server_stop", "server_restart"}:
