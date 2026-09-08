@@ -83,6 +83,14 @@ class KadenceAppliance:
         self._connections: dict[asyncio.Task, asyncio.StreamWriter] = {}
         self._companion: Companion | None = None
 
+    def _report_issue(self, stage: str, error: Exception) -> None:
+        # Status crosses the GUI boundary; arbitrary exception text never does.
+        data = {"stage": stage, "reason": "timeout" if isinstance(error, TimeoutError) else "unavailable"}
+        if isinstance(error, VoiceTurnFailure):
+            data.update(reason="device_proof", device_stage=error.stage,
+                        error_code=error.error_code, wifi_reason=error.wifi_reason)
+        self.emit("runtime_issue", data)
+
     async def run_forever(self) -> None:
         await self._start_companion()
         await self._start_voice_server()
@@ -112,6 +120,7 @@ class KadenceAppliance:
                     raise
                 except Exception as exc:
                     if not self._stop.is_set():
+                        self._report_issue("connection", exc)
                         print(
                             "KADENCE_RUNTIME DEVICE offline "
                             f"reason={type(exc).__name__}:{_safe_message(exc)}"
@@ -252,7 +261,8 @@ class KadenceAppliance:
                 "token": self._turn_token}, timeout=100)
             if self._media_result is None: raise RuntimeError("media transfer was not confirmed")
             return self._media_result
-        except BaseException:
+        except BaseException as exc:
+            if isinstance(exc, Exception): self._report_issue(self._media_mode, exc)
             with contextlib.suppress(Exception): await body.send_voice_cancel(timeout=3)
             raise
         finally:
@@ -377,6 +387,7 @@ class KadenceAppliance:
             if isinstance(exc, VoiceTurnFailure) and exc.cancelled:
                 print("KADENCE_RUNTIME TURN cancelled torque=released")
                 return
+            self._report_issue("voice", exc)
             print(
                 "KADENCE_RUNTIME TURN recovered "
                 f"reason={type(exc).__name__}:{_safe_message(exc)}"
@@ -406,6 +417,7 @@ class KadenceAppliance:
                 and movement.payload.get("torque_released") is True
             )
         except Exception as exc:
+            self._report_issue("body", exc)
             print(
                 "KADENCE_RUNTIME BODY degraded "
                 f"reason={type(exc).__name__}:{_safe_message(exc)}"
@@ -436,6 +448,7 @@ class KadenceAppliance:
                     and cancel_ack.payload.get("torque_released") is True
                 )
             except Exception as exc:
+                self._report_issue("cancel", exc)
                 print(
                     "KADENCE_RUNTIME CANCEL degraded "
                     f"reason={type(exc).__name__}:{_safe_message(exc)}"
@@ -547,6 +560,7 @@ class KadenceAppliance:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            self._report_issue("providers" if phase == "PROVIDERS" else "uplink", exc)
             if self._turn_token == token:
                 self._wire_result = None
                 if self._companion:

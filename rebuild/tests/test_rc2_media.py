@@ -21,6 +21,14 @@ def settings():
 
 
 class MediaTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runtime_status_never_copies_arbitrary_exception_text(self):
+        events=[]; app=KadenceAppliance(settings(),emit=lambda n,d:events.append((n,d)))
+        app._report_issue('providers',RuntimeError('FAKE_SECRET_NEVER_EXPORT'))
+        self.assertEqual(events,[('runtime_issue',{'stage':'providers','reason':'unavailable'})])
+        app._report_issue('voice',VoiceTurnFailure(['network'],{'stage':'wifi-ready','wifi_reason':201}))
+        self.assertEqual(events[-1][1]['device_stage'],'wifi-ready')
+        self.assertEqual(events[-1][1]['wifi_reason'],201)
+
     async def test_camera_transfer_requires_current_token_and_bounded_image(self):
         app=KadenceAppliance(settings()); app._body=SimpleNamespace(connected=True)
         app._media_mode='camera'; app._turn_token='a'*32

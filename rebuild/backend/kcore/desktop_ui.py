@@ -561,6 +561,16 @@ class MainWindow(QMainWindow):
             if data.get("stage") in {"stt","reasoning","tts"}:
                 self.timings[data["stage"]]=data.get("elapsed_ms",0)
                 self.timing_label.setText("  /  ".join(f"{key.upper()} {value/1000:.2f}s" for key,value in self.timings.items()))
+        elif name=="runtime_issue":
+            hints={"connection":"Waiting for the robot. Check its USB port and normal boot mode.",
+                "voice":"Voice did not complete. Check connection and provider settings; details are in Diagnostics.",
+                "providers":"Speech service unavailable. Check credentials and Internet access, then try again.",
+                "uplink":"Audio transfer did not complete. Check the robot's Wi-Fi connection.",
+                "body":"Voice finished; the body reaction was not confirmed.",
+                "cancel":"Cancellation was not confirmed. Reset the robot before trying again.",
+                "camera":"Camera operation did not complete. Return to idle and try another capture.",
+                "alert":"Robot alert was not confirmed. Review the due reminders in Windows."}
+            self.message.setText(hints.get(data.get("stage"),"An operation did not complete. Open Diagnostics for status."))
         elif name in {"fatal","message"}:
             self.message.setText(data.get("message","Local services unavailable."))
             if name=="fatal": self.update_controls()
@@ -590,14 +600,16 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing"}
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue"}
         if name not in allowed: return
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive"}
-        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage"):
+        from .host import VoiceTurnFailure
+        stages={"stt","reasoning","tts","connection","voice","providers","uplink","body","cancel","camera","alert"}
+        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","device_stage","reason","error_code","wifi_reason"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
-            elif isinstance(value,str) and (value in states or key=="stage" and value in {"stt","reasoning","tts"}): safe[key]=value
+            elif isinstance(value,str) and (key=="state" and value in states or key=="stage" and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in {"timeout","unavailable","device_proof"}): safe[key]=value
         record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
         self.diagnostic.append(record)
         self.log.appendPlainText(record["at"][11:19]+"  "+name.upper()+"  "+" ".join(f"{k}={v}" for k,v in safe.items()))

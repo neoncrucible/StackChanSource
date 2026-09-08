@@ -274,7 +274,7 @@ returns only configured entities.
 ## 10. Diagnostics and data
 
 **Diagnostics** shows connection/activity events, available device memory,
-completed-turn counts and STT/reasoning/TTS durations. **Export diagnostics** saves
+completed-turn counts, bounded failure stages and STT/reasoning/TTS durations. **Export diagnostics** saves
 only selected status fields and package identity, excluding credentials,
 conversation text, images, QR contents and saved notes.
 

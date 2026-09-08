@@ -89,7 +89,8 @@ class DesktopController:
         self.app = self.appliance_factory(settings, services=self.services, emit=self.state_event)
         self.state = "starting"; self.emit("server", {"state": self.state})
         self.task = asyncio.create_task(self._serve(self.app), name="kadence-server")
-        return {"message": "Starting server.", "voice_credentials_ready": not settings.providers.missing_credentials()}
+        voice_ready = not settings.providers.missing_credentials()
+        return {"message": "Starting server." if voice_ready else "Starting server. Add OpenAI and Gemini keys for voice; local utilities remain available.", "voice_credentials_ready": voice_ready}
 
     async def _serve(self, app):
         failure = None
