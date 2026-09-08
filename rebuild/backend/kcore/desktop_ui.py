@@ -11,7 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from PySide6.QtCore import Qt, QTimer, QRectF
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap, QAction
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox,
@@ -27,37 +27,37 @@ from .workbench import UNITS
 from .build_info import build_info
 
 STYLE = """
-QWidget { background: #050706; color: #d4dfd7; font-family: 'Cascadia Mono','Consolas','DejaVu Sans Mono'; font-size: 12px; }
-QMainWindow { background: #050706; }
-QLabel#brand { color: #b4ff8d; font-size: 24px; font-weight: bold; letter-spacing: 3px; }
+QWidget { background: #000000; color: #d4dfd7; font-family: 'Cascadia Mono','Consolas','DejaVu Sans Mono'; font-size: 12px; }
+QMainWindow { background: #000000; }
+QLabel#brand { color: #64ff88; font-size: 24px; font-weight: bold; letter-spacing: 3px; }
 QLabel#muted { color: #88968d; }
 QLabel#title { font-size: 23px; color: #e0f2e5; font-weight: bold; }
-QLabel#status { color: #b4ff8d; }
+QLabel#status { color: #64ff88; }
 QFrame#rule { background: #263c2d; max-height: 1px; }
 QFrame#rail { border-right: 1px solid #263c2d; }
 QGroupBox { border: 1px solid #293c2f; margin-top: 15px; padding: 16px 12px 12px; font-weight: bold; }
-QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #b4ff8d; }
+QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #64ff88; }
 QPushButton { background: #101a13; border: 1px solid #39523f; padding: 9px 13px; color: #d6eadb; }
-QPushButton:hover { border-color: #b4ff8d; color: #b4ff8d; }
-QPushButton:pressed, QPushButton:checked { background: #b4ff8d; color: #0b130b; border-color: #b4ff8d; }
+QPushButton:hover { border-color: #64ff88; color: #64ff88; }
+QPushButton:pressed, QPushButton:checked { background: #64ff88; color: #0b130b; border-color: #64ff88; }
 QPushButton:disabled { color: #58635b; border-color: #253027; background: #0a0e0b; }
-QPushButton#primary { background: #b4ff8d; color: #08100a; font-weight: bold; }
+QPushButton#primary { background: #64ff88; color: #08100a; font-weight: bold; }
 QPushButton#nav { text-align: left; border: none; padding: 14px 12px; }
-QLineEdit, QComboBox, QSpinBox, QPlainTextEdit { background: #0b110d; border: 1px solid #324c3a; padding: 7px; selection-background-color: #b4ff8d; selection-color: #08100a; }
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: #b4ff8d; }
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit { background: #0b110d; border: 1px solid #324c3a; padding: 7px; selection-background-color: #64ff88; selection-color: #08100a; }
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: #64ff88; }
 QComboBox::drop-down { border: none; width: 24px; }
 QCheckBox { spacing: 8px; padding: 4px 0; }
 QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #789481; background: #0b110d; }
-QCheckBox::indicator:checked { background: #b4ff8d; }
-QTableWidget { background: #050706; border: 1px solid #293c2f; gridline-color: #1d2c22; selection-background-color: #23402c; }
+QCheckBox::indicator:checked { background: #64ff88; }
+QTableWidget { background: #000000; border: 1px solid #293c2f; gridline-color: #1d2c22; selection-background-color: #23402c; }
 QHeaderView::section { background: #111c15; color: #a6bdad; border: none; border-bottom: 1px solid #39523f; padding: 9px; }
 QSlider::groove:horizontal { height: 4px; background: #304736; }
-QSlider::sub-page:horizontal { background: #b4ff8d; }
-QSlider::handle:horizontal { background: #b4ff8d; width: 13px; margin: -6px 0; }
+QSlider::sub-page:horizontal { background: #64ff88; }
+QSlider::handle:horizontal { background: #64ff88; width: 13px; margin: -6px 0; }
 QScrollBar:vertical { background: #0b110d; width: 10px; }
 QScrollBar::handle:vertical { background: #39523f; min-height: 25px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QToolTip { background: #19281e; color: #e0f2e5; border: 1px solid #b4ff8d; }
+QToolTip { background: #19281e; color: #e0f2e5; border: 1px solid #64ff88; }
 """
 
 
@@ -105,33 +105,50 @@ def table(columns):
 
 
 class Avatar(QWidget):
-    """Code-native companion emblem; activity follows acknowledged device state."""
+    """Signal instrument driven by device state; not a live audio level meter."""
     def __init__(self):
         super().__init__(); self.phase="idle"; self.epoch=time.monotonic()
         self.setMinimumSize(260,180)
         self.timer=QTimer(self); self.timer.setInterval(66); self.timer.timeout.connect(self.update); self.timer.start()
     def paintEvent(self, event):
         p=QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(),QColor("#050706"))
+        p.fillRect(self.rect(),QColor("#000000"))
         p.translate(self.width()/2,self.height()/2-6)
         scale=min(self.width()/320,self.height()/215); p.scale(scale,scale)
         t=time.monotonic()-self.epoch
-        blink=(t%5.8)>5.65; moving=self.phase in {"thinking","tool-working","camera"}
-        glance=math.sin(t*.7)*5 if moving else math.sin(t*.3)*2
-        p.setPen(QPen(QColor("#234731"),1))
-        for x in (-136,136):
-            sign=1 if x<0 else -1
-            p.drawLine(x,-60,x+sign*15,-60); p.drawLine(x,-60,x,-45)
-            p.drawLine(x,60,x+sign*15,60); p.drawLine(x,60,x,45)
-        for cx in (-52,52):
-            p.setPen(Qt.NoPen); p.setBrush(QColor("#143326")); p.drawRoundedRect(QRectF(cx-32,-40,64,57),20,20)
-            p.setBrush(QColor("#a6ffbd")); h=4 if blink else 36
-            p.drawRoundedRect(QRectF(cx-21+glance,-29+(36-h)/2,42,h),12,12)
-            if not blink:
-                p.setBrush(QColor("#f0fff4")); p.drawRoundedRect(QRectF(cx-14+glance,-23,6,10),3,3)
-        p.setPen(QPen(QColor("#85dcad"),3,Qt.SolidLine,Qt.RoundCap))
-        mouth=4+abs(math.sin(t*8))*9 if self.phase=="speaking" else 4
-        p.drawArc(QRectF(-16,24,32,mouth*2),180*16,180*16)
+        working=self.phase in {"thinking","tool-working","camera"}
+        active=self.phase in {"attentive","listening","speaking"} or working
+        p.setPen(QPen(QColor("#264e32"),1))
+        for sign in (-1,1):
+            for sy in (-1,1):
+                p.drawLine(sign*132,sy*37,sign*118,sy*51)
+                p.drawLine(sign*118,sy*51,sign*48,sy*51)
+        for x in range(-120,121,20):
+            p.drawLine(x,-3,x,3)
+            if x%40==0:
+                p.drawLine(x,-40,x,-37); p.drawLine(x,37,x,40)
+        p.setFont(QFont("Consolas",8))
+        p.drawText(QRectF(-140,-87,280,18),Qt.AlignLeft,"STATE TELEMETRY")
+        p.drawText(QRectF(-140,-87,280,18),Qt.AlignRight,"01 / 01")
+        # A modest state animation, with no fabricated microphone telemetry.
+        amplitude=11 if working else 19 if self.phase=="speaking" else 5 if active else 0
+        path=QPainterPath()
+        for x in range(-124,125):
+            u=(x+124)/248
+            y=math.sin(u*math.pi)*amplitude*(.66*math.sin(u*35-t*4)+.25*math.sin(u*71+t*7))
+            if x==-124: path.moveTo(x,y)
+            else: path.lineTo(x,y)
+        p.setPen(QPen(QColor("#183c24"),4)); p.drawPath(path)
+        p.setPen(QPen(QColor("#64ff88"),1.4)); p.drawPath(path)
+        if not active:
+            glyph=QPainterPath(); glyph.moveTo(-15,-12)
+            for x,y in ((15,-12),(23,-4),(23,4),(15,12),(-15,12),(-23,4),(-23,-4),(-15,-12)):
+                glyph.lineTo(x,y)
+            p.drawPath(glyph)
+        cursor=-120+int(t*45)%240
+        p.fillRect(QRectF(cursor,-3,2,7),QColor("#beffc6"))
+        p.setPen(QColor("#8daf97"))
+        p.drawText(QRectF(-140,67,280,18),Qt.AlignCenter,"KADENCE / SIGNAL")
         p.end()
 
 
@@ -148,11 +165,11 @@ class MainWindow(QMainWindow):
         self.diagnostic=deque(maxlen=400); self._settings={}; self.snapshot_pixmap=None
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
         self.active_timezone="Europe/London"; self.timings={}
-        self.setWindowTitle("Kadence • Control")
+        self.setWindowTitle("Kadence • Signal Console")
         self.resize(1160,800); self.setMinimumSize(980,690)
         self.setStyleSheet(STYLE)
         root=QWidget(); self.setCentralWidget(root); shell=QVBoxLayout(root); shell.setContentsMargins(24,18,24,14); shell.setSpacing(14)
-        heading=QHBoxLayout(); heading.addWidget(label("KADENCE", "brand")); heading.addWidget(label("/  CONTROL", "muted")); heading.addStretch()
+        heading=QHBoxLayout(); heading.addWidget(label("KADENCE", "brand")); heading.addWidget(label("/  SIGNAL CONSOLE", "muted")); heading.addStretch()
         self.clock=label("LOCAL CLOCK", "muted"); heading.addWidget(self.clock)
         shell.addLayout(heading)
         rule=QFrame(); rule.setObjectName("rule"); shell.addWidget(rule)
@@ -170,7 +187,7 @@ class MainWindow(QMainWindow):
         for index,(title,method) in enumerate((("01  OVERVIEW",self.overview_page),("02  REMINDERS",self.reminders_page),("03  WORKBENCH",self.workbench_page),("04  VISION",self.vision_page),("05  DEVICE / PLAY",self.device_page),("06  DIAGNOSTICS",self.diagnostics_page))):
             b=button(title,lambda checked=False,i=index:self.navigate(i)); b.setObjectName("nav"); b.setCheckable(True); self.nav.append(b); sidebar.addWidget(b)
             page=method(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setWidget(page); self.pages.addWidget(scroll)
-        sidebar.addStretch(); sidebar.addWidget(label("PRIVATE LAB\nLOCAL COMPANION", "muted"))
+        sidebar.addStretch(); sidebar.addWidget(label("PRIVATE LAB\nSYSTEM TERMINAL", "muted"))
         info=build_info(); sidebar.addWidget(label(f"v{info['host_version']} / RC2\n{info['source_commit'][:12]}","muted"))
         self.tray_check=QCheckBox("Keep in tray"); sidebar.addWidget(self.tray_check)
         sidebar.addWidget(button("QUIT",self.quit_app))
@@ -189,7 +206,7 @@ class MainWindow(QMainWindow):
         return widget,layout
 
     def overview_page(self):
-        page,layout=self.page("A place for Kadence.","Voice, useful tools and a little company at your workbench.")
+        page,layout=self.page("System overview", "Voice, device status and workbench controls.")
         top=QHBoxLayout(); self.avatar=Avatar(); top.addWidget(self.avatar,1)
         info=QVBoxLayout(); self.activity=label("READY WHEN YOU ARE", "status"); self.activity.setStyleSheet("font-size: 18px;")
         self.runtime_info=label("Server stopped. Local reminders work while this app is open.","muted")
@@ -279,7 +296,7 @@ class MainWindow(QMainWindow):
         return page
 
     def device_page(self):
-        page,layout=self.page("Light, sound and play.","Front-screen touch still starts or cancels a voice turn.")
+        page,layout=self.page("Device controls","Front-screen touch still starts or cancels a voice turn.")
         audio=QGroupBox("AUDIO"); grid=QGridLayout(audio)
         self.volume=QSlider(Qt.Horizontal); self.volume.setRange(0,100); self.volume.setValue(100)
         self.volume_value=label("Awaiting device", "status"); self.volume.sliderReleased.connect(lambda:self.device_setting(volume=self.volume.value()))
@@ -306,9 +323,11 @@ class MainWindow(QMainWindow):
         return page
 
     def diagnostics_page(self):
-        page,layout=self.page("The useful details.","A bounded status journal. No credentials, conversation text, images or QR content.")
+        page,layout=self.page("System diagnostics","A bounded status journal. No credentials, conversation text, images or QR content.")
         self.timing_label=label("Provider timings appear after a voice turn.","status"); layout.addWidget(self.timing_label)
         self.log=QPlainTextEdit(); self.log.setReadOnly(True); self.log.document().setMaximumBlockCount(400); layout.addWidget(self.log,1)
+        layout.addWidget(label("Stop the server to check speech generation with a fixed test phrase. No microphone or robot playback is used.","muted"))
+        layout.addWidget(button("CHECK SPEECH",lambda:self.control.send("speech_check")))
         layout.addWidget(row(button("EXPORT DIAGNOSTICS",self.export_diagnostics),button("CLEAR VIEW",self.clear_diagnostics)))
         return page
 
@@ -526,7 +545,12 @@ class MainWindow(QMainWindow):
         elif name=="activity":
             self.set_activity(data.get("state","idle"),data.get("capture_ms"))
         elif name=="provider_stage":
-            self.provider_stage={"stt":"TRANSCRIBING","reasoning":"THINKING","tts":"PREPARING VOICE"}.get(data.get("stage"),"")
+            self.provider_stage={"stt":"TRANSCRIBING","reasoning":"THINKING","tts":"PREPARING VOICE",
+                "tts_connect":"CONNECTING VOICE","tts_audio":"RECEIVING VOICE","tts_decode":"DECODING VOICE",
+                "tts_fallback":"LOCAL VOICE","tts_ready":"VOICE READY"}.get(data.get("stage"),"")
+            if data.get("stage")=="tts_fallback":
+                self.message.setText("Sonia did not complete. This reply is using the installed Windows voice.")
+            self.refresh_activity()
         elif name=="turn": self.turn_info.setText(f"Completed turns  {data.get('completed',0)}")
         elif name=="utilities":
             self.active_timezone=data.get("clock",{}).get("timezone",self.active_timezone)
@@ -630,7 +654,7 @@ class MainWindow(QMainWindow):
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive"}
         from .host import VoiceTurnFailure
-        stages={"stt","reasoning","tts","connection","voice","providers","uplink","body","cancel","camera","alert"}
+        stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
         for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
@@ -649,10 +673,15 @@ class MainWindow(QMainWindow):
     def clear_diagnostics(self): self.diagnostic.clear(); self.log.clear()
 
     def _make_tray(self):
-        pixmap=QPixmap(64,64); pixmap.fill(QColor("#050706")); painter=QPainter(pixmap)
-        painter.setPen(QColor("#b4ff8d")); painter.setFont(QFont("Consolas",38,QFont.Bold)); painter.drawText(pixmap.rect(),Qt.AlignCenter,"K"); painter.end()
+        pixmap=QPixmap(64,64); pixmap.fill(QColor("#000000")); painter=QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path=QPainterPath(); path.moveTo(5,32)
+        for x,y in ((19,32),(24,23),(40,23),(46,29),(46,35),(40,41),(24,41),(18,35),(18,29),(24,23)):
+            path.lineTo(x,y)
+        path.moveTo(46,32); path.lineTo(59,32)
+        painter.setPen(QPen(QColor("#64ff88"),3)); painter.drawPath(path); painter.end()
         icon=QIcon(pixmap); self.setWindowIcon(icon)
-        self.tray=QSystemTrayIcon(icon,self); self.tray.setToolTip("Kadence • Control")
+        self.tray=QSystemTrayIcon(icon,self); self.tray.setToolTip("Kadence • Signal Console")
         menu=QMenu(); menu.addAction("Open Kadence",self.show_window); menu.addAction("Quit",self.quit_app); self.tray.setContextMenu(menu)
         self.tray.activated.connect(lambda reason:self.show_window() if reason in {QSystemTrayIcon.Trigger,QSystemTrayIcon.DoubleClick} else None)
         self.tray.messageClicked.connect(lambda:(self.show_window(),self.navigate(1)))

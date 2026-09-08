@@ -222,6 +222,10 @@ class EdgeNeuralTTS:
         self.voice = voice.strip()
         self.rate = rate
 
+    async def synthesize_pcm(self, text: str, *, progress_sink=None) -> bytes:
+        from .speech_output import synthesize_pcm
+        return await synthesize_pcm(text, voice=self.voice, rate=self.rate, progress_sink=progress_sink)
+
     async def synthesize(self, text: str) -> AsyncIterator[bytes]:
         spoken = text.strip()
         if not spoken:

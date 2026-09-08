@@ -195,17 +195,23 @@ async def read_wire_turn(reader: asyncio.StreamReader, *, expected_token: str | 
     return VoiceWireTurn(sample_rate, frame_ms, tuple(packets))
 
 
-async def _synthesize_reply(providers: LiveVoiceProviders, reply: str) -> bytes:
+async def _synthesize_reply(providers: LiveVoiceProviders, reply: str, *, progress_sink=None) -> bytes:
+    render_pcm = getattr(providers.tts, "synthesize_pcm", None)
+    if render_pcm is not None:
+        return await render_pcm(reply, progress_sink=progress_sink)
     mp3_parts: list[bytes] = []
     size = 0
     async with asyncio.timeout(18):
+        if progress_sink: await progress_sink("tts_connect")
         async for chunk in providers.tts.synthesize(reply):
+            if not mp3_parts and progress_sink: await progress_sink("tts_audio")
             size += len(chunk)
             if size > MAX_PCM_REPLY:
                 raise ValueError("encoded speech exceeds limit")
             mp3_parts.append(chunk)
-    mp3 = b"".join(mp3_parts)
-    return await asyncio.to_thread(decode_edge_mp3_to_pcm16, mp3)
+        mp3 = b"".join(mp3_parts)
+        if progress_sink: await progress_sink("tts_decode")
+        return await asyncio.to_thread(decode_edge_mp3_to_pcm16, mp3)
 
 
 async def process_wire_turn(
@@ -241,7 +247,7 @@ async def process_wire_turn(
         timings["stt"] = round((time.perf_counter()-started)*1000)
         started = time.perf_counter()
         if progress_sink: await progress_sink("tts")
-        pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY)
+        pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY, progress_sink=progress_sink)
         timings["tts"] = round((time.perf_counter()-started)*1000)
         return VoiceWireResult(
             transcript="",
@@ -271,7 +277,7 @@ async def process_wire_turn(
     timings["reasoning"] = round((time.perf_counter()-started)*1000)
     started = time.perf_counter()
     if progress_sink: await progress_sink("tts")
-    pcm = await _synthesize_reply(providers, reply)
+    pcm = await _synthesize_reply(providers, reply, progress_sink=progress_sink)
     timings["tts"] = round((time.perf_counter()-started)*1000)
     return VoiceWireResult(transcript=transcript, reply=reply, pcm=pcm, timings=timings)
 

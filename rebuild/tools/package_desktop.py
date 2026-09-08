@@ -26,10 +26,14 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.3.1','firmware_version':'0.21.2','source_commit':commit,
-        'physical_signoff':False,'entry':'Kadence.exe'},indent=2)+'\n')
+        'host_version':'0.3.2','firmware_version':'0.21.2','source_commit':commit,
+        'physical_signoff':False,'compatible_firmware':['0.21.2'],'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
-        'KADENCE RC2\n\nExtract the entire ZIP to a new folder.\n'
+        'KADENCE RC2 / SIGNAL CONSOLE 0.3.2\n\nExtract the entire ZIP to a new folder.\n'
+        'UPDATING FROM FIRMWARE 0.21.2 (the stable boot recovery):\n'
+        'Quit the old app including its tray icon, then open this Kadence.exe.\n'
+        'No robot flash is needed. Keep USB connected and start the server.\n\n'
+        'FIRST INSTALL OR OLDER FIRMWARE:\n'
         '1. Close any running Kadence server and serial monitor.\n'
         '2. Put the robot in download mode. In PowerShell here, run:\n'
         '   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Flash-Kadence.ps1 -Port COM4\n'
@@ -59,7 +63,7 @@ def build(commit: str, firmware: Path):
     work.mkdir(parents=True,exist_ok=True)
     entry=work/'desktop_entry.py'
     entry.write_text('from kcore.desktop import main\nif __name__ == "__main__": raise SystemExit(main())\n')
-    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.1'}))
+    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.2'}))
     # Keep standard streams for the same executable's private worker mode.
     # hide-early hides the bootloader's window, without disabling stdin/stdout.
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean',
