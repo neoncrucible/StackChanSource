@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import serial
 
@@ -28,13 +28,16 @@ class RuntimeBody:
         baud: int = 115200,
         ready_timeout: float = 30.0,
         serial_factory: Any = serial.Serial,
+        diagnostic_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> "RuntimeBody":
         host = HostServer(config)
         ser = serial_factory(port, baud, timeout=0.25, write_timeout=3.0)
         try:
             ser.dtr = False
             ser.rts = False
-            session = SerialBodySession(host, ser, port_name=port)
+            session = SerialBodySession(
+                host, ser, port_name=port, diagnostic_sink=diagnostic_sink
+            )
             await session.start(ready_timeout=ready_timeout)
             return cls(host=host, session=session)
         except BaseException:
