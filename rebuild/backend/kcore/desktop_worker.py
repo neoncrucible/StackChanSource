@@ -12,12 +12,50 @@ from zoneinfo import ZoneInfo
 
 from .appliance import ApplianceSettings, KadenceAppliance, _local_lan_ipv4
 from .device_control import request_device
+from .serial_transport import set_camera_diagnostic_sink
 from .services import LocalServices
 from .voice_providers import VoiceProviderSettings
 
 MAX_INPUT = 32768
 MAX_OUTPUT = 1024*1024
 SETTINGS = frozenset({"port", "ssid", "lan_host", "timezone", "capture_ms", "openai_api_key", "gemini_api_key", "wifi_password"})
+
+CAMERA_CHECKPOINTS = {
+    "entry": 1, "precondition": 2, "buffers-ready": 3, "buffers": 4,
+    "sccb-new": 5, "sccb-ready": 6, "sensor-detect": 7, "sensor-detected": 8,
+    "sensor-cancelled": 9, "format-set": 10, "format-get": 11,
+    "format-contract": 12, "format-ready": 13, "controller-new": 14,
+    "controller-created": 15, "callbacks": 16, "callbacks-ready": 17,
+    "controller-enable": 18, "controller-enabled": 19, "controller-start": 20,
+    "controller-started": 21, "stream-on": 22, "warmup-cancelled": 23,
+    "warmup-complete": 24, "frame-requested": 25, "frame-cancelled": 26,
+    "frame-received": 27, "frame-size": 28, "frame-timeout": 29,
+    "stream-off": 30, "controller-stopped": 31, "dma-stop-quarantined": 32,
+    "controller-disable": 33, "controller-disabled": 34, "controller-delete": 35,
+    "controller-deleted": 36, "sensor-delete": 37, "sensor-deleted": 38,
+    "sccb-delete": 39, "sccb-deleted": 40, "cache-sync": 41,
+    "cache-synced": 42, "complete": 43, "failed-clean": 44,
+}
+
+
+def camera_diagnostic_event(data):
+    """Map camera evidence onto the existing sanitised runtime_issue schema."""
+    if not isinstance(data, dict): return None
+    if data.get("kind") == "power":
+        read_mask = 0
+        for bit, key in enumerate(("pmic_enable_ok", "pmic_camera_ok", "expander_output_ok", "expander_config_ok")):
+            if data.get(key) == 1: read_mask |= 1 << bit
+        packed = ((read_mask & 0xF) << 32)
+        for shift, key in ((24,"pmic_enable"),(16,"pmic_camera"),(8,"expander_output"),(0,"expander_config")):
+            packed |= (int(data.get(key,0)) & 0xFF) << shift
+        return {"stage":"camera", "reason":"device_proof", "error_code":packed}
+    stage = data.get("stage")
+    checkpoint = CAMERA_CHECKPOINTS.get(stage)
+    if checkpoint is None: return None
+    result = {"stage":"camera", "reason":"device_proof", "error_code":checkpoint}
+    if type(data.get("internal_free")) is int: result["free_heap"] = data["internal_free"]
+    if type(data.get("psram_free")) is int: result["free_psram"] = data["psram_free"]
+    return result
 
 
 def settings_from_control(value: dict):
@@ -84,7 +122,6 @@ class DesktopController:
     async def start_server(self, args):
         if self.state != "stopped": raise ValueError("Server is already starting or running.")
         settings = settings_from_control(args)
-        # The timezone is authoritative for all new relative-date requests.
         self.services.reminders.timezone_name = settings.timezone_name
         self.app = self.appliance_factory(settings, services=self.services, emit=self.state_event)
         self.state = "starting"; self.emit("server", {"state": self.state})
@@ -101,7 +138,6 @@ class DesktopController:
         except Exception as exc:
             failure = type(exc).__name__
         finally:
-            # Also covers failure before the appliance enters its main loop.
             await app.close()
             if self.app is app:
                 self.app = None
@@ -170,9 +206,12 @@ async def run_worker(incoming, outgoing):
         raw = json.dumps({"v": 1, "event": name, "data": data}, ensure_ascii=True, allow_nan=False)
         if len(raw)>MAX_OUTPUT: raise ValueError("control response exceeds limit")
         outgoing.write(raw+"\n"); outgoing.flush()
+    def camera_emit(data):
+        event = camera_diagnostic_event(data)
+        if event is not None: emit("runtime_issue", event)
+    set_camera_diagnostic_sink(camera_emit)
     def enqueue(value):
         if queue.full():
-            # Bounded work: overload closes this control session cleanly.
             while not queue.empty(): queue.get_nowait()
             queue.put_nowait(None)
         else: queue.put_nowait(value)
@@ -195,8 +234,6 @@ async def run_worker(incoming, outgoing):
         except asyncio.CancelledError:
             emit("result", {"id": ident, "ok": False, "message": "Operation cancelled."})
         except (ValueError, RuntimeError) as exc:
-            # Only project-owned messages may cross into the UI. Never expose
-            # provider/serial exception strings (which may include request data).
             message_text = str(exc) if type(exc) in {ValueError, RuntimeError} else "Operation failed. Check connection and configuration."
             emit("result", {"id": ident, "ok": False, "message": message_text[:240]})
         except Exception:
@@ -214,6 +251,7 @@ async def run_worker(incoming, outgoing):
             task = asyncio.create_task(dispatch(message))
             active.add(task); task.add_done_callback(active.discard)
     finally:
+        set_camera_diagnostic_sink(None)
         for task in active: task.cancel()
         await asyncio.gather(*active, return_exceptions=True)
         await controller.close()
@@ -223,8 +261,6 @@ async def run_worker(incoming, outgoing):
 def main():
     incoming, outgoing = sys.stdin, sys.stdout
     if incoming is None or outgoing is None: return 2
-    # The protocol never parses appliance print output. Suppress raw adapter and
-    # device logs; typed status is the only path to GUI diagnostics.
     with open(os.devnull, "w") as discard, contextlib.redirect_stdout(discard), contextlib.redirect_stderr(discard):
         try: asyncio.run(run_worker(incoming, outgoing))
         except KeyboardInterrupt: pass
