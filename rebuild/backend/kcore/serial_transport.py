@@ -18,6 +18,13 @@ _CAMERA_NUMERIC_FIELDS = frozenset({
     "expander_output", "expander_config_ok", "expander_config",
     "frame_received", "expected",
 })
+_camera_diagnostic_sink: Callable[[dict[str, Any]], None] | None = None
+
+
+def set_camera_diagnostic_sink(sink: Callable[[dict[str, Any]], None] | None) -> None:
+    """Install the desktop worker's bounded camera-diagnostic bridge."""
+    global _camera_diagnostic_sink
+    _camera_diagnostic_sink = sink
 
 
 def parse_camera_diagnostic(text: str) -> dict[str, Any] | None:
@@ -181,9 +188,10 @@ class SerialBodySession:
         diagnostic = parse_camera_diagnostic(text)
         if diagnostic is None:
             return False
-        if self.diagnostic_sink is not None:
+        sink = self.diagnostic_sink or _camera_diagnostic_sink
+        if sink is not None:
             with contextlib.suppress(Exception):
-                self.diagnostic_sink(diagnostic)
+                sink(diagnostic)
         return True
 
     async def _reader_loop(self) -> None:
