@@ -79,24 +79,6 @@ void voice_lane_worker(void*)
     VoiceLaneMessage message{};
     while (true) {
         if (xQueueReceive(g_voice_lane_queue, &message, pdMS_TO_TICKS(20)) != pdTRUE) {
-            const int note=g_top_note.exchange(-1);
-            bool idle=false;
-            if(note>=0 && g_top_game_active.load() && g_voice_lane_busy.compare_exchange_strong(idle,true)) {
-                voice_cancel_begin();
-                const auto state=presentation_requested_state();
-                if(voice_lan_buffered_open_output()) {
-                    std::array<int16_t,1600> samples{};
-                    const int period=note==0?40:note==1?32:25;
-                    for(size_t i=0;i<samples.size();++i) {
-                        const int fade=std::min<int>({static_cast<int>(i),static_cast<int>(samples.size()-i),160});
-                        samples[i]=(static_cast<int>(i)%period<period/2?1200:-1200)*fade/160;
-                    }
-                    voice_lan_buffered_write(g_audio.output_dev,samples.data(),sizeof(samples));
-                    voice_lan_buffered_close_output(false);
-                }
-                presentation_set_state(g_top_game_active.load()?state:PresentationState::Idle,"game-note");
-                voice_cancel_finish(); g_voice_lane_busy.store(false);
-            }
             continue;
         }
 
@@ -178,7 +160,7 @@ VoiceLaneRouteResult voice_lane_route_command(const char* raw)
         }
 
         bool expected = false;
-        if (g_top_game_active.load() || !g_voice_lane_busy.compare_exchange_strong(expected, true)) {
+        if (!g_voice_lane_busy.compare_exchange_strong(expected, true)) {
             cJSON* payload=cJSON_CreateObject(); cJSON_AddBoolToObject(payload,"ok",false);
             cJSON_AddStringToObject(payload,"stage","busy");
             char ack[kP16FrameBytes]{};
