@@ -22,18 +22,19 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
     output.mkdir(parents=True,exist_ok=False)
     shutil.copytree(desktop,output,dirs_exist_ok=True)
     shutil.copytree(firmware,output/'Firmware')
-    for name in ('USER_MANUAL.md','RC2_ENGINEERING.md'):
+    for name in ('USER_MANUAL.md','RC2_ENGINEERING.md','SENSOR_BUS_PHASE1.md'):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.3.2','firmware_version':'0.21.2','source_commit':commit,
-        'physical_signoff':False,'compatible_firmware':['0.21.2'],'entry':'Kadence.exe'},indent=2)+'\n')
+        'host_version':'0.3.2','firmware_version':'0.21.3','source_commit':commit,
+        'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3'],'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
         'KADENCE RC2 / SIGNAL CONSOLE 0.3.2\n\nExtract the entire ZIP to a new folder.\n'
-        'UPDATING FROM FIRMWARE 0.21.2 (the stable boot recovery):\n'
-        'Quit the old app including its tray icon, then open this Kadence.exe.\n'
-        'No robot flash is needed. Keep USB connected and start the server.\n\n'
-        'FIRST INSTALL OR OLDER FIRMWARE:\n'
+        'SENSOR BUS PHASE 1 / FIRMWARE 0.21.3:\n'
+        'The new sensor diagnostics require flashing the bundled firmware.\n'
+        'Read SENSOR_BUS_PHASE1.md; test with no hub, then an empty hub.\n'
+        'Resolve the ENV III 0x70 address conflict before connecting that module.\n\n'
+        'INSTALL THE CANDIDATE:\n'
         '1. Close any running Kadence server and serial monitor.\n'
         '2. Put the robot in download mode. In PowerShell here, run:\n'
         '   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Flash-Kadence.ps1 -Port COM4\n'
@@ -44,7 +45,7 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
         '5. Keep USB connected to the awake PC while using the robot.\n'
         '6. Tap once, wait for the cue and REC countdown, then speak.\n\n'
         'Read USER_MANUAL.md for reminders, workbench, vision and top controls.\n'
-        'RC2 is a hardware qualification candidate. The approved RC1 remains your rollback build.\n')
+        'Physical sign-off is pending. Keep the tested clean-base 9091e7e2112b firmware available.\n')
     sums=[]
     for file in sorted(output.rglob('*')):
         if file.is_file(): sums.append(hashlib.sha256(file.read_bytes()).hexdigest()+'  '+file.relative_to(output).as_posix())

@@ -170,7 +170,16 @@ Integration goal:
 
 Expose gestures as generic input events. Do not hard-wire gestures directly into the voice worker or reuse the old game-input architecture. Gesture mappings should live above the low-level sensor driver and remain configurable/testable.
 
-### E. ENV III Unit (SHT30 + BMP280 + DHT12)
+### E. ENV III Unit (SHT30 + QMP6988; identity check required)
+
+Correction from M5Stack's official ENV comparison on 2026-09-13:
+ENV III uses SHT30 + QMP6988, ENV II uses SHT30 + BMP280, and the original
+ENV uses DHT12 + BMP280. The previous heading combined different generations.
+Verify the actual unit label before selecting a measurement driver.
+QMP6988 defaults to `0x70`, which conflicts with a PaHub at `0x70` even behind
+the mux. Resolve the physical hub address (for example `0x71`) and match the
+firmware configuration before attaching an ENV III.
+Source: https://docs.m5stack.com/en/unit/envIII
 
 Purpose:
 
@@ -276,3 +285,16 @@ Start from `kadence/sensor-clean-base`, not from the older `kadence/rebuild-kade
 First inspect the current clean branch and this handover. Then design the sensor bus/event boundary before implementing device-specific behaviour. Preserve the now-working physical voice path as the highest-priority regression constraint.
 
 The first coding milestone should be: **PCA9548AP hub + sensor discovery/health framework with zero regression when no Mk II sensors are attached.**
+
+## 11. Phase 1 continuation — 2026-09-13
+
+The next candidate is firmware `0.21.3`, based on this branch's `5771a00`.
+The external Port A bus worker, PCA9548AP isolation, bounded discovery/health
+snapshot, `sensors.status` protocol, typed host reader, and diagnostic are now
+implemented. See [Phase 1 architecture and physical check](SENSOR_BUS_PHASE1.md).
+
+Local host and native gates pass. CI must validate the firmware build and linked
+stack budget before flashing. Physical testing of this candidate is still
+pending; the earlier physical PASS in section 3 applies to `9091e7e2112b` only.
+Do not begin ENV measurement integration until Phase 1 has physical voice and
+empty-hub sign-off. Preserve all section 8 requirements.
