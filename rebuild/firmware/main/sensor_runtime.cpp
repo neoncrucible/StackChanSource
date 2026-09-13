@@ -1,5 +1,6 @@
 #include "sensor_runtime.h"
 #include "sensor_protocol.h"
+#include "gesture_sensor.h"
 #include "control_frame.h"
 #include "device_ack.h"
 #include "driver/i2c_master.h"
@@ -15,6 +16,7 @@ constexpr int TimeoutMs = 10;
 constexpr uint8_t HubAddress = CONFIG_KADENCE_SENSOR_HUB_ADDRESS;
 portMUX_TYPE snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
 Snapshot published;
+GestureSnapshot gesture_published;
 
 class ExternalBus final : public Bus {
 public:
@@ -32,7 +34,11 @@ public:
         device.dev_addr_length = I2C_ADDR_BIT_LEN_7;
         device.device_address = HubAddress;
         device.scl_speed_hz = 100000;
-        if (i2c_master_bus_add_device(bus_, &device, &hub_) == ESP_OK) return true;
+        if (i2c_master_bus_add_device(bus_, &device, &hub_) == ESP_OK) {
+            device.device_address = 0x73;
+            if (i2c_master_bus_add_device(bus_, &device, &gesture_) == ESP_OK) return true;
+            i2c_master_bus_rm_device(hub_);
+        }
         i2c_del_master_bus(bus_);
         bus_ = nullptr;
         return false;
@@ -47,7 +53,14 @@ public:
     bool read_switch(uint8_t address, uint8_t& mask) override {
         return address == HubAddress && i2c_master_receive(hub_, &mask, 1, TimeoutMs) == ESP_OK;
     }
+    bool register_io(uint8_t address, uint8_t reg, uint8_t* data, size_t size, bool read) override {
+        if (address != 0x73 || !size || size > 2) return false;
+        if (read) return i2c_master_transmit_receive(gesture_, &reg, 1, data, size, TimeoutMs) == ESP_OK;
+        uint8_t bytes[3]{reg, data[0], static_cast<uint8_t>(size > 1 ? data[1] : 0)};
+        return i2c_master_transmit(gesture_, bytes, size + 1, TimeoutMs) == ESP_OK;
+    }
 private:
+    i2c_master_dev_handle_t gesture_ = nullptr;
     i2c_master_bus_handle_t bus_ = nullptr;
     i2c_master_dev_handle_t hub_ = nullptr;
 };
@@ -73,9 +86,13 @@ void worker(void*) {
         return;
     }
     Discovery discovery(bus, HubAddress);
+    GestureSensor gesture(bus, HubAddress);
+    bool register_turn = false;
     Health last = Health::Starting;
     while (true) {
-        if (discovery.step(static_cast<uint64_t>(esp_timer_get_time()) / 1000)) {
+        const auto now = static_cast<uint64_t>(esp_timer_get_time()) / 1000;
+        register_turn = !register_turn;
+        if (!register_turn && discovery.step(now)) {
             const auto& snapshot = discovery.snapshot();
             publish(snapshot);
             // No telemetry firehose on the serial control link.
@@ -84,6 +101,17 @@ void worker(void*) {
                 last = snapshot.hub;
             }
         }
+        // Discovery and register traffic share this worker; never interleave selections.
+        if (register_turn && discovery.idle()) {
+            const auto result = gesture.step(now, discovery.snapshot());
+            if (result.failed) {
+                discovery.measurement_fault(now, result.isolated, 0);
+                publish(discovery.snapshot());
+            }
+        }
+        portENTER_CRITICAL(&snapshot_lock);
+        gesture_published = gesture.snapshot();
+        portEXIT_CRITICAL(&snapshot_lock);
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
@@ -102,15 +130,19 @@ void start() {
 bool route(const char* raw, void (*emit)(const char*)) {
     cJSON* root = cJSON_Parse(raw);
     const auto request = parse_request(root);
-    if (request == Request::Status) {
+    if (request == Request::Status || request == Request::Gesture) {
         Snapshot snapshot;
+        GestureSnapshot gesture;
         portENTER_CRITICAL(&snapshot_lock);
         snapshot = published;
+        gesture = gesture_published;
         portEXIT_CRITICAL(&snapshot_lock);
         char ack[kadence_control::FrameBytes]{};
         const auto* id = cJSON_GetObjectItemCaseSensitive(root, "id");
         const auto now = static_cast<uint32_t>(esp_timer_get_time() / 1000);
-        if (device_ack(id->valuestring, "sensors.status", status_payload(snapshot, now), ack, sizeof(ack)) && emit)
+        const bool is_gesture = request == Request::Gesture;
+        if (device_ack(id->valuestring, is_gesture ? "sensors.gesture" : "sensors.status",
+                       is_gesture ? gesture_payload(gesture, now) : status_payload(snapshot, now), ack, sizeof(ack)) && emit)
             emit(ack);
     }
     cJSON_Delete(root);

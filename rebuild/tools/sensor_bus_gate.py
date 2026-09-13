@@ -14,7 +14,7 @@ def main():
         work = Path(directory)
         obj = work / "cjson.o"
         subprocess.run(["cc", *flags, "-I", str(cjson), "-c", str(cjson / "cJSON.c"), "-o", str(obj)], check=True)
-        for name in ("sensor_bus", "sensor_protocol"):
+        for name in ("sensor_bus", "sensor_protocol", "gesture_sensor"):
             output = work / name
             sources = [str(ROOT / "tests" / (name + "_test.cpp"))]
             if name == "sensor_protocol": sources.append(str(obj))

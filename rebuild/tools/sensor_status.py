@@ -19,8 +19,6 @@ async def inspect(port, watch):
             status = await read_sensor_status(runtime.host)
             print(f"Hub 0x{status.hub_address:02X}: {status.hub}; seq={status.sequence}; "
                   f"age={status.age_ms}ms; fresh={status.fresh}; errors={status.hub_errors}")
-            if status.hub_address == 0x70:
-                print("ENV III QMP6988 also uses 0x70: resolve the hub address before connecting it.")
             if status.upstream_addresses:
                 print("Upstream (excluded from channels):", ", ".join(f"0x{a:02X}" for a in status.upstream_addresses))
             for channel, health in enumerate(status.channels):

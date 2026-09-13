@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         top=QHBoxLayout(); self.avatar=Avatar(); top.addWidget(self.avatar,1)
         info=QVBoxLayout(); self.activity=label("READY WHEN YOU ARE", "status"); self.activity.setStyleSheet("font-size: 18px;")
         self.runtime_info=label("Server stopped. Local reminders work while this app is open.","muted")
+        self.model_info=label("Thinking provider: selected below; server stopped", "muted"); info.addWidget(self.model_info)
         self.next_due=label("No scheduled reminders."); self.turn_info=label("Completed turns  0","muted")
         for w in (self.activity,self.runtime_info,self.next_due,self.turn_info): info.addWidget(w)
         info.addStretch(); top.addLayout(info,1); layout.addLayout(top)
@@ -231,6 +232,15 @@ class MainWindow(QMainWindow):
         self.remember=QCheckBox("Remember on this Windows account"); self.remember.setEnabled(os.name=="nt")
         grid.addWidget(self.remember,6,1); grid.addWidget(button("FORGET",self.forget_credentials),6,2)
         grid.addWidget(label("Timezone"),7,0); grid.addWidget(self.timezone,7,1); grid.addWidget(self.capture,7,2)
+        self.thinker_provider=QComboBox(); self.thinker_provider.addItem("Gemini", "gemini"); self.thinker_provider.addItem("Ollama (this PC)", "ollama")
+        self.ollama_model=line("Exact name from ollama list",160)
+        self.audio_output=QComboBox()
+        for title,value in (("Robot speaker","robot"),("Windows speaker / Bluetooth","windows"),("Robot + Windows","both")):
+            self.audio_output.addItem(title,value)
+        grid.addWidget(label("Thinking provider"),8,0); grid.addWidget(self.thinker_provider,8,1,1,2)
+        grid.addWidget(label("Ollama model"),9,0); grid.addWidget(self.ollama_model,9,1,1,2)
+        grid.addWidget(label("Speech output"),10,0); grid.addWidget(self.audio_output,10,1,1,2)
+        grid.addWidget(label("Ollama changes reasoning only. Transcription and Edge speech still use online services.\nWindows output follows your default speaker. Restart the server after changes.","muted"),11,0,1,3)
         layout.addWidget(group)
         layout.addWidget(label("Session-only credentials by default. SHOW reveals a field here; diagnostics never include it.","muted"))
         layout.addStretch()
@@ -343,6 +353,10 @@ class MainWindow(QMainWindow):
             if isinstance(value,str) and value: widget.setCurrentText(value)
         value=self._settings.get("capture_ms",4800)
         if type(value) is int: self.capture.setValue(value)
+        self.ollama_model.setText(str(self._settings.get("ollama_model", "")))
+        for key,widget in (("thinker_provider",self.thinker_provider),("audio_output",self.audio_output)):
+            index=widget.findData(self._settings.get(key))
+            if index >= 0: widget.setCurrentIndex(index)
         self.tray_check.setChecked(self._settings.get("tray") is True)
         self.remember.setChecked(self._settings.get("remember") is True and os.name=="nt")
         if load_credentials and self.remember.isChecked():
@@ -353,13 +367,14 @@ class MainWindow(QMainWindow):
     def connection_settings(self):
         lan=self.lan.currentText().strip()
         values={"port":self.port.currentText().strip(),"ssid":self.ssid.text(),"lan_host":"" if lan=="Auto-detect" else lan,
-            "timezone":self.timezone.text().strip() or "Europe/London","capture_ms":self.capture.value()}
+            "timezone":self.timezone.text().strip() or "Europe/London","capture_ms":self.capture.value(), "thinker_provider":self.thinker_provider.currentData(),
+            "ollama_model":self.ollama_model.text().strip(), "audio_output":self.audio_output.currentData()}
         values.update({key:edit.text().strip() if key!="wifi_password" else edit.text() for key,edit in self.secret_fields.items()})
         return values
 
     def save_preferences(self):
         values=self.connection_settings()
-        safe={key:values[key] for key in ("port","ssid","lan_host","timezone","capture_ms")}
+        safe={key:values[key] for key in ("port","ssid","lan_host","timezone","capture_ms","thinker_provider","ollama_model","audio_output")}
         safe.update(remember=self.remember.isChecked(),tray=self.tray_check.isChecked())
         temporary=self.settings_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(safe,indent=2)+"\n","utf-8"); temporary.replace(self.settings_path)
@@ -381,7 +396,12 @@ class MainWindow(QMainWindow):
                 if self.remember.isChecked(): vault.save({key:values[key] for key in self.secret_fields})
                 else: vault.forget()
             self.save_preferences()
-            self.control.send("server_restart" if restart else "server_start",values)
+            provider=values["thinker_provider"]
+            model=values["ollama_model"] if provider == "ollama" else "gemini-3.5-flash-lite"
+            def started(response):
+                if response.get("ok"):
+                    self.model_info.setText(f"Thinking: {provider} / {model} | Speech: {values['audio_output']}")
+            self.control.send("server_restart" if restart else "server_start",values,started)
         except Exception as exc:
             self.message.setText(str(exc)[:240] if type(exc) in {ValueError,RuntimeError} else "Check connection settings and credential storage.")
 

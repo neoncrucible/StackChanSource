@@ -121,84 +121,26 @@ Tests/gates:
 - `rebuild/tools/phase_a3_voice_wire_gate.py`
 - `rebuild/tools/interaction_gate.py`
 
-## 5. Purchased Mk II sensor/vision hardware to integrate
+## 5. Actual hardware — corrected from owner photographs
 
-The next hardware batch contains five modules.
+The earlier shopping inventory was wrong. The owner has:
 
-### A. UnitV K210 AI Camera M12 Version (OV7740)
+- PaHub six-channel I2C mux with three address DIP switches; tested at 0x70.
+- Unit Gesture U127, PAJ7620U2, 0x73, on channel 0.
+- Unit ToF4M U172, on channel 1; responding at 0x29.
+- Unit ID U124: ATECC608B-TNGTLS secure element, not an ENV sensor.
+- UnitV2-M12: Linux / SigmaStar SSD202D camera, not the K210 UnitV.
 
-Purpose:
+There is **no ENV unit**. Leave the hub at 0x70; the ENV III warning in the
+old diagnostic is static advice, not hardware detection. Removed from the CLI.
+Unit ID and UnitV2 remain disconnected. Unit ID needs a deliberate identity/key
+use case; do not write or lock its security configuration as a discovery step.
+UnitV2 needs a separately verified USB/network or UART contract, not PaHub I2C.
 
-- dedicated edge-vision coprocessor;
-- person/face/object detection and tracking;
-- basic visual/gesture classification close to the device;
-- offload vision work from the CoreS3 and avoid making normal voice/UI responsiveness depend on heavy image processing.
-
-Integration goal:
-
-Treat UnitV as an external vision source/coprocessor. Verify the exact transport/protocol for the installed UnitV firmware before writing the driver. Keep the existing camera/vision path functional while UnitV support is introduced; do not replace the current path until the external pipeline is independently proven.
-
-Expected high-level outputs should be compact events/metadata rather than raw image traffic through the normal control lane where possible, for example detected class, confidence, position/region, person-present state or tracking coordinates.
-
-### B. ToF4M distance unit (VL53L1X)
-
-Purpose:
-
-- accurate short-range distance/proximity measurement;
-- allow Kadence to know when a person/object is close;
-- support awareness of an object being presented in front of her;
-- future use for approach/reaction logic and mobile-platform collision/context sensing.
-
-Integration goal:
-
-Expose a stable distance reading plus thresholded events such as near/clear rather than scattering raw range checks through presentation or voice code. Sensor polling must never block the voice lane.
-
-### C. I2C Hub 1-to-6 Unit (PCA9548AP)
-
-Purpose:
-
-- six-way I2C expansion/multiplexing;
-- allow multiple sensor units to coexist cleanly;
-- isolate channels and reduce address-conflict problems;
-- become the foundation of the Mk II sensor bus.
-
-Integration goal:
-
-Implement the hub/bus abstraction first. Put sensor discovery, channel selection and failure isolation behind one small hardware layer. A missing or failed sensor must not stop boot, voice, UI or the other sensors.
-
-### D. Gesture Unit (PAJ7620U2)
-
-Purpose:
-
-- local hand-gesture recognition;
-- immediate speech-free interaction;
-- future mappings such as wake/attention, dismiss/cancel, next/previous or user-defined actions.
-
-Integration goal:
-
-Expose gestures as generic input events. Do not hard-wire gestures directly into the voice worker or reuse the old game-input architecture. Gesture mappings should live above the low-level sensor driver and remain configurable/testable.
-
-### E. ENV III Unit (SHT30 + QMP6988; identity check required)
-
-Correction from M5Stack's official ENV comparison on 2026-09-13:
-ENV III uses SHT30 + QMP6988, ENV II uses SHT30 + BMP280, and the original
-ENV uses DHT12 + BMP280. The previous heading combined different generations.
-Verify the actual unit label before selecting a measurement driver.
-QMP6988 defaults to `0x70`, which conflicts with a PaHub at `0x70` even behind
-the mux. Resolve the physical hub address (for example `0x71`) and match the
-firmware configuration before attaching an ENV III.
-Source: https://docs.m5stack.com/en/unit/envIII
-
-Purpose:
-
-- temperature context;
-- humidity context;
-- atmospheric-pressure context;
-- give Kadence environmental awareness for conversation, status reporting and future automation/personality behaviours.
-
-Integration goal:
-
-Produce a coherent environmental snapshot with timestamps and validity/error state. Environmental polling should be low priority and must not interfere with touch, audio, camera or conversation latency.
+Owner physically confirmed Gesture detection (two fresh scans, zero errors),
+then normal voice. With ToF4M added, channel 0 responded at 0x73 and channel 1
+at 0x29, both with zero channel errors; normal voice again worked perfectly.
+These are detection/coexistence results on firmware 0.21.3, not measurements.
 
 ## 6. Integration architecture requested
 
@@ -228,9 +170,9 @@ Do not make sensor activity share ownership of `g_voice_lane_busy`. Voice remain
 
 Integrate in this order:
 
-1. ENV III.
-2. ToF4M.
-3. Gesture Unit.
+1. Gesture Unit (the next candidate; fixed channel 0).
+2. ToF4M distance readings after Gesture physical sign-off.
+3. Unit ID only once its intended security role is defined.
 
 For each module:
 
@@ -241,7 +183,7 @@ For each module:
 - focused tests;
 - physical sign-off before moving to the next module.
 
-### Phase 3 — UnitV K210 vision
+### Phase 3 — UnitV2-M12 vision
 
 - establish and document the actual UnitV transport and firmware contract;
 - build a bounded receiver/parser;
@@ -314,8 +256,8 @@ passed the firmware build, linked startup-stack check, Windows host jobs and
 Windows desktop packaging. Physical results for this candidate follow below;
 the earlier results in section 3 refer to `9091e7e2112b`.
 Preserve all section 8 requirements and retain the failed volume result when
-assessing Phase 1. ENV identity and hub-address preparation come next; no
-measurement driver or new sensor has been physically qualified yet.
+assessing Phase 1. The inventory correction and subsequent attached-sensor results are in section 5.
+No measurement driver has been physically qualified yet.
 
 ## 12. Owner hardware tests — 2026-09-13
 
@@ -366,7 +308,17 @@ injection, measurements and long-duration hardware testing were not performed.
 Do not attribute or rule out a sensor regression solely from the volume report;
 the owner's statement establishes that the symptom was seen before this update.
 
-Next preparation: obtain readable labels for the ENV unit and the hub revision /
-address-selection hardware. Keep new modules disconnected. For ENV III, resolve
-its QMP6988 `0x70` conflict with the hub in both hardware and firmware before
-attaching it. Keep the app-volume fault open and avoid broad touch/voice changes.
+Next: test the candidate in section 13 with the corrected inventory in section 5.
+
+## 13. Current candidate: Gesture, persona, provider selection and Windows audio
+
+See [candidate setup and limitations](GESTURE_PERSONA_AUDIO.md). Owner requested
+restoring the GLaDOS / Seven of Nine / Ghost-inspired sarcastic companion,
+checking Ollama routing, and louder output. The tested 0.3.2 desktop hardcodes
+GeminiThinker; it does not use the prior Ollama model. This is verified in source,
+not inferred from voice timbre. The generic persona was also verified in identity.py.
+
+The new candidate is host 0.3.3 / firmware 0.21.4. Physical sign-off is pending.
+Do not mistake this for changes already installed on the owner's Windows PC.
+ToF ranging and UnitV2 integration remain subsequent milestones. Volume slider
+and top swipe failures remain open; Windows output is an additional audio path.

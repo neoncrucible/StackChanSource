@@ -43,6 +43,7 @@ class Bus {
 public:
     virtual ~Bus() = default;
     virtual Result probe(uint8_t address) = 0;
+    virtual bool register_io(uint8_t, uint8_t, uint8_t*, size_t, bool) { return false; }
     virtual bool write_switch(uint8_t address, uint8_t mask) = 0;
     virtual bool read_switch(uint8_t address, uint8_t& mask) = 0;
 };
@@ -70,6 +71,16 @@ public:
         // prevent this: report a hub fault, never scan another channel blindly.
         return {result, set_mask(0)};
     }
+    Probe register_io(size_t channel, uint8_t address, uint8_t reg, uint8_t* data, size_t size, bool read) {
+        if (channel >= ChannelCount || address == address_ || !data || !size || size > 2)
+            return {Result::Error, false};
+        if (!set_mask(static_cast<uint8_t>(1U << channel))) {
+            set_mask(0);
+            return {Result::Error, false};
+        }
+        const bool ok = bus_.register_io(address, reg, data, size, read);
+        return {ok ? Result::Ack : Result::Error, set_mask(0)};
+    }
 private:
     bool set_mask(uint8_t mask) {
         uint8_t actual = 0xff;
@@ -87,6 +98,16 @@ public:
         current_.hub_address = address;
     }
     const Snapshot& snapshot() const { return current_; }
+    bool idle() const { return phase_ == Phase::Wait; }
+    void measurement_fault(uint64_t now, bool isolated, size_t channel) {
+        pending_ = current_;
+        if (!isolated) { fail_hub(now, Result::Error); return; }
+        increment(pending_.channels[channel].errors);
+        pending_.channels[channel].health = Health::Quarantined;
+        pending_.channels[channel].mask = 0;
+        retry_channel_[channel] = now + QuarantineMs;
+        publish(now);
+    }
     bool step(uint64_t now) {
         if (phase_ == Phase::Wait) {
             if (now < next_scan_) return false;

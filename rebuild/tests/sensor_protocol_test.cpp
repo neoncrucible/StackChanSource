@@ -51,6 +51,17 @@ int main() {
     cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(root, "v"), 1.5);
     assert(parse_request(root) == Request::Invalid);
     cJSON_Delete(root);
+    root = cJSON_Parse(good);
+    cJSON_ReplaceItemInObject(root, "name", cJSON_CreateString("sensors.gesture"));
+    assert(parse_request(root) == Request::Gesture);
+    cJSON_Delete(root);
+    GestureSnapshot gesture;
+    gesture.health = Health::Ready; gesture.flags = 511;
+    gesture.sequence = gesture.event_sequence = UINT32_MAX;
+    char gesture_ack[kadence_control::FrameBytes]{};
+    assert(device_ack("gesture-check", "sensors.gesture", gesture_payload(gesture, UINT32_MAX),
+                      gesture_ack, sizeof(gesture_ack)));
+    assert(std::strlen(gesture_ack) < sizeof(gesture_ack));
     assert(parse_request(nullptr) == Request::Other);
     root = cJSON_Parse(R"({"name":"voice.turn"})");
     assert(parse_request(root) == Request::Other);

@@ -17,7 +17,7 @@ from .voice_providers import VoiceProviderSettings
 
 MAX_INPUT = 32768
 MAX_OUTPUT = 1024*1024
-SETTINGS = frozenset({"port", "ssid", "lan_host", "timezone", "capture_ms", "openai_api_key", "gemini_api_key", "wifi_password"})
+SETTINGS = frozenset({"port", "ssid", "lan_host", "timezone", "capture_ms", "openai_api_key", "gemini_api_key", "wifi_password", "thinker_provider", "ollama_model", "audio_output"})
 
 
 def settings_from_control(value: dict):
@@ -42,8 +42,10 @@ def settings_from_control(value: dict):
     providers = VoiceProviderSettings.from_env({})
     from dataclasses import replace
     providers = replace(providers, openai_api_key=string("openai_api_key", "", 1024) or None,
-        gemini_api_key=string("gemini_api_key", "", 1024) or None)
-    return ApplianceSettings(port, 115200, capture, 2, ssid, password, lan, providers, timezone_name)
+        gemini_api_key=string("gemini_api_key", "", 1024) or None,
+        thinker_provider=string("thinker_provider", "gemini", 16),
+        ollama_model=string("ollama_model", "", 160))
+    return ApplianceSettings(port, 115200, capture, 2, ssid, password, lan, providers, timezone_name, string("audio_output", "robot", 16))
 
 
 class DesktopController:
@@ -90,7 +92,7 @@ class DesktopController:
         self.state = "starting"; self.emit("server", {"state": self.state})
         self.task = asyncio.create_task(self._serve(self.app), name="kadence-server")
         voice_ready = not settings.providers.missing_credentials()
-        return {"message": "Starting server." if voice_ready else "Starting server. Add OpenAI and Gemini keys for voice; local utilities remain available.", "voice_credentials_ready": voice_ready}
+        return {"message": "Starting server." if voice_ready else "Starting server. Add credentials for the selected voice services; local utilities remain available.", "voice_credentials_ready": voice_ready}
 
     async def _serve(self, app):
         failure = None

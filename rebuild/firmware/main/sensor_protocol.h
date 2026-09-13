@@ -1,6 +1,7 @@
 #pragma once
 #include "cJSON.h"
 #include "sensor_bus.h"
+#include "gesture_sensor.h"
 #include <cstring>
 
 namespace kadence_sensors {
@@ -27,10 +28,27 @@ inline cJSON* status_payload(const Snapshot& snapshot, uint32_t now) {
     }
     return p;
 }
-enum class Request { Other, Invalid, Status };
+inline cJSON* gesture_payload(const GestureSnapshot& s, uint32_t now) {
+    auto* p = cJSON_CreateObject();
+    if (!p) return nullptr;
+    cJSON_AddBoolToObject(p, "ok", true);
+    cJSON_AddNumberToObject(p, "schema", 1);
+    cJSON_AddStringToObject(p, "state", health_name(s.health));
+    cJSON_AddNumberToObject(p, "channel", 0);
+    cJSON_AddNumberToObject(p, "address", 0x73);
+    cJSON_AddNumberToObject(p, "seq", s.sequence);
+    cJSON_AddNumberToObject(p, "age_ms", static_cast<uint32_t>(now-s.sampled_ms));
+    cJSON_AddNumberToObject(p, "event_seq", s.event_sequence);
+    cJSON_AddNumberToObject(p, "event_age_ms", static_cast<uint32_t>(now-s.event_ms));
+    cJSON_AddNumberToObject(p, "flags", s.flags);
+    return p;
+}
+enum class Request { Other, Invalid, Status, Gesture };
 inline Request parse_request(const cJSON* root) {
     const auto* name = cJSON_GetObjectItemCaseSensitive(root, "name");
-    if (!cJSON_IsString(name) || std::strcmp(name->valuestring, "sensors.status")) return Request::Other;
+    if (!cJSON_IsString(name)) return Request::Other;
+    const bool gesture = !std::strcmp(name->valuestring, "sensors.gesture");
+    if (!gesture && std::strcmp(name->valuestring, "sensors.status")) return Request::Other;
     const auto* id = cJSON_GetObjectItemCaseSensitive(root, "id");
     const auto* version = cJSON_GetObjectItemCaseSensitive(root, "v");
     const auto* kind = cJSON_GetObjectItemCaseSensitive(root, "kind");
@@ -39,6 +57,6 @@ inline Request parse_request(const cJSON* root) {
         !cJSON_IsNumber(version) || version->valuedouble != 1 ||
         !cJSON_IsString(kind) || std::strcmp(kind->valuestring, "command") ||
         !cJSON_IsObject(payload) || cJSON_GetArraySize(payload) != 0) return Request::Invalid;
-    return Request::Status;
+    return gesture ? Request::Gesture : Request::Status;
 }
 }

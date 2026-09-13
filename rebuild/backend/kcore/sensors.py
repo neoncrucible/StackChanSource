@@ -72,3 +72,39 @@ class SensorStatus:
 async def read_sensor_status(host, *, timeout=3.0):
     reply = await request_device(host, "sensors.status", timeout=timeout)
     return SensorStatus.from_payload(reply.payload)
+
+
+@dataclass(frozen=True, slots=True)
+class GestureStatus:
+    state: str
+    sequence: int
+    age_ms: int
+    event_sequence: int
+    event_age_ms: int
+    flags: int
+
+    @property
+    def fresh(self):
+        return self.state == "ready" and self.sequence > 0 and self.age_ms <= 3000
+
+    @property
+    def gestures(self):
+        names = ("right", "left", "up", "down", "forward", "backward", "clockwise", "anticlockwise", "wave")
+        return tuple(name for bit, name in enumerate(names) if self.flags & (1 << bit))
+
+    @classmethod
+    def from_payload(cls, p):
+        fields = {"ok", "schema", "state", "channel", "address", "seq", "age_ms", "event_seq", "event_age_ms", "flags"}
+        if not isinstance(p, dict) or set(p) != fields or p["ok"] is not True:
+            raise ValueError("invalid gesture fields")
+        if _uint(p["schema"]) != 1 or _uint(p["channel"]) != 0 or _uint(p["address"]) != 0x73:
+            raise ValueError("unsupported gesture configuration")
+        if not isinstance(p["state"], str) or p["state"] not in {"starting", "ready", "fault", "unavailable"}:
+            raise ValueError("invalid gesture state")
+        return cls(p["state"], _uint(p["seq"]), _uint(p["age_ms"]), _uint(p["event_seq"]),
+                   _uint(p["event_age_ms"]), _uint(p["flags"], 511))
+
+
+async def read_gesture_status(host, *, timeout=3.0):
+    reply = await request_device(host, "sensors.gesture", timeout=timeout)
+    return GestureStatus.from_payload(reply.payload)

@@ -22,18 +22,18 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
     output.mkdir(parents=True,exist_ok=False)
     shutil.copytree(desktop,output,dirs_exist_ok=True)
     shutil.copytree(firmware,output/'Firmware')
-    for name in ('USER_MANUAL.md','RC2_ENGINEERING.md','SENSOR_BUS_PHASE1.md'):
+    for name in ('USER_MANUAL.md','RC2_ENGINEERING.md','SENSOR_BUS_PHASE1.md','GESTURE_PERSONA_AUDIO.md'):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.3.2','firmware_version':'0.21.3','source_commit':commit,
-        'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3'],'entry':'Kadence.exe'},indent=2)+'\n')
+        'host_version':'0.3.3','firmware_version':'0.21.4','source_commit':commit,
+        'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3','0.21.4'],'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
-        'KADENCE RC2 / SIGNAL CONSOLE 0.3.2\n\nExtract the entire ZIP to a new folder.\n'
-        'SENSOR BUS PHASE 1 / FIRMWARE 0.21.3:\n'
+        'KADENCE RC2 / SIGNAL CONSOLE 0.3.3\n\nExtract the entire ZIP to a new folder.\n'
+        'GESTURE / FIRMWARE 0.21.4:\n'
         'The new sensor diagnostics require flashing the bundled firmware.\n'
-        'Read SENSOR_BUS_PHASE1.md; test with no hub, then an empty hub.\n'
-        'Resolve the ENV III 0x70 address conflict before connecting that module.\n\n'
+        'Read GESTURE_PERSONA_AUDIO.md for wiring, persona, Ollama and Windows audio.\n'
+        'Keep the hub at 0x70; Gesture on channel 0, ToF4M on channel 1.\n\n'
         'INSTALL THE CANDIDATE:\n'
         '1. Close any running Kadence server and serial monitor.\n'
         '2. Put the robot in download mode. In PowerShell here, run:\n'
@@ -64,7 +64,7 @@ def build(commit: str, firmware: Path):
     work.mkdir(parents=True,exist_ok=True)
     entry=work/'desktop_entry.py'
     entry.write_text('from kcore.desktop import main\nif __name__ == "__main__": raise SystemExit(main())\n')
-    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.2'}))
+    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.3'}))
     # Keep standard streams for the same executable's private worker mode.
     # hide-early hides the bootloader's window, without disabling stdin/stdout.
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean',
