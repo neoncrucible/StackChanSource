@@ -2,6 +2,11 @@
 
 Date: 2026-09-13
 
+Latest physical results are in section 12. The tested sensor firmware is
+`a73c936` / `0.21.3`; the tested Windows console identifies its CI build as
+`1d4db2820820`. Use [Windows startup and test commands](SENSOR_WINDOWS_QUICKSTART.md).
+The latest app-volume result is FAIL, reported by the owner as pre-existing.
+
 ## 1. Use this source as the integration base
 
 Repository: `neoncrucible/StackChanSource`
@@ -73,12 +78,15 @@ Confirmed:
 - current avatar/UI is retained;
 - Signal Console launches;
 - voice works again on the physical robot;
-- app-based volume control works.
+- app-based volume control was originally reported working at this checkpoint;
+  the later owner retest reports a pre-existing failure (section 12). Do not
+  treat this historical result as a current volume PASS.
 
 Known non-blocking issue:
 
 - top swipe volume did not respond in the first physical test;
-- this is lower priority than keeping the clean sensor base because volume remains controllable from the app;
+- the later app-slider failure is also open; app control cannot currently be
+  assumed to compensate for the swipe limitation;
 - do not make broad touch/voice changes merely to repair swipe volume while integrating sensors.
 
 ## 4. Files most relevant to preserving the clean architecture
@@ -272,7 +280,8 @@ Before the physical sensor work began, the clean host candidate passed the runti
 Physical sign-off on the clean candidate:
 
 - voice: PASS;
-- desktop/app volume: PASS;
+- desktop/app volume: originally recorded PASS; latest retest FAIL, reported
+  pre-existing by the owner (section 12);
 - top swipe volume: currently FAIL/non-blocking;
 - clean-base objective: PASS for proceeding to sensor integration.
 
@@ -282,19 +291,82 @@ Astra should rerun the repository's existing gates plus new focused sensor tests
 
 Start from `kadence/sensor-clean-base`, not from the older `kadence/rebuild-kade` state.
 
-First inspect the current clean branch and this handover. Then design the sensor bus/event boundary before implementing device-specific behaviour. Preserve the now-working physical voice path as the highest-priority regression constraint.
+First inspect the current clean branch and the latest results in section 12.
+The Phase 1 bus/event boundary is implemented; preserve it when adding
+device-specific behaviour. Preserve the working physical voice path as the
+highest-priority regression constraint.
 
-The first coding milestone should be: **PCA9548AP hub + sensor discovery/health framework with zero regression when no Mk II sensors are attached.**
+The original first milestone was **PCA9548AP hub + sensor discovery/health with
+normal operation when no Mk II sensors are attached**. Its measured outcomes
+are now in section 12. Do not restart that implementation or infer an all-pass
+result while the volume failure remains open.
 
 ## 11. Phase 1 continuation — 2026-09-13
 
-The next candidate is firmware `0.21.3`, based on this branch's `5771a00`.
+Firmware `0.21.3` was implemented in
+`a73c936da3e9305c06987c2e56bfe0fe61351161`, based on this branch's `5771a00`.
 The external Port A bus worker, PCA9548AP isolation, bounded discovery/health
 snapshot, `sensors.status` protocol, typed host reader, and diagnostic are now
 implemented. See [Phase 1 architecture and physical check](SENSOR_BUS_PHASE1.md).
 
-Local host and native gates pass. CI must validate the firmware build and linked
-stack budget before flashing. Physical testing of this candidate is still
-pending; the earlier physical PASS in section 3 applies to `9091e7e2112b` only.
-Do not begin ENV measurement integration until Phase 1 has physical voice and
-empty-hub sign-off. Preserve all section 8 requirements.
+Local host and native gates pass. [CI run 149](https://github.com/neoncrucible/StackChanSource/actions/runs/34758311792)
+passed the firmware build, linked startup-stack check, Windows host jobs and
+Windows desktop packaging. Physical results for this candidate follow below;
+the earlier results in section 3 refer to `9091e7e2112b`.
+Preserve all section 8 requirements and retain the failed volume result when
+assessing Phase 1. ENV identity and hub-address preparation come next; no
+measurement driver or new sensor has been physically qualified yet.
+
+## 12. Owner hardware tests — 2026-09-13
+
+Tested pair:
+
+- Firmware: `0.21.3`, locally built from `a73c936da3e9305c06987c2e56bfe0fe61351161`.
+  Build and flash both returned their `KADENCE_* PASS` markers; calibration was preserved.
+- Windows: Signal Console `0.3.2`, CI package `Kadence-RC2-1d4db2820820.zip`,
+  build commit `1d4db2820820a3f3e062d47b460fe9c2d2c4db85`.
+  The CI merge tree equals the firmware source tree:
+  `43e9b5a3cc60043dfcf1ca257210ddf97caa77d3`.
+- Confirmed installed application:
+  `C:\KadenceX\apps\Kadence-RC2-1d4db2820820\Kadence.exe`.
+  The owner checked its sidebar build ID and confirmed Play Games is absent.
+- Hub: factory `0x70`, upstream connected to the **red Grove Port A on the
+  CoreS3 itself**, with all six downstream sockets empty. The blue/black body
+  sockets were not used. ENV, ToF, gesture and external camera were not attached.
+
+| Check | Latest result | Evidence / scope |
+| --- | --- | --- |
+| No-hub diagnostic | PASS | Fresh `absent`, sequence 1 then 2, hub errors 0; six unavailable channels, no responses, channel errors 0. |
+| No-hub voice/avatar with the correct console | PASS | Three complete voice turns, cancel during a longer reply, then a successful new question. Owner: "working perfectly". |
+| Empty-hub diagnostic | PASS | Fresh `ready`, sequence 1 then 2; six `ready` channels, no responses, all errors 0. |
+| Empty-hub voice/cancel/avatar | PASS | Repeated voice turns, cancellation and the next question remained stable. |
+| Empty-hub camera and return to voice | PASS | Vision Capture produced an image; the next normal voice question worked without a restart. |
+| Empty-hub reminder | PASS | `Sensor test`, `in 30 seconds`; owner confirmed due state, one robot notification and no restart. |
+| App volume slider | FAIL — reported pre-existing | Owner says the slider did not work before this update either. Root cause and exact failure mode remain unverified. |
+| Hub removed, normal boot and voice | PASS | Stopped server, powered off, removed hub, restarted and received a normal spoken reply. |
+| Top-swipe volume | Previously open; not retested | Keep separate from the newly recorded app-slider failure. |
+
+The first diagnostic snapshot was `starting`, sequence 0, age 18780 ms and not
+fresh in both runs. No-hub snapshots then became `absent` at sequence 1 / age
+2273 ms and sequence 2 / age 2269 ms. Empty-hub snapshots became `ready` at
+sequence 1 / age 1183 ms and sequence 2 / age 96 ms. The owner observed a restart
+when opening the empty-hub diagnostic; these logs alone do not establish its
+cause. No repeated restart was reported during the subsequent application tests.
+
+An older RC2 executable in Downloads was initially opened and still contained
+Play Games. Voice/cancel testing was repeated successfully after installing and
+identifying the correct console. A Git pull or firmware flash does not update
+an independently extracted Windows executable.
+
+These results establish the bus, empty-hub and tested coexistence checks.
+**They are not an all-pass Phase 1 checklist: app volume remains failed.**
+Camera/reminder checks were performed with the hub attached; separate no-hub
+camera/reminder checks were not repeated in this session. Downstream fault
+injection, measurements and long-duration hardware testing were not performed.
+Do not attribute or rule out a sensor regression solely from the volume report;
+the owner's statement establishes that the symptom was seen before this update.
+
+Next preparation: obtain readable labels for the ENV unit and the hub revision /
+address-selection hardware. Keep new modules disconnected. For ENV III, resolve
+its QMP6988 `0x70` conflict with the hub in both hardware and firmware before
+attaching it. Keep the app-volume fault open and avoid broad touch/voice changes.

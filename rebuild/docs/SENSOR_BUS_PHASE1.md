@@ -2,7 +2,12 @@
 
 Base: `kadence/sensor-clean-base` at `5771a006300a2f3c616be449b983e890c2c77d47`.
 Known physically tested fallback: `9091e7e2112bbdd9e08141196147ad9a8c2660d0`.
-This candidate requires physical sign-off before Phase 2.
+Implementation: `a73c936da3e9305c06987c2e56bfe0fe61351161`.
+Owner hardware tests on 2026-09-13 passed hub discovery, voice/cancel, camera,
+reminders and boot/voice after hub removal. App volume failed and was reported
+pre-existing; this is not an all-pass checklist. See the
+[recorded results](ASTRA_SENSOR_INTEGRATION_HANDOVER.md#12-owner-hardware-tests--2026-09-13)
+and [Windows commands](SENSOR_WINDOWS_QUICKSTART.md).
 
 ## Implemented boundary
 
@@ -131,7 +136,7 @@ Local native tests do not establish the real firmware build or physical results.
 ## Physical check — first no hub, then empty hub
 
 1. Use `C:\KadenceX\source` on `kadence/sensor-clean-base`; pull with
-   `git pull --ff-only`. Use the successful CI candidate firmware, or build with
+   `git pull --ff-only origin kadence/sensor-clean-base`. Use the successful CI candidate firmware, or build with
    `powershell -ExecutionPolicy Bypass -File .\rebuild\tools\build_firmware.ps1`
    from an ESP-IDF 5.5.4 setup. Keep the tested fallback firmware package.
 2. Close Signal Console completely (including its tray icon) and close serial
@@ -140,17 +145,24 @@ Local native tests do not establish the real firmware build or physical results.
 3. Leave all new modules disconnected. Confirm stable boot/avatar. Start Signal
    Console and check repeated touch-started voice turns, cue, touch cancellation,
    a following successful reply, app volume, a reminder and camera snapshot.
-   Retain the previously known top-swipe-volume limitation; do not expand scope.
-4. Close Signal Console again, then run this from the source folder:
+   Record the app-slider failure reported as pre-existing on 2026-09-13, as well
+   as the older top-swipe-volume limitation. Do not turn either into a PASS.
+4. Close Signal Console again, then run this in normal PowerShell:
 
    ```powershell
-   py -3.12 .\rebuild\tools\sensor_status.py --port COM4 --watch 3
+   uv run --no-project --python 3.12 --with 'pyserial>=3.5,<4' 'C:\KadenceX\source\rebuild\tools\sensor_status.py' --port COM4 --watch 3
    ```
 
    Expect a fresh `absent` hub and six unavailable channels. A `fault` instead
    points to a bus/wiring/pull-up problem. The command only reads diagnostics;
    it does not run the voice service. Do not open two COM owners together.
-5. Power off. Connect only the empty hub's upstream connection to Port A; leave
+   This PC's Python 3.12 is managed by uv; `py -3.12` does not select it, and its
+   bare interpreter lacked `pyserial`. The command above was physically used.
+   A first `starting` / sequence 0 snapshot is incomplete; assess later fresh
+   snapshots. The ENV III warning is a static address-conflict reminder, not a
+   detected sensor.
+5. Disconnect USB and power fully off. Connect only the empty hub's upstream
+   connection to the **red Port A on the CoreS3 itself**; leave
    channels 0..5 empty and use its factory `0x70` address. Power on. Repeat the
    diagnostic. Within two samples expect fresh `ready`, six `ready` channels and
    no responding downstream addresses. `upstream_mask` includes bit 4 because
@@ -160,7 +172,9 @@ Local native tests do not establish the real firmware build or physical results.
    regressions. Then power off, remove the hub and confirm normal operation again.
 
 Record pass/fail and logs for no-hub boot/voice, empty-hub detection, empty-hub
-voice/cancel, camera, reminders and app volume. **Physical sign-off is pending.**
+voice/cancel, camera, reminders and app volume. The owner results are now recorded
+in [handover section 12](ASTRA_SENSOR_INTEGRATION_HANDOVER.md#12-owner-hardware-tests--2026-09-13).
+**The app-volume failure remains open; do not describe the checklist as all-pass.**
 Only after those pass: verify ENV identity, resolve the hub address and begin
 the ENV driver as the next separate milestone.
 
