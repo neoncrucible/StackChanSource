@@ -184,7 +184,7 @@ class MainWindow(QMainWindow):
         content=QHBoxLayout(); content.setSpacing(22)
         rail=QFrame(); rail.setObjectName("rail"); rail.setFixedWidth(175); sidebar=QVBoxLayout(rail); sidebar.setContentsMargins(0,6,14,0)
         self.pages=QStackedWidget()
-        for index,(title,method) in enumerate((("01  OVERVIEW",self.overview_page),("02  REMINDERS",self.reminders_page),("03  WORKBENCH",self.workbench_page),("04  VISION",self.vision_page),("05  DEVICE / PLAY",self.device_page),("06  DIAGNOSTICS",self.diagnostics_page))):
+        for index,(title,method) in enumerate((("01  OVERVIEW",self.overview_page),("02  REMINDERS",self.reminders_page),("03  WORKBENCH",self.workbench_page),("04  VISION",self.vision_page),("05  DEVICE",self.device_page),("06  DIAGNOSTICS",self.diagnostics_page))):
             b=button(title,lambda checked=False,i=index:self.navigate(i)); b.setObjectName("nav"); b.setCheckable(True); self.nav.append(b); sidebar.addWidget(b)
             page=method(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setWidget(page); self.pages.addWidget(scroll)
         sidebar.addStretch(); sidebar.addWidget(label("PRIVATE LAB\nSYSTEM TERMINAL", "muted"))
@@ -313,12 +313,6 @@ class MainWindow(QMainWindow):
         self.brightness_value=label("Awaiting device", "status")
         self.quiet=QCheckBox("Dark when idle"); self.quiet.clicked.connect(lambda checked:self.device_setting(quiet=checked))
         lights.addWidget(self.brightness,1); lights.addWidget(self.brightness_value); lights.addWidget(self.quiet); layout.addWidget(light)
-        game=QGroupBox("LED MEMORY"); play=QVBoxLayout(game)
-        play.addWidget(label("Watch the sequence. Repeat it with the three zones on top.\nRed: zone 1 • green: zone 2 • blue: zone 3. Each correct round adds a step.","muted"))
-        self.game_status=label("GAME OFF  /  SCORE 0  /  BEST 0","status"); play.addWidget(self.game_status)
-        self.game_sound=QCheckBox("Sound cues"); self.game_sound.setChecked(True); self.game_sound.clicked.connect(lambda checked:self.device_setting(sound=checked))
-        play.addWidget(row(button("PLAY MEMORY",lambda:self.control.send("game.start"),primary=True),button("STOP GAME",lambda:self.control.send("game.stop")),self.game_sound))
-        play.addWidget(label("Touch the front screen to stop. During a game, top touches are game inputs; volume gestures resume afterwards.","muted")); layout.addWidget(game)
         self.hardware=label("Waiting for acknowledged device capabilities.","muted"); layout.addWidget(self.hardware); layout.addStretch()
         return page
 
@@ -567,9 +561,8 @@ class MainWindow(QMainWindow):
             if not self.brightness.isSliderDown(): self.brightness.setValue(data.get("brightness",18))
             self.volume_value.setText(f"{data.get('volume',100)} / 100")
             self.brightness_value.setText(f"{data.get('brightness',18)} / 60")
-            for widget,key in ((self.muted,"muted"),(self.quiet,"quiet"),(self.reverse,"reverse"),(self.game_sound,"sound")): widget.setChecked(data.get(key) is True)
+            for widget,key in ((self.muted,"muted"),(self.quiet,"quiet"),(self.reverse,"reverse")): widget.setChecked(data.get(key) is True)
             if not self.maximum.hasFocus(): self.maximum.setValue(data.get("maximum",100))
-            self.game_status.setText(f"{data.get('game','off').upper()}  /  SCORE {data.get('score',0)}  /  BEST {data.get('best',0)}")
             self.hardware.setText(f"Strips: {'ready' if data.get('leds') else 'unavailable'}  •  Front touch: {'ready' if data.get('front_touch') else 'unavailable'}  •  Top touch: {'ready' if data.get('top_touch') else 'unavailable'}  •  Camera: {'active' if data.get('camera_active') else 'off'}")
             self.set_activity(data.get("presentation","idle"),data.get("capture_remaining_ms"))
         elif name=="snapshot":
