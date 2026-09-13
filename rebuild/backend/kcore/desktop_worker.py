@@ -140,10 +140,8 @@ class DesktopController:
             if app and app._body:
                 await app._handle_touch_cancel(app._body, __import__("types").SimpleNamespace(payload={"trigger": "touch"}))
             return {"message": "Cancellation requested."}
-        if action.startswith("device.") or action.startswith("game."):
+        if action.startswith("device."):
             if not self.app or not self.app._body: raise RuntimeError("Connect the robot first.")
-            if action == "game.start" and self.app._voice_task and not self.app._voice_task.done():
-                raise RuntimeError("Wait for the current voice or camera task before starting the game.")
             result = await request_device(self.app._body.host, action, args)
             self.emit("device", result.payload)
             return {"message": "Device setting applied."}
