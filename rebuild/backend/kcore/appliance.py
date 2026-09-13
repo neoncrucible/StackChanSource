@@ -222,7 +222,7 @@ class KadenceAppliance:
                     self._last_device_status = ack.payload
                     self.emit("device", ack.payload)
                     idle = self._voice_task is None or self._voice_task.done()
-                    if self.services and idle and not ack.payload.get("media_busy") and ack.payload.get("game") == "off":
+                    if self.services and idle and not ack.payload.get("media_busy"):
                         reminders = await self.services.store.call("reminder_list")
                         if (self._voice_task is None or self._voice_task.done()) and any(r["state"] == "due" and r["robot"] == "pending" for r in reminders):
                             self._voice_task = asyncio.create_task(self._deliver_reminders(body), name="kadence-alert")
@@ -278,7 +278,6 @@ class KadenceAppliance:
         body = self._body
         if body is None or not body.connected: raise RuntimeError("Connect the robot first.")
         if self._voice_task is not None and not self._voice_task.done(): raise RuntimeError("Wait for the current voice or camera task.")
-        if self._last_device_status.get("game", "off") != "off": raise RuntimeError("Stop the memory game before capturing.")
         self._voice_task = asyncio.create_task(self._run_media(body, "camera.snapshot"), name="kadence-snapshot")
         self._voice_task.add_done_callback(self._voice_task_done)
         raw = await self._voice_task
