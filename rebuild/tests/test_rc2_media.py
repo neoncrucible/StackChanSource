@@ -88,7 +88,7 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(('alert',{'state':'review_in_windows','count':1}),events)
             finally: await service.close()
 
-    async def test_camera_rejects_busy_voice_or_game(self):
+    async def test_camera_rejects_busy_voice(self):
         app=KadenceAppliance(settings()); app._body=SimpleNamespace(connected=True)
         app._voice_task=asyncio.create_task(asyncio.Event().wait())
         try:
@@ -96,8 +96,6 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
         finally:
             app._voice_task.cancel()
             await asyncio.gather(app._voice_task,return_exceptions=True)
-        app._voice_task=None; app._last_device_status={'game':'input'}
-        with self.assertRaises(RuntimeError): await app.capture_snapshot()
 
 
 class FakeHost:
@@ -123,6 +121,9 @@ class ControlContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(host.retired),1); self.assertEqual(host._pending,{})
         with self.assertRaises(ValueError): await request_device(host,'device.settings',{'volume':True})
         with self.assertRaises(ValueError): await request_device(host,'device.settings',{'brightness':100})
+        with self.assertRaises(ValueError): await request_device(host,'device.settings',{'sound':True})
+        with self.assertRaises(ValueError): await request_device(host,'game.start')
+        with self.assertRaises(ValueError): await request_device(host,'game.stop')
 
 
 class VisionTests(unittest.IsolatedAsyncioTestCase):
