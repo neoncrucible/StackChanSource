@@ -3,6 +3,7 @@
 #undef app_main
 
 #include "freertos/semphr.h"
+#include "sensor_runtime.h"
 
 #include "voice_cancel_io.cpp"
 #include "voice_progress.h"
@@ -85,6 +86,7 @@ void p21_protocol_task(void*)
         if (touch_voice_consume_host_event_ack(line)) {
             continue;
         }
+        if (kadence_sensors::route(line, p21_emit_line)) continue;
         if (top_controls_route(line)) continue;
 
         const VoiceLaneRouteResult voice_result = voice_lane_route_command(line);
@@ -239,6 +241,8 @@ extern "C" void app_main(void)
         ESP_LOGE(kLogTag, "PRESENCE status=failed stage=start");
     }
     p21_report_main_stack("runtime-initialised");
+
+    if (ok && presentation_ok) kadence_sensors::start();
 
     uint32_t heartbeat_seq = 0;
     const int64_t heartbeat_epoch_us = esp_timer_get_time();

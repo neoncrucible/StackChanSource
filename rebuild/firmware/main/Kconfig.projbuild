@@ -1,0 +1,9 @@
+menu "Kadence sensor bus"
+    config KADENCE_SENSOR_HUB_ADDRESS
+        hex "PCA9548AP hub address on external Port A"
+        range 0x70 0x77
+        default 0x70
+        help
+            Must match the physical hub address straps/DIP switches.
+            Only this address receives mux control writes. No hub auto-selection.
+endmenu

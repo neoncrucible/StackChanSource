@@ -53,6 +53,16 @@ class DesktopTests(unittest.TestCase):
                 self.assertNotIn(fake,window.settings_path.read_text())
                 window.record_diagnostic('device',{'state':fake,'connected':True,'password':fake,'qr':fake})
                 self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
+                window.record_diagnostic('device_diagnostic',{'reason':'interrupt-watchdog','cpu':1,
+                    'backtrace':[0x42012345,0x40371234],'message':fake,'component':fake})
+                self.assertEqual(window.diagnostic[-1]['reason'],'interrupt-watchdog')
+                self.assertEqual(window.diagnostic[-1]['backtrace'],[0x42012345,0x40371234])
+                self.assertNotIn('component',window.diagnostic[-1])
+                window.record_diagnostic('camera_transfer',{'stage':'image-data','reason':'interrupted',
+                    'received_bytes':123,'expected_bytes':153600,'pixels':fake})
+                self.assertEqual(window.diagnostic[-1]['received_bytes'],123)
+                self.assertEqual(window.diagnostic[-1]['stage'],'image-data')
+                self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
                 for index in range(6):
                     window.navigate(index); QApplication.processEvents()
                     self.assertFalse(window.grab().isNull())

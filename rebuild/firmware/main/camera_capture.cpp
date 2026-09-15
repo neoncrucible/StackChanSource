@@ -9,9 +9,17 @@ extern "C" {
 #include "gc0308.h"
 #include "esp_cache.h"
 #include "freertos/queue.h"
+#include "sdkconfig.h"
 
 namespace {
 constexpr size_t kCameraBytes=320*240*2;
+// IDF 5.5.4 aligns the driver's warm-up buffer to the data-cache line,
+// whereas S3 GDMA RX requires PSRAM buffers aligned to the burst size.
+// A hardcoded 64-byte burst can fail when a 32-byte-aligned backup buffer
+// happens to land halfway through a 64-byte boundary after another allocation.
+constexpr size_t kCameraDmaBurstBytes=CONFIG_ESP32S3_DATA_CACHE_LINE_SIZE;
+static_assert(kCameraDmaBurstBytes==16 || kCameraDmaBurstBytes==32 || kCameraDmaBurstBytes==64);
+static_assert(kCameraBytes%kCameraDmaBurstBytes==0);
 struct CameraFrame { uint8_t* data=nullptr; size_t size=0; };
 struct CameraCaptureState {
     uint8_t* buffer=nullptr;
@@ -63,7 +71,7 @@ bool camera_capture_frame(CameraFrame& frame) {
         esp_cam_ctlr_dvp_config_t config{};
         config.ctlr_id=0; config.clk_src=CAM_CLK_SRC_DEFAULT; config.h_res=320; config.v_res=240;
         config.input_data_color_type=CAM_CTLR_COLOR_RGB565; config.cam_data_width=8;
-        config.external_xtal=true; config.xclk_freq=20000000; config.dma_burst_size=64; config.pin=&pins;
+        config.external_xtal=true; config.xclk_freq=20000000; config.dma_burst_size=kCameraDmaBurstBytes; config.pin=&pins;
         // The driver's backup buffer receives warm-up frames. Our one frame is
         // offered once, so DMA cannot overwrite it while the host reads it.
         if(esp_cam_new_dvp_ctlr(&config,&controller)!=ESP_OK) return false;

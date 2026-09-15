@@ -9,13 +9,13 @@
 int main() {
     kadence_status::Snapshot state;
     state.volume=state.maximum=100; state.brightness=60;
-    state.presentation="tool-working"; state.game="finished"; state.firmware="0.21.1";
+    state.presentation="tool-working"; state.firmware="0.21.1";
     state.free_heap=state.free_psram=state.touch_seq=UINT32_MAX;
     state.capture_remaining_ms=8000;
     std::array<char,kadence_control::FrameBytes+2> output{};
     output.front()='A'; output.back()='Z';
     const char* id="0123456789abcdef0123456789abcdef0123456789abcde\"";
-    // The actual production status builder reproduces RC2's dropped reply.
+    // The production status builder must stay within the control-frame limit.
     assert(!device_ack(id,"device.status",kadence_status::payload(state,true),output.data()+1,384));
     assert(device_ack(id,"device.status",kadence_status::payload(state,true),output.data()+1,kadence_control::FrameBytes));
     assert(output.front()=='A' && output.back()=='Z');

@@ -12,7 +12,7 @@ from .host import VoiceTurnFailure
 async def request_device(host, name: str, payload: dict | None = None, *, timeout=3.0):
     payload = dict(payload or {})
     media = name in {"voice.alert", "camera.snapshot"}
-    if name not in {"device.status", "device.settings", "game.start", "game.stop", "voice.alert", "camera.snapshot"}:
+    if name not in {"device.status", "device.settings", "sensors.status", "sensors.gesture", "sensors.tof", "voice.alert", "camera.snapshot"}:
         raise ValueError("unsupported device command")
     if type(timeout) not in (int, float) or not 0 < timeout <= 210: raise ValueError("invalid command timeout")
     if media:
@@ -25,14 +25,14 @@ async def request_device(host, name: str, payload: dict | None = None, *, timeou
         token = payload["token"]
         if not isinstance(token, str) or len(token) != 32 or set(token)-set("0123456789abcdef"): raise ValueError("invalid media token")
     elif name == "device.settings":
-        if set(payload)-{"volume", "maximum", "brightness", "muted", "quiet", "reverse", "sound"}: raise ValueError("unknown device setting")
+        if set(payload)-{"volume", "maximum", "brightness", "muted", "quiet", "reverse"}: raise ValueError("unknown device setting")
         for key, value in payload.items():
-            if key in {"muted", "quiet", "reverse", "sound"}:
+            if key in {"muted", "quiet", "reverse"}:
                 if type(value) is not bool: raise ValueError("setting must be boolean")
             elif type(value) is not int or not 0 <= value <= (60 if key == "brightness" else 100):
                 raise ValueError("setting outside range")
     elif payload: raise ValueError("unexpected device arguments")
-    async with host._command_lock if media or name == "game.start" else contextlib.nullcontext():
+    async with host._command_lock if media else contextlib.nullcontext():
         writer, session = host._active_writer, host._active_session
         if writer is None or session is None or not session.hello_seen: raise RuntimeError("robot is disconnected")
         command = Envelope(MessageKind.COMMAND, name, payload)

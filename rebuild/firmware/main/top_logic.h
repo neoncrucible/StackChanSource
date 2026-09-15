@@ -1,6 +1,5 @@
 #pragma once
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -24,38 +23,6 @@ struct Touch {
         if (!acted && position-start<=-65) { acted=true; return Gesture::Backward; }
         if (!acted && now-since>=1200) { acted=true; return Gesture::Hold; }
         return Gesture::None;
-    }
-};
-
-enum class Phase { Off, Show, Input, Won, Lost };
-struct Memory {
-    std::array<uint8_t,24> sequence{};
-    Phase phase=Phase::Off;
-    int length=0, cursor=0, score=0, best=0, lit=-1;
-    uint64_t epoch=0, deadline=0;
-    uint32_t random=1;
-    uint8_t next() { random^=random<<13; random^=random>>17; random^=random<<5; return random%3; }
-    void start(uint64_t now, uint32_t seed) { random=seed?seed:1; score=0; length=1; sequence[0]=next(); show(now); }
-    void show(uint64_t now) { phase=Phase::Show; cursor=0; epoch=now+600; lit=-1; deadline=now+120000; }
-    void stop() { phase=Phase::Off; lit=-1; }
-    void tick(uint64_t now) {
-        if (phase==Phase::Show && now>=epoch) {
-            const int step=static_cast<int>((now-epoch)/750);
-            if (step>=length) { phase=Phase::Input; cursor=0; lit=-1; deadline=now+20000; }
-            else lit=(now-epoch)%750<500?sequence[step]:-1;
-        } else if (phase==Phase::Input && now>=deadline) { phase=Phase::Lost; lit=-1; deadline=now+2500; }
-        else if ((phase==Phase::Lost || phase==Phase::Won) && now>=deadline) stop();
-    }
-    bool tap(int zone, uint64_t now) {
-        if (phase!=Phase::Input || zone<0 || zone>2) return false;
-        lit=zone;
-        if (zone!=sequence[cursor]) { phase=Phase::Lost; deadline=now+2500; return false; }
-        if (++cursor==length) {
-            score=length; best=std::max(best,score);
-            if (length==24) { phase=Phase::Won; deadline=now+4000; }
-            else { sequence[length++]=next(); show(now); }
-        } else deadline=now+20000;
-        return true;
     }
 };
 
