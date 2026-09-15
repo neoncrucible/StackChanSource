@@ -2,9 +2,10 @@
 
 Date: 2026-09-13
 
-Latest physical results are in section 14, including the open camera failure.
-The installed sensor firmware is `282316c` / `0.21.4`; the Windows host is
-source-run from `C:\KadenceX\source\rebuild`.
+Latest physical results are in sections 14–15, including the camera regression.
+The owner temporarily restored firmware `a73c936` / `0.21.3` and confirmed
+camera capture works with the current source-run host 0.3.4. Candidate 0.21.5
+corrects a camera DMA alignment mismatch and awaits physical verification.
 Use [Windows startup and test commands](SENSOR_WINDOWS_QUICKSTART.md).
 The latest app-volume result is FAIL, reported by the owner as pre-existing.
 
@@ -382,3 +383,52 @@ Next physical check: quit the previous host, pull this branch, source-launch
 host 0.3.4 with the hub still disconnected, capture once, and export Diagnostics
 after at least 60 seconds so any late firmware reset/recovery is included.
 Do not repeat the older 0.3.3 export without the additional instrumentation.
+
+## 15. Camera firmware comparison and alignment candidate — 2026-09-15
+
+`Kadence-diagnostics(6).json` confirms host 0.3.4 is installed. The GC0308 is
+detected (PID 155 / 0x9b) at 12:57:10 UTC. At 12:57:13 the host receives `KDI0`
+and records `image-header / no-frame`: acquisition failed before an image was
+sent. Normal device status continues. The reset code 21 appears at 12:56:04,
+before capture, and must not be described as a capture-triggered restart.
+
+At the owner's suggestion, compare the last working release before attempting
+broader camera changes. Between `a73c936` / 0.21.3 and `282316c` / 0.21.4, the
+camera implementation, voice/media wire implementation, CoreS3 power/pin setup,
+SDK defaults, pinned components, build script and partition layout are identical.
+The firmware delta adds Gesture initialization/polling/protocol plus the version.
+
+The owner flashed the saved `Kadence-RC2-Firmware-a73c936da3e9` bundle (all hashes
+verified, app 1,056,128 bytes), kept host 0.3.4 and the requested disconnected-hub
+configuration, then reported "bingo" when asked whether Capture produced an
+image. This confirms the old firmware can capture with the current host. It
+does not establish which new allocation or scheduling change triggers failure.
+Leave that working firmware installed until the candidate is ready.
+
+Source inspection identifies a concrete pre-existing DMA alignment mismatch:
+
+- Kadence requested a 64-byte DMA burst and aligned its requested frame to 64.
+- IDF 5.5.4's [DVP controller](https://github.com/espressif/esp-idf/blob/v5.5.4/components/esp_driver_cam/dvp/src/esp_cam_ctlr_dvp_cam.c)
+  allocates its separate warm-up/backup buffer using cache-line alignment before
+  initializing the DMA channel.
+- S3 [GDMA transfer setup](https://github.com/espressif/esp-idf/blob/v5.5.4/components/esp_hw_support/dma/gdma.c)
+  requires external-memory RX buffer alignment equal to the selected burst.
+  [S3's GDMA definition](https://github.com/espressif/esp-idf/blob/v5.5.4/components/hal/esp32s3/include/hal/gdma_ll.h)
+  enables this constraint. Its [default data-cache line](https://github.com/espressif/esp-idf/blob/v5.5.4/components/esp_system/port/soc/esp32s3/Kconfig.cache)
+  is 32 bytes; the committed defaults do not override it.
+- A buffer at 32 modulo 64 satisfies that allocator's guarantee but violates
+  the old 64-byte burst requirement. Additional allocations can expose the
+  mismatch without a change to camera source. This is a source-based causal
+  hypothesis, **not a measured address from the owner's failed capture**.
+
+Candidate firmware **0.21.5** selects the burst from the configured S3 data-cache
+line size, with compile-time checks for 16/32/64-byte lines and whole-frame
+divisibility. Both the driver's backup allocation and Kadence's 64-byte-aligned
+requested frame then meet the burst requirement. This is the only functional
+firmware change from 0.21.4; Gesture remains enabled and camera startup, transfer,
+cleanup, timeouts, voice and sensor scheduling remain as before.
+
+Physical confirmation still required: capture on 0.21.5 with the same host and
+hub disconnected, repeat captures, then reconnect the hub while powered off and
+check capture plus Gesture/voice coexistence. Do not call the camera fixed until
+those tests pass. The 0.21.3 fallback does not provide Gesture measurements.

@@ -26,11 +26,11 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.3.4','firmware_version':'0.21.4','source_commit':commit,
-        'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3','0.21.4'],'entry':'Kadence.exe'},indent=2)+'\n')
+        'host_version':'0.3.4','firmware_version':'0.21.5','source_commit':commit,
+        'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3','0.21.4','0.21.5'],'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
         'KADENCE RC2 / SIGNAL CONSOLE 0.3.4\n\nExtract the entire ZIP to a new folder.\n'
-        'GESTURE / FIRMWARE 0.21.4:\n'
+        'GESTURE / CAMERA ALIGNMENT / FIRMWARE 0.21.5:\n'
         'The new sensor diagnostics require flashing the bundled firmware.\n'
         'Read GESTURE_PERSONA_AUDIO.md for wiring, persona, Ollama and Windows audio.\n'
         'Keep the hub at 0x70; Gesture on channel 0, ToF4M on channel 1.\n\n'
