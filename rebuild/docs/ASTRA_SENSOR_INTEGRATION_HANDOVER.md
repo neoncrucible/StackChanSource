@@ -2,10 +2,11 @@
 
 Date: 2026-09-13
 
-Latest physical results are in sections 14–15, including the camera regression.
-The owner temporarily restored firmware `a73c936` / `0.21.3` and confirmed
-camera capture works with the current source-run host 0.3.4. Candidate 0.21.5
-corrects a camera DMA alignment mismatch and awaits physical verification.
+Latest physical results are in sections 14–16, including the camera regression.
+Firmware `038f203` / `0.21.5` is now installed with source-run host 0.3.4.
+Two standalone captures completed after the DMA alignment correction in the
+requested disconnected-hub configuration. Camera with the hub reconnected and
+Gesture/voice/reminder coexistence still require physical verification.
 Use [Windows startup and test commands](SENSOR_WINDOWS_QUICKSTART.md).
 The latest app-volume result is FAIL, reported by the owner as pre-existing.
 
@@ -432,3 +433,43 @@ Physical confirmation still required: capture on 0.21.5 with the same host and
 hub disconnected, repeat captures, then reconnect the hub while powered off and
 check capture plus Gesture/voice coexistence. Do not call the camera fixed until
 those tests pass. The 0.21.3 fallback does not provide Gesture measurements.
+
+## 16. Camera capture restored on 0.21.5; hub coexistence pending — 2026-09-15
+
+Tested firmware source: `038f203eb094ac049db208fcc066327781d7a190`.
+The owner built `Kadence-RC2-Firmware-038f203eb094`, then flashed successfully
+with all four hashes verified (app 1,058,400 bytes). Calibration was preserved.
+CI [run 153](https://github.com/neoncrucible/StackChanSource/actions/runs/34976516511)
+passed firmware build/gates, Windows host checks on Python 3.12 and 3.14, and
+Windows desktop checks/packaging. This does not substitute for hardware tests.
+
+The owner launched the same source-run host 0.3.4, was asked to keep the hub
+disconnected and capture before voice, then reported "seems to work again now"
+and supplied `Kadence-diagnostics(7).json` (104 events). The export verifies the
+host version but does not independently identify the flashed firmware or cable
+state; those come from the preceding build/flash and instructed test sequence.
+
+| UTC | Observation |
+| --- | --- |
+| 14:02:30 and 14:02:52 | Reset code 21 recorded during connection startup, with one connection-unavailable event between them. These precede both captures; startup reconnect behavior remains separate from camera acceptance. |
+| 14:03:12–16 | Robot connects, reports booting, then idle. Touch sequence remains zero throughout the export. |
+| 14:03:32–34 | First Capture detects GC0308 PID 155, receives metadata and all 153,600 image bytes, records `image-complete` and `image-ack`, then returns idle. |
+| 14:03:59–14:04:00 | Second Capture again detects GC0308 and completes all 153,600 bytes plus acknowledgement. |
+| 14:04:01–34 | Normal idle status continues; no reset, panic or capture failure is recorded during or after either capture. |
+
+After the first capture, idle free heap is 8,253,380 bytes and free PSRAM is
+8,225,004 bytes. Both return to those same values after the second capture.
+This shows no additional retained allocation on that second capture; it does
+not establish leak freedom over longer operation. The report contains no voice,
+reminder or Gesture measurement test.
+
+**Physical result: two standalone camera captures PASS in this test sequence.**
+The alignment correction is supported by the successful comparison; the failed
+backup-buffer address was not measured, so do not claim direct proof of that
+address being the cause. Full sensor coexistence is not yet signed off.
+
+Next: quit the host, power the robot off, reconnect the existing hub to CoreS3
+red Port A with Gesture on channel 0 and ToF4M on channel 1, power on and launch
+the same host, then repeat Capture. If that passes, verify Gesture measurements,
+normal voice, cancellation/next reply and reminder delivery on 0.21.5 before
+advancing ToF ranging. Standalone serial diagnostics require the host to quit.
