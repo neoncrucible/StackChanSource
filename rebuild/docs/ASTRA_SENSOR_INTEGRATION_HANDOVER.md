@@ -2,11 +2,13 @@
 
 Date: 2026-09-13
 
-Latest physical results are in sections 14–16, including the camera regression.
+Latest physical results and owner sign-off are in sections 14–17.
 Firmware `038f203` / `0.21.5` is now installed with source-run host 0.3.4.
-Two standalone captures completed after the DMA alignment correction in the
-requested disconnected-hub configuration. Camera with the hub reconnected and
-Gesture/voice/reminder coexistence still require physical verification.
+The owner has signed off camera operation, including capture with the sensor
+hub attached and capture after a completed voice reply. The Capture button may
+need a second click to display the image; the owner accepts this UI issue and
+explicitly requests leaving it unchanged. Section 17 supersedes earlier pending
+camera checks; it does not claim unperformed sensor or reminder tests passed.
 Use [Windows startup and test commands](SENSOR_WINDOWS_QUICKSTART.md).
 The latest app-volume result is FAIL, reported by the owner as pre-existing.
 
@@ -473,3 +475,34 @@ red Port A with Gesture on channel 0 and ToF4M on channel 1, power on and launch
 the same host, then repeat Capture. If that passes, verify Gesture measurements,
 normal voice, cancellation/next reply and reminder delivery on 0.21.5 before
 advancing ToF ranging. Standalone serial diagnostics require the host to quit.
+
+## 17. Owner camera sign-off with accepted UI issue — 2026-09-15
+
+Firmware remains `038f203eb094ac049db208fcc066327781d7a190` / **0.21.5**;
+source-run host remains **0.3.4**. No further runtime change or reflash is needed
+for this sign-off.
+
+- After the instructed power-off hub reconnection and repeat Capture check,
+  the owner reported "ok its fixed". Camera with the sensor hub attached is
+  accepted as PASS. The instructed wiring is CoreS3 red Port A, Gesture on hub
+  channel 0 and ToF4M on channel 1.
+- With everything left connected, the owner was asked to complete a normal
+  voice conversation and then Capture again. The owner replied "yes works
+  perfectly", confirming both the voice reply and subsequent camera image.
+- The owner reports that the UI Capture button seems to require a second
+  press before an image appears. **Accepted known issue; leave unchanged at
+  the owner's explicit request.** No cause for this display/click behavior has
+  been established. Do not describe first-click preview behavior as fixed.
+- The owner explicitly requested sign-off and a commit to the working branch.
+
+**Camera regression: signed off by the owner, with the above UI exception.**
+The disconnected-hub captures have diagnostic evidence in section 16; the
+hub-attached and post-voice results are owner reports without a new diagnostic
+export. Keep those evidence types distinct.
+
+This closes the camera recovery work. It does not add new evidence for Gesture
+measurement accuracy/orientation, cancellation/next reply or reminder delivery
+on 0.21.5, physical Bluetooth output, or simultaneous Robot + Windows output.
+Previously recorded results remain valid only for their stated test versions.
+App volume remains the pre-existing open issue. ToF ranging and UnitV2 integration
+remain subsequent work; neither is implemented or signed off by this entry.
