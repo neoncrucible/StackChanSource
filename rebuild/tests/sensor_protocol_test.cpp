@@ -62,6 +62,26 @@ int main() {
     assert(device_ack("gesture-check", "sensors.gesture", gesture_payload(gesture, UINT32_MAX),
                       gesture_ack, sizeof(gesture_ack)));
     assert(std::strlen(gesture_ack) < sizeof(gesture_ack));
+    root = cJSON_Parse(good);
+    cJSON_ReplaceItemInObject(root, "name", cJSON_CreateString("sensors.tof"));
+    assert(parse_request(root) == Request::Tof);
+    cJSON_AddNumberToObject(cJSON_GetObjectItemCaseSensitive(root, "payload"), "channel", 2);
+    assert(parse_request(root) == Request::Invalid);
+    cJSON_Delete(root);
+    TofSnapshot tof;
+    tof.health = Health::Ready; tof.sequence = tof.errors = UINT32_MAX;
+    tof.sampled_ms = UINT32_MAX - 10; tof.raw_status = 9;
+    tof.valid = true; tof.distance_mm = 4000;
+    assert(device_ack(id.c_str(), "sensors.tof", tof_payload(tof, 20), out.data() + 1, kadence_control::FrameBytes));
+    assert(out.front() == 'A' && out.back() == 'Z');
+    root = cJSON_Parse(out.data() + 1);
+    p = cJSON_GetObjectItemCaseSensitive(root, "payload");
+    assert(cJSON_GetObjectItemCaseSensitive(p, "age_ms")->valueint == 31);
+    assert(cJSON_GetObjectItemCaseSensitive(p, "distance_mm")->valueint == 4000);
+    cJSON_Delete(root);
+    tof.valid = false; p = tof_payload(tof, 20);
+    assert(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(p, "distance_mm")));
+    cJSON_Delete(p);
     assert(parse_request(nullptr) == Request::Other);
     root = cJSON_Parse(R"({"name":"voice.turn"})");
     assert(parse_request(root) == Request::Other);

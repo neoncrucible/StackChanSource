@@ -44,6 +44,7 @@ public:
     virtual ~Bus() = default;
     virtual Result probe(uint8_t address) = 0;
     virtual bool register_io(uint8_t, uint8_t, uint8_t*, size_t, bool) { return false; }
+    virtual bool register16_io(uint8_t, uint16_t, uint8_t*, size_t, bool) { return false; }
     virtual bool write_switch(uint8_t address, uint8_t mask) = 0;
     virtual bool read_switch(uint8_t address, uint8_t& mask) = 0;
 };
@@ -79,6 +80,17 @@ public:
             return {Result::Error, false};
         }
         const bool ok = bus_.register_io(address, reg, data, size, read);
+        return {ok ? Result::Ack : Result::Error, set_mask(0)};
+    }
+    // ToF uses a 16-bit register index; keep Gesture's 8-bit contract unchanged.
+    Probe register16_io(size_t channel, uint8_t address, uint16_t reg, uint8_t* data, size_t size, bool read) {
+        if (channel >= ChannelCount || address != 0x29 || !data || !size || size > 17)
+            return {Result::Error, false};
+        if (!set_mask(static_cast<uint8_t>(1U << channel))) {
+            set_mask(0);
+            return {Result::Error, false};
+        }
+        const bool ok = bus_.register16_io(address, reg, data, size, read);
         return {ok ? Result::Ack : Result::Error, set_mask(0)};
     }
 private:

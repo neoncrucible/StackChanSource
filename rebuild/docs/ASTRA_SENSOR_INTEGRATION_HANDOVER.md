@@ -3,6 +3,7 @@
 Date: 2026-09-13
 
 Latest physical results and owner sign-off are in sections 14–17.
+The next ToF4M candidate and agreed integration order are in section 18.
 Firmware `038f203` / `0.21.5` is now installed with source-run host 0.3.4.
 The owner has signed off camera operation, including capture with the sensor
 hub attached and capture after a completed voice reply. The Capture button may
@@ -506,3 +507,35 @@ on 0.21.5, physical Bluetooth output, or simultaneous Robot + Windows output.
 Previously recorded results remain valid only for their stated test versions.
 App volume remains the pre-existing open issue. ToF ranging and UnitV2 integration
 remain subsequent work; neither is implemented or signed off by this entry.
+
+## 18. ToF4M measurements candidate; UnitV2 follows acceptance — 2026-09-15
+
+The owner explicitly requested: test and confirm ToF4M, then integrate UnitV2,
+then confirm no conflicts before adding functionality. Gesture direction
+detection was already confirmed; ToF's earlier 0x29 response was discovery only.
+
+Candidate host **0.3.5** / firmware **0.21.6** adds the VL53L1X measurement state
+machine, bounded shared-worker register traffic, validated cached `sensors.tof`
+status and `tools/tof_status.py --gesture` for simultaneous observation using
+one serial connection. The camera DMA alignment fix from 0.21.5 is retained.
+Read [ToF4M bring-up](TOF4M_BRINGUP.md) for register sources, limits, cold-start
+PowerShell commands, acceptance checks and the subsequent UnitV2 milestone.
+
+Native coverage includes wrong chip identity (no configuration writes),
+distance/quality decoding, boot/data-ready timeouts, result/clear failures,
+isolation failure, quarantine/recovery and discovery plus Gesture/ToF scheduling.
+Wire coverage checks the fixed channel/address query, mutation rejection, frame
+capacity and age wrap. Host tests reject invalid types, impossible valid readings,
+stale data and verify cached queries do not claim the voice lane. Firmware
+packaging includes required sensor-driver notices with hashes.
+
+Local validation: 118 Python tests passed, 2 skipped, 71 subtests passed;
+Qt ran offscreen. The native sensor bus/protocol/Gesture/ToF gates passed with
+AddressSanitizer and UndefinedBehaviorSanitizer. Phase B (45 checks) and the
+voice-wire gate passed. CI must compile/package the ESP-IDF 5.5.4 candidate
+before physical deployment; no local hardware test is implied by these gates.
+
+**Physical ToF4M and coexistence sign-off: pending.** UnitV2 code is not changed
+by this candidate. No sensor readings trigger actions, enter LLM context, or
+change the avatar. Keep the current accepted Capture second-click exception
+and pre-existing app-volume issue as recorded; neither is modified here.

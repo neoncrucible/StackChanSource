@@ -22,17 +22,17 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
     output.mkdir(parents=True,exist_ok=False)
     shutil.copytree(desktop,output,dirs_exist_ok=True)
     shutil.copytree(firmware,output/'Firmware')
-    for name in ('USER_MANUAL.md','RC2_ENGINEERING.md','SENSOR_BUS_PHASE1.md','GESTURE_PERSONA_AUDIO.md'):
+    for name in ('USER_MANUAL.md','RC2_ENGINEERING.md','SENSOR_BUS_PHASE1.md','GESTURE_PERSONA_AUDIO.md','TOF4M_BRINGUP.md'):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.3.4','firmware_version':'0.21.5','source_commit':commit,
-        'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3','0.21.4','0.21.5'],'entry':'Kadence.exe'},indent=2)+'\n')
+        'host_version':'0.3.5','firmware_version':'0.21.6','source_commit':commit,
+        'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3','0.21.4','0.21.5','0.21.6'],'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
-        'KADENCE RC2 / SIGNAL CONSOLE 0.3.4\n\nExtract the entire ZIP to a new folder.\n'
-        'GESTURE / CAMERA ALIGNMENT / FIRMWARE 0.21.5:\n'
+        'KADENCE RC2 / SIGNAL CONSOLE 0.3.5\n\nExtract the entire ZIP to a new folder.\n'
+        'GESTURE / TOF4M RANGING / FIRMWARE 0.21.6:\n'
         'The new sensor diagnostics require flashing the bundled firmware.\n'
-        'Read GESTURE_PERSONA_AUDIO.md for wiring, persona, Ollama and Windows audio.\n'
+        'Read TOF4M_BRINGUP.md for distance checks. Read GESTURE_PERSONA_AUDIO.md for wiring, persona, Ollama and Windows audio.\n'
         'Keep the hub at 0x70; Gesture on channel 0, ToF4M on channel 1.\n\n'
         'INSTALL THE CANDIDATE:\n'
         '1. Close any running Kadence server and serial monitor.\n'
@@ -45,7 +45,7 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
         '5. Keep USB connected to the awake PC while using the robot.\n'
         '6. Tap once, wait for the cue and REC countdown, then speak.\n\n'
         'Read USER_MANUAL.md for reminders, workbench, vision and top controls.\n'
-        'Physical sign-off is pending. Keep the tested clean-base 9091e7e2112b firmware available.\n')
+        'Physical sign-off is pending. Keep the camera-tested 038f203eb094 firmware available.\n')
     sums=[]
     for file in sorted(output.rglob('*')):
         if file.is_file(): sums.append(hashlib.sha256(file.read_bytes()).hexdigest()+'  '+file.relative_to(output).as_posix())
@@ -64,7 +64,7 @@ def build(commit: str, firmware: Path):
     work.mkdir(parents=True,exist_ok=True)
     entry=work/'desktop_entry.py'
     entry.write_text('from kcore.desktop import main\nif __name__ == "__main__": raise SystemExit(main())\n')
-    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.4'}))
+    (work/'BUILD.json').write_text(json.dumps({'source_commit':commit,'host_version':'0.3.5'}))
     # Keep standard streams for the same executable's private worker mode.
     # hide-early hides the bootloader's window, without disabling stdin/stdout.
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean',

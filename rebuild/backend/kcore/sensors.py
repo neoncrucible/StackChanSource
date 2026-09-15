@@ -1,4 +1,4 @@
-"""Validated discovery evidence. No measurements, action mappings or LLM input."""
+"""Validated discovery and measurement evidence. No action mappings or LLM input."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -108,3 +108,44 @@ class GestureStatus:
 async def read_gesture_status(host, *, timeout=3.0):
     reply = await request_device(host, "sensors.gesture", timeout=timeout)
     return GestureStatus.from_payload(reply.payload)
+
+
+@dataclass(frozen=True, slots=True)
+class TofStatus:
+    state: str
+    sequence: int
+    age_ms: int
+    errors: int
+    raw_status: int
+    valid: bool
+    distance_mm: int | None
+
+    @property
+    def fresh(self):
+        return self.state == "ready" and self.sequence > 0 and self.age_ms <= 3000
+
+    @classmethod
+    def from_payload(cls, p):
+        fields = {"ok", "schema", "state", "channel", "address", "seq", "age_ms",
+                  "errors", "raw_status", "valid", "distance_mm"}
+        if not isinstance(p, dict) or set(p) != fields or p["ok"] is not True:
+            raise ValueError("invalid ToF fields")
+        if _uint(p["schema"]) != 1 or _uint(p["channel"]) != 1 or _uint(p["address"]) != 0x29:
+            raise ValueError("unsupported ToF configuration")
+        if not isinstance(p["state"], str) or p["state"] not in {"starting", "ready", "fault", "unavailable"}:
+            raise ValueError("invalid ToF state")
+        seq, raw = _uint(p["seq"]), _uint(p["raw_status"], 31)
+        if type(p["valid"]) is not bool:
+            raise ValueError("invalid ToF validity")
+        distance = p["distance_mm"]
+        if p["valid"]:
+            if p["state"] != "ready" or seq == 0 or raw != 9 or _uint(distance, 4000) < 40:
+                raise ValueError("invalid ToF measurement")
+        elif distance is not None:
+            raise ValueError("invalid ToF result must not carry a distance")
+        return cls(p["state"], seq, _uint(p["age_ms"]), _uint(p["errors"]), raw, p["valid"], distance)
+
+
+async def read_tof_status(host, *, timeout=3.0):
+    reply = await request_device(host, "sensors.tof", timeout=timeout)
+    return TofStatus.from_payload(reply.payload)
