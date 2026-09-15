@@ -2,9 +2,10 @@
 
 Date: 2026-09-13
 
-Latest physical results are in section 12. The tested sensor firmware is
-`a73c936` / `0.21.3`; the tested Windows console identifies its CI build as
-`1d4db2820820`. Use [Windows startup and test commands](SENSOR_WINDOWS_QUICKSTART.md).
+Latest physical results are in section 14, including the open camera failure.
+The installed sensor firmware is `282316c` / `0.21.4`; the Windows host is
+source-run from `C:\KadenceX\source\rebuild`.
+Use [Windows startup and test commands](SENSOR_WINDOWS_QUICKSTART.md).
 The latest app-volume result is FAIL, reported by the owner as pre-existing.
 
 ## 1. Use this source as the integration base
@@ -318,7 +319,66 @@ checking Ollama routing, and louder output. The tested 0.3.2 desktop hardcodes
 GeminiThinker; it does not use the prior Ollama model. This is verified in source,
 not inferred from voice timbre. The generic persona was also verified in identity.py.
 
-The new candidate is host 0.3.3 / firmware 0.21.4. Physical sign-off is pending.
-Do not mistake this for changes already installed on the owner's Windows PC.
+The candidate is host 0.3.3 / firmware 0.21.4. Installation and partial physical
+results are now recorded in section 14; full Gesture coexistence sign-off is pending.
 ToF ranging and UnitV2 integration remain subsequent milestones. Volume slider
 and top swipe failures remain open; Windows output is an additional audio path.
+
+## 14. Gesture physical results and camera investigation — 2026-09-14/15
+
+Installed source: `282316cac268de4236c06117630f8cc78f78695f`.
+Firmware 0.21.4 built and flashed successfully with preserved calibration.
+The owner uses the source-run host 0.3.3, not the earlier Downloads executable.
+
+- Persona restored and explicitly approved by the owner.
+- Ollama `qwen3.5:4b` installed in the normal Windows Ollama store; selected
+  as Thinking provider. The adapter uses `think:false`. A standalone simple
+  question took 0.42 seconds; this is not end-to-end robot voice latency.
+- Windows speech output, cancellation/next reply, and one-shot reminders were
+  physically confirmed on host 0.3.3 before the Gesture firmware flash.
+- After flashing 0.21.4, `gesture_status.py` reported `ready; fresh=True`,
+  event sequences 1 through 15, and directional flags. Initial mixed flags and
+  reversed physical directions are not proof of final mounting orientation.
+- Normal voice with Gesture active worked. A recorded turn took STT 2147 ms,
+  reasoning 12356 ms, and TTS 10082 ms; latency tuning was deferred by the owner.
+- **Camera capture is FAIL.** Do not advance ToF or call Gesture fully signed off.
+  No tests of physical Bluetooth speakers or simultaneous Robot + Windows output
+  have been established. Reminder delivery with the new firmware remains to retest.
+
+Camera evidence (UTC; attachment filenames refer to owner exports):
+
+| Report | Observation | What it establishes |
+| --- | --- | --- |
+| `Kadence-diagnostics(3).json` | Four Sep 14 captures fail with host `uplink/unavailable` and device `camera-capture`, code 0. Serial status continues. | Failed standalone capture after a successful voice turn; not a proven Wi-Fi failure. |
+| `Kadence-diagnostics(4).json` | Sep 15 11:48:53 first camera request after boot, touch sequence 0; same failure at 11:48:59. | A preceding voice turn is unnecessary to trigger failure. |
+| `Kadence-diagnostics(5).json` | Requested test with hub disconnected. Camera at 11:54:27, active at 11:54:29; device status unavailable 11:54:34–54; uplink timeout 11:54:41; idle status resumes 11:54:55. | Different failure: image timeout and loss of status replies. The export alone does not prove a reset or hang cause, nor physically verify the cable state. |
+
+Source findings:
+
+- Firmware `camera-capture` means the final `KDAK` was not received. It is not
+  a sensor-specific failure code: `voice_lan_send_image` also returns success
+  when capture fails but its four-byte `KDI0` notification is sent successfully.
+- Host `read_image` used to collapse no-frame, invalid frame, and truncated
+  transfer errors into `uplink/unavailable` in the exported report.
+- SerialBodySession discarded all non-JSON logs, including ESP32 panic/reset
+  evidence. No reset cause can be recovered from these existing exports.
+- `camera_capture.cpp` has not changed since its original RC2 implementation;
+  no specific hardware/root-cause fix has yet been established.
+
+Host **0.3.4** adds bounded, typed `device_diagnostic` and `camera_transfer`
+records. Driver messages export only an allowed component/category, numeric
+sensor ID/reset code/CPU and up to 16 program-counter addresses. Raw serial text,
+credentials, tokens, image pixels and conversation content are excluded. Serial
+observations cannot dispatch commands or complete ACKs; at most 128 are emitted
+per connection. Image reads retain their existing size/authentication/deadlines.
+An interrupted read identifies its current stage and received byte count (data
+stage); the associated runtime issue distinguishes timeout from cancellation.
+This is instrumentation, **not a claimed camera fix**, and requires no reflash.
+Validation: 114 Python tests passed, 2 skipped, 55 subtests passed; Qt was
+exercised offscreen. Phase B, voice-wire and runtime setup gates passed. The
+camera failure remains a physical investigation, not a simulated success claim.
+
+Next physical check: quit the previous host, pull this branch, source-launch
+host 0.3.4 with the hub still disconnected, capture once, and export Diagnostics
+after at least 60 seconds so any late firmware reset/recovery is included.
+Do not repeat the older 0.3.3 export without the additional instrumentation.

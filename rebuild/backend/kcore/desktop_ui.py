@@ -605,10 +605,10 @@ class MainWindow(QMainWindow):
             hints={"connection":"Waiting for the robot. Check its USB port and normal boot mode.",
                 "voice":"Voice did not complete. Check connection and provider settings; details are in Diagnostics.",
                 "providers":"Speech service unavailable. Check credentials and Internet access, then try again.",
-                "uplink":"Audio transfer did not complete. Check the robot's Wi-Fi connection.",
+                "uplink":"Robot media transfer did not complete. Open Diagnostics for transfer and device status.",
                 "body":"Voice finished; the body reaction was not confirmed.",
                 "cancel":"Cancellation was not confirmed. Reset the robot before trying again.",
-                "camera":"Camera operation did not complete. Return to idle and try another capture.",
+                "camera":"Camera capture did not complete. Open Diagnostics for capture and device status.",
                 "alert":"Robot alert was not confirmed. Review the due reminders in Windows."}
             self.message.setText(hints.get(data.get("stage"),"An operation did not complete. Open Diagnostics for status."))
             if data.get("stage")=="providers" and data.get("reason")=="timeout":
@@ -663,16 +663,25 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage"}
+        from .device_diagnostics import DEVICE_REASONS, DEVICE_COMPONENTS, IMAGE_STAGES, IMAGE_REASONS
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer"}
         if name not in allowed: return
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
-        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active"):
+        if name=="camera_transfer": stages=stages | IMAGE_STAGES
+        reasons={"timeout","unavailable","device_proof"}
+        if name=="camera_transfer": reasons=reasons | IMAGE_REASONS
+        if name=="device_diagnostic": reasons=reasons | DEVICE_REASONS
+        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active","cpu","reset_code","sensor_pid","received_bytes","expected_bytes"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
-            elif isinstance(value,str) and (key=="state" and value in states or key in {"stage","provider_stage"} and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in {"timeout","unavailable","device_proof"}): safe[key]=value
+            elif isinstance(value,str) and (key=="state" and value in states or key in {"stage","provider_stage"} and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in reasons): safe[key]=value
+        if name=="device_diagnostic":
+            if isinstance(data.get("component"),str) and data["component"] in DEVICE_COMPONENTS: safe["component"]=data["component"]
+            trace=data.get("backtrace")
+            if isinstance(trace,list) and 0<len(trace)<=16 and all(type(pc) is int and 0x40000000<=pc<0x44000000 for pc in trace): safe["backtrace"]=trace
         if name=="device" and data.get("presentation") in states: safe["state"]=data["presentation"]
         record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
         self.diagnostic.append(record)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hmac
 import io
 import json
@@ -21,13 +22,53 @@ async def read_media_auth(reader, *, magic: bytes, token: str):
         raise ValueError("invalid media authentication")
 
 
-async def read_image(reader) -> bytes:
-    magic = await reader.readexactly(4)
-    if magic == b"KDI0": raise RuntimeError("Camera did not produce an image. Try again with the robot idle.")
-    if magic != b"KDI1": raise ValueError("invalid image header")
-    width, height, size = struct.unpack("!HHI", await reader.readexactly(8))
-    if (width, height, size) != (320, 240, IMAGE_BYTES): raise ValueError("image exceeds fixed QVGA contract")
-    return await reader.readexactly(size)
+async def read_image(reader, *, emit=None) -> bytes:
+    stage, received, expected = "image-header", 0, 4
+    reason = None
+
+    def report():
+        if emit:
+            data = {"stage": stage, "received_bytes": received, "expected_bytes": expected}
+            if reason: data["reason"] = reason
+            with contextlib.suppress(Exception):
+                emit("camera_transfer", data)
+
+    try:
+        report()
+        magic = await reader.readexactly(4)
+        received = 4
+        if magic == b"KDI0":
+            reason = "no-frame"
+            raise RuntimeError("Camera did not produce an image. Try again with the robot idle.")
+        if magic != b"KDI1":
+            reason = "bad-header"
+            raise ValueError("invalid image header")
+        stage, received, expected = "image-metadata", 0, 8
+        report()
+        width, height, size = struct.unpack("!HHI", await reader.readexactly(8))
+        received = 8
+        if (width, height, size) != (320, 240, IMAGE_BYTES):
+            reason = "bad-format"
+            raise ValueError("image exceeds fixed QVGA contract")
+        stage, received, expected = "image-data", 0, IMAGE_BYTES
+        report()
+        raw = bytearray()
+        while received < expected:
+            chunk = await reader.read(min(16384, expected - received))
+            if not chunk:
+                raise asyncio.IncompleteReadError(bytes(raw), expected)
+            raw.extend(chunk)
+            received += len(chunk)
+        stage = "image-complete"
+        report()
+        return bytes(raw)
+    except BaseException as exc:
+        if isinstance(exc, asyncio.IncompleteReadError):
+            received = len(exc.partial)
+            reason = "truncated"
+        reason = reason or ("interrupted" if isinstance(exc, asyncio.CancelledError) else "unavailable")
+        report()
+        raise
 
 
 def decode_image(raw: bytes) -> tuple[bytes, list[str]]:

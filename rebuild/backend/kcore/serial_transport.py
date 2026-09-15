@@ -8,6 +8,7 @@ from typing import Any
 from .host import HostServer, Session
 from .protocol import Envelope, MessageKind
 from .state import Presence
+from .device_diagnostics import parse_device_diagnostic
 
 
 class SerialEnvelopeWriter:
@@ -50,10 +51,12 @@ class SerialBodySession:
     host.event acknowledgement is emitted.
     """
 
-    def __init__(self, host: HostServer, serial_port: Any, *, port_name: str):
+    def __init__(self, host: HostServer, serial_port: Any, *, port_name: str, diagnostic_sink=None):
         self.host = host
         self.serial_port = serial_port
         self.port_name = port_name
+        self._diagnostic_sink = diagnostic_sink
+        self._diagnostic_count = 0
         self.writer = SerialEnvelopeWriter(serial_port)
         self.session = Session(device_id=f"serial:{port_name}", hello_seen=True)
         self._reader_task: asyncio.Task[None] | None = None
@@ -78,6 +81,7 @@ class SerialBodySession:
         while time.monotonic() < deadline:
             raw = await asyncio.to_thread(self.serial_port.readline)
             text = _decode_line(raw)
+            self._observe_diagnostic(text)
             if not text:
                 continue
             if (
@@ -131,11 +135,23 @@ class SerialBodySession:
                 self._events.get_nowait()
         self._events.put_nowait(incoming)
 
+    def _observe_diagnostic(self, text: str) -> None:
+        # Bound driver chatter independently of the GUI journal. Diagnostics
+        # must never break the serial reader or acquire protocol authority.
+        if self._diagnostic_sink is None or self._diagnostic_count >= 128:
+            return
+        data = parse_device_diagnostic(text)
+        if data is not None:
+            self._diagnostic_count += 1
+            with contextlib.suppress(Exception):
+                self._diagnostic_sink("device_diagnostic", data)
+
     async def _reader_loop(self) -> None:
         try:
             while True:
                 raw = await asyncio.to_thread(self.serial_port.readline)
                 text = _decode_line(raw)
+                self._observe_diagnostic(text)
                 if not text or not text.startswith("{"):
                     continue
                 try:

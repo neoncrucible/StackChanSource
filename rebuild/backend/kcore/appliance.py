@@ -123,6 +123,7 @@ class KadenceAppliance:
                         port=self.settings.port,
                         baud=self.settings.baud,
                         ready_timeout=30.0,
+                        diagnostic_sink=self.emit,
                     )
                     self._body = body
                     self.emit("robot", {"connected": True})
@@ -556,9 +557,10 @@ class KadenceAppliance:
                         await self._send_speech(writer, self._alert_pcm)
                         self._media_result = True
                     else:
-                        self._media_result = await asyncio.wait_for(read_image(reader), 12)
+                        self._media_result = await asyncio.wait_for(read_image(reader, emit=self.emit), 12)
                         writer.write(b"KDAK")
                         await writer.drain()
+                        self.emit("camera_transfer", {"stage": "image-ack"})
                     return
                 turn = await asyncio.wait_for(read_wire_turn(reader, expected_token=token), timeout=20.0)
                 if self._turn_token != token or self._body is not body or not body.connected:
@@ -575,7 +577,7 @@ class KadenceAppliance:
                     self.emit("activity", {"state": "camera"})
                     writer.write(b"KDQ1")
                     await writer.drain()
-                    return await asyncio.wait_for(read_image(reader), 10)
+                    return await asyncio.wait_for(read_image(reader, emit=self.emit), 10)
 
                 self._capture_in_voice = capture_in_voice
 
