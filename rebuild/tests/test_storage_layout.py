@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from kcore.storage import KadencePaths
@@ -11,10 +12,11 @@ class StorageLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             legacy = root / "context.sqlite3"
-            with sqlite3.connect(legacy) as db:
+            with closing(sqlite3.connect(legacy)) as db:
                 db.execute("CREATE TABLE reminders (id INTEGER PRIMARY KEY, text TEXT NOT NULL)")
                 db.execute("INSERT INTO reminders(id,text) VALUES(?,?)", (4, "Camera coexistence check"))
                 db.execute("PRAGMA user_version=2")
+                db.commit()
             old_backup = root / "context-before-utilities.sqlite3"
             old_backup.write_bytes(b"old-alpha-backup")
 
@@ -28,7 +30,7 @@ class StorageLayoutTests(unittest.TestCase):
             self.assertFalse(old_backup.exists())
             self.assertEqual(paths.utility_backup.read_bytes(), b"old-alpha-backup")
             for database in (paths.database, paths.pre_layout_backup):
-                with sqlite3.connect(database) as db:
+                with closing(sqlite3.connect(database)) as db:
                     self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
                     self.assertEqual(db.execute("SELECT text FROM reminders WHERE id=4").fetchone()[0],
                                      "Camera coexistence check")
