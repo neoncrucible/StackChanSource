@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hashlib
 import hmac
 import io
 import json
@@ -12,6 +13,8 @@ import struct
 import time
 import uuid
 from pathlib import Path
+
+from .storage import KadencePaths
 
 IMAGE_BYTES = 320*240*2
 
@@ -124,16 +127,19 @@ async def describe_image(png: bytes, question: str, settings) -> str:
 
 
 class DeskVision:
-    def __init__(self, emit=None):
+    def __init__(self, emit=None, source_device="robot-camera"):
         self.emit = emit or (lambda name, data: None)
+        self.source_device = source_device
         self.png: bytes | None = None
         self.qr: list[str] = []
         self.description = ""
+        self.question = ""
         self.captured = 0.0
 
     async def accept(self, raw: bytes):
         self.png, self.qr = await asyncio.to_thread(decode_image, raw)
         self.description = ""
+        self.question = ""
         self.captured = time.time()
         self.publish()
 
@@ -142,7 +148,7 @@ class DeskVision:
             "qr": self.qr, "description": self.description, "captured": self.captured, "retained": False})
 
     def clear(self):
-        self.png = None; self.qr = []; self.description = ""; self.captured = 0
+        self.png = None; self.qr = []; self.description = ""; self.question = ""; self.captured = 0
         self.publish()
 
     async def describe(self, question: str, settings):
@@ -151,30 +157,35 @@ class DeskVision:
         reply = await describe_image(image, question, settings)
         if self.png is not image: raise RuntimeError("Image changed during description. Capture again.")
         self.description = reply
+        self.question = question.strip()
         self.publish()
         return {"spoken": reply, "qr": self.qr, "source": "Gemini"}
 
-    async def save(self, directory: Path, store, project_id: int):
+    async def save(self, directory: Path | KadencePaths, store, project_id: int):
         if self.png is None: raise ValueError("Capture an image first.")
-        image, description, captured = self.png, self.description, self.captured
+        image, description, question, captured = self.png, self.description, self.question, self.captured
         projects = await store.call("project_list")
         if not any(p["id"] == project_id for p in projects): raise ValueError("Choose an existing project.")
-        folder = directory / "observations"
-        folder.mkdir(parents=True, exist_ok=True)
-        path = folder / (uuid.uuid4().hex + ".png")
+        paths = directory if isinstance(directory, KadencePaths) else KadencePaths.for_root(directory)
+        await asyncio.to_thread(paths.prepare)
+        path, relative = paths.image_path(captured, uuid.uuid4().hex)
+        digest = hashlib.sha256(image).hexdigest()
         def persist():
             try:
                 path.write_bytes(image)
-                return store._call("entry_add", {"project_id":project_id, "kind":"note",
-                    "text":f"Observation {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(captured))}. Image: observations/{path.name}. " + description[:600]})
+                return store._call("observation_add", {"project_id": project_id, "path": relative,
+                    "captured": captured, "width": 320, "height": 240, "size_bytes": len(image),
+                    "sha256": digest, "source_device": self.source_device, "question": question,
+                    "description": description[:1200], "qr": list(self.qr)})
             except BaseException:
                 path.unlink(missing_ok=True)
                 raise
-        # Once the explicit save starts, settle both records even if the UI
-        # closes. Cancellation cannot strand an image without its project note.
+        # Once the explicit save starts, settle the file and metadata transaction
+        # together even if the UI closes. Failed metadata cannot strand a file.
         task = asyncio.create_task(asyncio.to_thread(persist))
         try: record = await asyncio.shield(task)
         except asyncio.CancelledError:
             await task
             raise
-        return {"id": record["id"], "message": "Observation and image saved to the selected project."}
+        return {"id": record["id"], "media_id": record["media_id"],
+                "message": "Observation and image saved to the selected project."}
