@@ -139,8 +139,8 @@ class WorkbenchTests(unittest.TestCase):
         with self.assertRaises(ValueError): convert(1, "kg", "V")
 
     def test_ohms_law_requires_exactly_two_values(self):
-        self.assertEqual(ohms_law(voltage=5, resistance=1000)["current"], 0.005)
-        self.assertEqual(ohms_law(current=0.25, resistance=48)["voltage"], 12.0)
+        self.assertEqual(ohms_law(voltage=5, resistance=1000)["current_a"], 0.005)
+        self.assertEqual(ohms_law(current=0.25, resistance=48)["voltage_v"], 12.0)
         with self.assertRaises(ValueError): ohms_law(voltage=5)
         with self.assertRaises(ValueError): ohms_law(voltage=5, current=1, resistance=5)
 
