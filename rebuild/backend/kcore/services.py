@@ -12,6 +12,7 @@ from .local_tools import make_local_tools
 from .integrations import register_integrations
 from .reminders import Reminders
 from .reminder_time import clock_context
+from .storage import KadencePaths
 from .utility_store import UtilityStore
 from .workbench import register_workbench, convert, ohms_law, resistor_value
 from .local_tools import schema, string
@@ -20,7 +21,8 @@ from .tool_bridge import KadenceToolSpec
 
 class LocalServices:
     def __init__(self, directory: Path | None = None, timezone_name="Europe/London", emit=None):
-        self.directory = directory or default_data_dir()
+        self.paths = KadencePaths.for_root(directory or default_data_dir())
+        self.directory = self.paths.root
         self.context = ContextStore(self.directory)
         self.store = UtilityStore(self.directory)
         ZoneInfo(timezone_name)
@@ -33,6 +35,7 @@ class LocalServices:
         self.look_handler = None
 
     async def start(self):
+        await asyncio.to_thread(self.paths.prepare)
         await self.context.start()
         await self.store.start()
         self.tools = make_local_tools(self.context, timezone_name=self.reminders.timezone_name)
