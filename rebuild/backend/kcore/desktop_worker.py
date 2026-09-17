@@ -150,7 +150,7 @@ class DesktopController:
         if action in {"camera_capture", "camera_describe", "camera_clear", "camera_save"}:
             if not self.app: raise RuntimeError("Start the server to use the camera.")
             if action == "camera_clear": self.app.vision.clear(); return {"message": "Transient image cleared."}
-            if action == "camera_save": return await self.app.vision.save(self.services.directory, self.services.store, args["project_id"])
+            if action == "camera_save": return await self.app.vision.save(self.services.paths, self.services.store, args["project_id"])
             if self._media and not self._media.done(): raise RuntimeError("Camera is busy.")
             coroutine = self.app.capture_snapshot() if action == "camera_capture" else self.app.vision.describe(args.get("question", "What is visible?"), self.app.settings.providers)
             self._media = asyncio.create_task(coroutine, name="kadence-camera-ui")
