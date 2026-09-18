@@ -217,7 +217,8 @@ bool run_probe21()
     }
 
     ESP_LOGI(kLogTag,
-             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms async=1 cancellable=1 touch-init=1 buffered-playback=psram handoff=1 torque=released unitv2-uart=%s",\n             unitv2_uart_ok ? "ready" : "unavailable");
+             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms async=1 cancellable=1 touch-init=1 buffered-playback=psram handoff=1 torque=released unitv2-uart=%s",
+             unitv2_uart_ok ? "ready" : "unavailable");
     return true;
 }
 
