@@ -4,6 +4,7 @@
 
 #include "freertos/semphr.h"
 #include "sensor_runtime.h"
+#include "unitv2_uart.h"
 
 #include "voice_cancel_io.cpp"
 #include "voice_progress.h"
@@ -86,6 +87,7 @@ void p21_protocol_task(void*)
         if (touch_voice_consume_host_event_ack(line)) {
             continue;
         }
+        if (kadence_unitv2::route(line, p21_emit_line)) continue;
         if (kadence_sensors::route(line, p21_emit_line)) continue;
         if (top_controls_route(line)) continue;
 
@@ -197,6 +199,11 @@ bool run_probe21()
         return false;
     }
 
+    const bool unitv2_uart_ok = kadence_unitv2::start();
+    if (!unitv2_uart_ok) {
+        ESP_LOGW(kLogTag, "PROBE21 unitv2-uart=unavailable optional=1");
+    }
+
     const BaseType_t created = xTaskCreate(
         p21_protocol_task,
         "kade-p21-rx",
@@ -210,7 +217,7 @@ bool run_probe21()
     }
 
     ESP_LOGI(kLogTag,
-             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms async=1 cancellable=1 touch-init=1 buffered-playback=psram handoff=1 torque=released");
+             "PROBE21 status=ready control=usb-serial-jtag audio=runtime-duplex voice=lan-opus-60ms async=1 cancellable=1 touch-init=1 buffered-playback=psram handoff=1 torque=released unitv2-uart=%s",\n             unitv2_uart_ok ? "ready" : "unavailable");
     return true;
 }
 
