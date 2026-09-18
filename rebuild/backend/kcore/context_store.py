@@ -8,26 +8,24 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-def default_data_dir() -> Path:
-    override = os.environ.get("KADENCE_DATA_DIR")
-    if override:
-        return Path(override).expanduser()
-    root = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_DATA_HOME")
-    return (Path(root) if root else Path.home() / ".local" / "share") / "Kadence"
+from .storage import KadencePaths, default_data_dir
 
 
 class ContextStore:
     def __init__(self, directory: Path):
-        self.path = directory / "context.sqlite3"
+        self.paths = KadencePaths.for_root(directory)
+        # Keep direct store construction testable without requiring a full service start.
+        self.paths.database_dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.paths.database
 
     async def start(self) -> None:
         def initialise() -> None:
+            self.paths.prepare()
             self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
                 db.execute("PRAGMA journal_mode=WAL")
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1, 2):
+                if version not in (0, 1, 2, 3):
                     raise RuntimeError("unsupported context database version")
                 db.execute("CREATE TABLE IF NOT EXISTS records ("
                            "id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, "

@@ -88,7 +88,7 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(('alert',{'state':'review_in_windows','count':1}),events)
             finally: await service.close()
 
-    async def test_camera_rejects_busy_voice_or_game(self):
+    async def test_camera_rejects_busy_voice(self):
         app=KadenceAppliance(settings()); app._body=SimpleNamespace(connected=True)
         app._voice_task=asyncio.create_task(asyncio.Event().wait())
         try:
@@ -96,8 +96,6 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
         finally:
             app._voice_task.cancel()
             await asyncio.gather(app._voice_task,return_exceptions=True)
-        app._voice_task=None; app._last_device_status={'game':'input'}
-        with self.assertRaises(RuntimeError): await app.capture_snapshot()
 
 
 class FakeHost:
@@ -123,6 +121,9 @@ class ControlContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(host.retired),1); self.assertEqual(host._pending,{})
         with self.assertRaises(ValueError): await request_device(host,'device.settings',{'volume':True})
         with self.assertRaises(ValueError): await request_device(host,'device.settings',{'brightness':100})
+        with self.assertRaises(ValueError): await request_device(host,'device.settings',{'sound':True})
+        with self.assertRaises(ValueError): await request_device(host,'game.start')
+        with self.assertRaises(ValueError): await request_device(host,'game.stop')
 
 
 class VisionTests(unittest.IsolatedAsyncioTestCase):
@@ -136,13 +137,22 @@ class VisionTests(unittest.IsolatedAsyncioTestCase):
             directory=Path(tmp); service=LocalServices(directory); await service.start()
             try:
                 vision=DeskVision(); vision.png=png; vision.captured=1000
-                self.assertFalse((directory/'observations').exists())
-                with self.assertRaises(ValueError): await vision.save(directory,service.store,99)
+                vision.description='Red test frame'; vision.question='What is visible?'
+                self.assertEqual(list(service.paths.images_dir.rglob('*.png')),[])
+                with self.assertRaises(ValueError): await vision.save(service.paths,service.store,99)
                 project=await service.store.call('project_add',name='Camera bench')
-                await vision.save(directory,service.store,project['id'])
-                self.assertEqual(len(list((directory/'observations').glob('*.png'))),1)
+                saved=await vision.save(service.paths,service.store,project['id'])
+                files=list(service.paths.images_dir.rglob('*.png'))
+                self.assertEqual(len(files),1)
+                self.assertIn('media_id',saved)
+                observations=await service.store.call('observation_list',project_id=project['id'])
+                self.assertEqual(len(observations),1)
+                self.assertEqual(observations[0]['description'],'Red test frame')
+                self.assertEqual(observations[0]['question'],'What is visible?')
+                self.assertEqual(observations[0]['path'],files[0].relative_to(directory).as_posix())
+                self.assertEqual(observations[0]['source_device'],'robot-camera')
                 record=(await service.store.call('entry_list',project_id=project['id']))[0]
-                self.assertIn('UTC',record['text'])
+                self.assertIn('UTC',record['text']); self.assertIn('media/images/',record['text'])
                 vision.clear(); self.assertIsNone(vision.png)
-                self.assertEqual(len(list((directory/'observations').glob('*.png'))),1)
+                self.assertEqual(len(list(service.paths.images_dir.rglob('*.png'))),1)
             finally: await service.close()

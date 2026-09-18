@@ -17,7 +17,7 @@ from .voice_providers import VoiceProviderSettings
 
 MAX_INPUT = 32768
 MAX_OUTPUT = 1024*1024
-SETTINGS = frozenset({"port", "ssid", "lan_host", "timezone", "capture_ms", "openai_api_key", "gemini_api_key", "wifi_password"})
+SETTINGS = frozenset({"port", "ssid", "lan_host", "timezone", "capture_ms", "openai_api_key", "gemini_api_key", "wifi_password", "thinker_provider", "ollama_model", "audio_output"})
 
 
 def settings_from_control(value: dict):
@@ -42,8 +42,10 @@ def settings_from_control(value: dict):
     providers = VoiceProviderSettings.from_env({})
     from dataclasses import replace
     providers = replace(providers, openai_api_key=string("openai_api_key", "", 1024) or None,
-        gemini_api_key=string("gemini_api_key", "", 1024) or None)
-    return ApplianceSettings(port, 115200, capture, 2, ssid, password, lan, providers, timezone_name)
+        gemini_api_key=string("gemini_api_key", "", 1024) or None,
+        thinker_provider=string("thinker_provider", "gemini", 16),
+        ollama_model=string("ollama_model", "", 160))
+    return ApplianceSettings(port, 115200, capture, 2, ssid, password, lan, providers, timezone_name, string("audio_output", "robot", 16))
 
 
 class DesktopController:
@@ -90,7 +92,7 @@ class DesktopController:
         self.state = "starting"; self.emit("server", {"state": self.state})
         self.task = asyncio.create_task(self._serve(self.app), name="kadence-server")
         voice_ready = not settings.providers.missing_credentials()
-        return {"message": "Starting server." if voice_ready else "Starting server. Add OpenAI and Gemini keys for voice; local utilities remain available.", "voice_credentials_ready": voice_ready}
+        return {"message": "Starting server." if voice_ready else "Starting server. Add credentials for the selected voice services; local utilities remain available.", "voice_credentials_ready": voice_ready}
 
     async def _serve(self, app):
         failure = None
@@ -140,17 +142,15 @@ class DesktopController:
             if app and app._body:
                 await app._handle_touch_cancel(app._body, __import__("types").SimpleNamespace(payload={"trigger": "touch"}))
             return {"message": "Cancellation requested."}
-        if action.startswith("device.") or action.startswith("game."):
+        if action.startswith("device."):
             if not self.app or not self.app._body: raise RuntimeError("Connect the robot first.")
-            if action == "game.start" and self.app._voice_task and not self.app._voice_task.done():
-                raise RuntimeError("Wait for the current voice or camera task before starting the game.")
             result = await request_device(self.app._body.host, action, args)
             self.emit("device", result.payload)
             return {"message": "Device setting applied."}
         if action in {"camera_capture", "camera_describe", "camera_clear", "camera_save"}:
             if not self.app: raise RuntimeError("Start the server to use the camera.")
             if action == "camera_clear": self.app.vision.clear(); return {"message": "Transient image cleared."}
-            if action == "camera_save": return await self.app.vision.save(self.services.directory, self.services.store, args["project_id"])
+            if action == "camera_save": return await self.app.vision.save(self.services.paths, self.services.store, args["project_id"])
             if self._media and not self._media.done(): raise RuntimeError("Camera is busy.")
             coroutine = self.app.capture_snapshot() if action == "camera_capture" else self.app.vision.describe(args.get("question", "What is visible?"), self.app.settings.providers)
             self._media = asyncio.create_task(coroutine, name="kadence-camera-ui")

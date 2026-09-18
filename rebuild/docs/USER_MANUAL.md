@@ -8,10 +8,10 @@
 
 Kadence combines spoken conversation and the animated terminal avatar with a
 Windows control console, date-aware reminders, a lab workbench, deliberate camera
-snapshots, animated top strips, touch volume and an LED memory game. This guide
-covers the implemented RC2 candidate. New hardware functions await the owner's
-physical check. The approved RC1 remains the rollback baseline; its acceptance
-is recorded in [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md).
+snapshots, animated top strips and touch volume controls. This guide covers the
+implemented RC2 candidate. New hardware functions await the owner's physical
+check. The approved RC1 remains the rollback baseline; its acceptance is recorded
+in [RC1_ACCEPTANCE.md](RC1_ACCEPTANCE.md).
 
 ## 1. Install the matched release
 
@@ -96,9 +96,8 @@ conversation requires the configured speech providers.
 
 Tap the front screen during an active turn to cancel recording, provider work or
 playback. Wait for idle before trying again. If no speech is detected, Kadence
-asks you to try again. During LED Memory the front screen stops the game; tap
-again after it stops to begin a conversation.
-One deliberate press is enough; holding your finger does not start another turn.
+asks you to try again. One deliberate press is enough; holding your finger does
+not start another turn.
 The microphone closes before upload and processing. **MIC CLOSED** and an elapsed
 timer distinguish processing from recording. The Windows overview also identifies
 transcription, reasoning, voice connection, audio receipt and decoding.
@@ -141,7 +140,7 @@ touch input runs independently of drawing. Overview reflects device activity.
 | Volume bar / muted | Brief strip and screen feedback follows a volume gesture. |
 | Offline / degraded / fault / recovery | A connection or operation is unavailable or recovering. |
 
-In **Device / Play**, use the volume slider, **Mute**, or a **Volume ceiling**.
+In **Device**, use the volume slider, **Mute**, or a **Volume ceiling**.
 The displayed numeric level comes back from the robot. Level 100 is the existing
 maximum speaker level. A lower ceiling limits both desktop and touch adjustment.
 
@@ -152,9 +151,9 @@ release before the next gesture. Muting preserves the selected volume. These
 controls also work during playback. Front-screen talk/cancel remains separate.
 
 Set strip brightness from 0–60 and select **Dark when idle** as desired. A camera
-indicator retains a small minimum brightness during capture. Device settings and
-the game's best score are saved after about five settled seconds; leave the
-robot powered briefly after changing them.
+indicator retains a small minimum brightness during capture. Device settings are
+saved after about five settled seconds; leave the robot powered briefly after
+changing them.
 
 ## 5. Reminders, timers and focus
 
@@ -192,7 +191,7 @@ cancelled voice clarification questions do not remain pending.
 
 When due, a reminder stays highlighted until dismissed, cancelled or snoozed.
 Windows provides a local sound and, when available, a tray notification. The robot
-waits until voice, camera and games are idle, then gives one combined notification.
+waits until voice and camera are idle, then gives one combined notification.
 If speech is unavailable it can play a local chime. Missed reminders remain
 visible after restart/wake. An uncertain robot delivery is not automatically
 replayed. The Reminders page remains the authoritative list.
@@ -256,22 +255,7 @@ Clearing the preview does not delete saved observations. Saved PNGs live in the
 Continuous video, face tracking and enrolled-person recognition remain a later
 camera qualification stage.
 
-## 8. LED Memory
-
-In **Device / Play**, choose **Play memory** with the robot idle. Watch the
-sequence, then repeat it by tapping and releasing the three top zones.
-
-- Red corresponds to zone 1, green to zone 2 and blue to zone 3.
-- Each successful round adds a step. The score is the number of completed rounds.
-- An incorrect zone or 20 seconds without the next input ends the round.
-- A session has a maximum of 24 rounds. Best score is stored on the robot.
-- Toggle **Sound cues** for optional short notes.
-- Select **Stop game** or touch the front screen to stop.
-
-During this explicit game, top taps are game inputs. Volume gestures resume when
-it finishes. Set some strip brightness before starting. The quiz is excluded.
-
-## 9. Existing companion utilities
+## 8. Existing companion utilities
 
 The previously approved features remain available through voice:
 
@@ -303,7 +287,7 @@ and reports Celsius, daily high/low and precipitation probability. Use a full
 location if a place name is ambiguous. Home Assistant remains read-only and
 returns only configured entities.
 
-## 10. Diagnostics and data
+## 9. Diagnostics and data
 
 **Diagnostics** shows connection/activity events, available device memory,
 completed-turn counts, bounded failure stages and STT/reasoning/TTS durations. **Export diagnostics** saves
@@ -323,7 +307,7 @@ and reply text to the speech service. Selected saved records can enter that
 context. Describing an image sends the requested image to Gemini. Direct local
 utilities, local QR and device presence remain independent of those services.
 
-## 11. Source/terminal operation and optional configuration
+## 10. Source/terminal operation and optional configuration
 
 For a matching source checkout, install `rebuild[voice,vision]` into the selected
 Python 3.12+ environment and run:

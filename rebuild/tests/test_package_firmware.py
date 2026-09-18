@@ -39,6 +39,7 @@ class PackageTests(unittest.TestCase):
         archive=self.package()
         with zipfile.ZipFile(archive) as z:
             self.assertIn("bootloader/bootloader.bin",z.namelist())
+            self.assertIn("THIRD-PARTY-NOTICES/VL53L1X-LICENSE",z.namelist())
             release=json.loads(z.read("RELEASE.json"))
             self.assertEqual(release["source_commit"],"a"*40)
             for line in z.read("SHA256SUMS").decode().splitlines():

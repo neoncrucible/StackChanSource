@@ -184,7 +184,7 @@ class MainWindow(QMainWindow):
         content=QHBoxLayout(); content.setSpacing(22)
         rail=QFrame(); rail.setObjectName("rail"); rail.setFixedWidth(175); sidebar=QVBoxLayout(rail); sidebar.setContentsMargins(0,6,14,0)
         self.pages=QStackedWidget()
-        for index,(title,method) in enumerate((("01  OVERVIEW",self.overview_page),("02  REMINDERS",self.reminders_page),("03  WORKBENCH",self.workbench_page),("04  VISION",self.vision_page),("05  DEVICE / PLAY",self.device_page),("06  DIAGNOSTICS",self.diagnostics_page))):
+        for index,(title,method) in enumerate((("01  OVERVIEW",self.overview_page),("02  REMINDERS",self.reminders_page),("03  WORKBENCH",self.workbench_page),("04  VISION",self.vision_page),("05  DEVICE",self.device_page),("06  DIAGNOSTICS",self.diagnostics_page))):
             b=button(title,lambda checked=False,i=index:self.navigate(i)); b.setObjectName("nav"); b.setCheckable(True); self.nav.append(b); sidebar.addWidget(b)
             page=method(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setWidget(page); self.pages.addWidget(scroll)
         sidebar.addStretch(); sidebar.addWidget(label("PRIVATE LAB\nSYSTEM TERMINAL", "muted"))
@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         top=QHBoxLayout(); self.avatar=Avatar(); top.addWidget(self.avatar,1)
         info=QVBoxLayout(); self.activity=label("READY WHEN YOU ARE", "status"); self.activity.setStyleSheet("font-size: 18px;")
         self.runtime_info=label("Server stopped. Local reminders work while this app is open.","muted")
+        self.model_info=label("Thinking provider: selected below; server stopped", "muted"); info.addWidget(self.model_info)
         self.next_due=label("No scheduled reminders."); self.turn_info=label("Completed turns  0","muted")
         for w in (self.activity,self.runtime_info,self.next_due,self.turn_info): info.addWidget(w)
         info.addStretch(); top.addLayout(info,1); layout.addLayout(top)
@@ -231,6 +232,15 @@ class MainWindow(QMainWindow):
         self.remember=QCheckBox("Remember on this Windows account"); self.remember.setEnabled(os.name=="nt")
         grid.addWidget(self.remember,6,1); grid.addWidget(button("FORGET",self.forget_credentials),6,2)
         grid.addWidget(label("Timezone"),7,0); grid.addWidget(self.timezone,7,1); grid.addWidget(self.capture,7,2)
+        self.thinker_provider=QComboBox(); self.thinker_provider.addItem("Gemini", "gemini"); self.thinker_provider.addItem("Ollama (this PC)", "ollama")
+        self.ollama_model=line("Exact name from ollama list",160)
+        self.audio_output=QComboBox()
+        for title,value in (("Robot speaker","robot"),("Windows speaker / Bluetooth","windows"),("Robot + Windows","both")):
+            self.audio_output.addItem(title,value)
+        grid.addWidget(label("Thinking provider"),8,0); grid.addWidget(self.thinker_provider,8,1,1,2)
+        grid.addWidget(label("Ollama model"),9,0); grid.addWidget(self.ollama_model,9,1,1,2)
+        grid.addWidget(label("Speech output"),10,0); grid.addWidget(self.audio_output,10,1,1,2)
+        grid.addWidget(label("Ollama changes reasoning only. Transcription and Edge speech still use online services.\nWindows output follows your default speaker. Restart the server after changes.","muted"),11,0,1,3)
         layout.addWidget(group)
         layout.addWidget(label("Session-only credentials by default. SHOW reveals a field here; diagnostics never include it.","muted"))
         layout.addStretch()
@@ -313,12 +323,6 @@ class MainWindow(QMainWindow):
         self.brightness_value=label("Awaiting device", "status")
         self.quiet=QCheckBox("Dark when idle"); self.quiet.clicked.connect(lambda checked:self.device_setting(quiet=checked))
         lights.addWidget(self.brightness,1); lights.addWidget(self.brightness_value); lights.addWidget(self.quiet); layout.addWidget(light)
-        game=QGroupBox("LED MEMORY"); play=QVBoxLayout(game)
-        play.addWidget(label("Watch the sequence. Repeat it with the three zones on top.\nRed: zone 1 • green: zone 2 • blue: zone 3. Each correct round adds a step.","muted"))
-        self.game_status=label("GAME OFF  /  SCORE 0  /  BEST 0","status"); play.addWidget(self.game_status)
-        self.game_sound=QCheckBox("Sound cues"); self.game_sound.setChecked(True); self.game_sound.clicked.connect(lambda checked:self.device_setting(sound=checked))
-        play.addWidget(row(button("PLAY MEMORY",lambda:self.control.send("game.start"),primary=True),button("STOP GAME",lambda:self.control.send("game.stop")),self.game_sound))
-        play.addWidget(label("Touch the front screen to stop. During a game, top touches are game inputs; volume gestures resume afterwards.","muted")); layout.addWidget(game)
         self.hardware=label("Waiting for acknowledged device capabilities.","muted"); layout.addWidget(self.hardware); layout.addStretch()
         return page
 
@@ -349,6 +353,10 @@ class MainWindow(QMainWindow):
             if isinstance(value,str) and value: widget.setCurrentText(value)
         value=self._settings.get("capture_ms",4800)
         if type(value) is int: self.capture.setValue(value)
+        self.ollama_model.setText(str(self._settings.get("ollama_model", "")))
+        for key,widget in (("thinker_provider",self.thinker_provider),("audio_output",self.audio_output)):
+            index=widget.findData(self._settings.get(key))
+            if index >= 0: widget.setCurrentIndex(index)
         self.tray_check.setChecked(self._settings.get("tray") is True)
         self.remember.setChecked(self._settings.get("remember") is True and os.name=="nt")
         if load_credentials and self.remember.isChecked():
@@ -359,13 +367,14 @@ class MainWindow(QMainWindow):
     def connection_settings(self):
         lan=self.lan.currentText().strip()
         values={"port":self.port.currentText().strip(),"ssid":self.ssid.text(),"lan_host":"" if lan=="Auto-detect" else lan,
-            "timezone":self.timezone.text().strip() or "Europe/London","capture_ms":self.capture.value()}
+            "timezone":self.timezone.text().strip() or "Europe/London","capture_ms":self.capture.value(), "thinker_provider":self.thinker_provider.currentData(),
+            "ollama_model":self.ollama_model.text().strip(), "audio_output":self.audio_output.currentData()}
         values.update({key:edit.text().strip() if key!="wifi_password" else edit.text() for key,edit in self.secret_fields.items()})
         return values
 
     def save_preferences(self):
         values=self.connection_settings()
-        safe={key:values[key] for key in ("port","ssid","lan_host","timezone","capture_ms")}
+        safe={key:values[key] for key in ("port","ssid","lan_host","timezone","capture_ms","thinker_provider","ollama_model","audio_output")}
         safe.update(remember=self.remember.isChecked(),tray=self.tray_check.isChecked())
         temporary=self.settings_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(safe,indent=2)+"\n","utf-8"); temporary.replace(self.settings_path)
@@ -387,7 +396,12 @@ class MainWindow(QMainWindow):
                 if self.remember.isChecked(): vault.save({key:values[key] for key in self.secret_fields})
                 else: vault.forget()
             self.save_preferences()
-            self.control.send("server_restart" if restart else "server_start",values)
+            provider=values["thinker_provider"]
+            model=values["ollama_model"] if provider == "ollama" else "gemini-3.5-flash-lite"
+            def started(response):
+                if response.get("ok"):
+                    self.model_info.setText(f"Thinking: {provider} / {model} | Speech: {values['audio_output']}")
+            self.control.send("server_restart" if restart else "server_start",values,started)
         except Exception as exc:
             self.message.setText(str(exc)[:240] if type(exc) in {ValueError,RuntimeError} else "Check connection settings and credential storage.")
 
@@ -567,9 +581,8 @@ class MainWindow(QMainWindow):
             if not self.brightness.isSliderDown(): self.brightness.setValue(data.get("brightness",18))
             self.volume_value.setText(f"{data.get('volume',100)} / 100")
             self.brightness_value.setText(f"{data.get('brightness',18)} / 60")
-            for widget,key in ((self.muted,"muted"),(self.quiet,"quiet"),(self.reverse,"reverse"),(self.game_sound,"sound")): widget.setChecked(data.get(key) is True)
+            for widget,key in ((self.muted,"muted"),(self.quiet,"quiet"),(self.reverse,"reverse")): widget.setChecked(data.get(key) is True)
             if not self.maximum.hasFocus(): self.maximum.setValue(data.get("maximum",100))
-            self.game_status.setText(f"{data.get('game','off').upper()}  /  SCORE {data.get('score',0)}  /  BEST {data.get('best',0)}")
             self.hardware.setText(f"Strips: {'ready' if data.get('leds') else 'unavailable'}  •  Front touch: {'ready' if data.get('front_touch') else 'unavailable'}  •  Top touch: {'ready' if data.get('top_touch') else 'unavailable'}  •  Camera: {'active' if data.get('camera_active') else 'off'}")
             self.set_activity(data.get("presentation","idle"),data.get("capture_remaining_ms"))
         elif name=="snapshot":
@@ -592,10 +605,10 @@ class MainWindow(QMainWindow):
             hints={"connection":"Waiting for the robot. Check its USB port and normal boot mode.",
                 "voice":"Voice did not complete. Check connection and provider settings; details are in Diagnostics.",
                 "providers":"Speech service unavailable. Check credentials and Internet access, then try again.",
-                "uplink":"Audio transfer did not complete. Check the robot's Wi-Fi connection.",
+                "uplink":"Robot media transfer did not complete. Open Diagnostics for transfer and device status.",
                 "body":"Voice finished; the body reaction was not confirmed.",
                 "cancel":"Cancellation was not confirmed. Reset the robot before trying again.",
-                "camera":"Camera operation did not complete. Return to idle and try another capture.",
+                "camera":"Camera capture did not complete. Open Diagnostics for capture and device status.",
                 "alert":"Robot alert was not confirmed. Review the due reminders in Windows."}
             self.message.setText(hints.get(data.get("stage"),"An operation did not complete. Open Diagnostics for status."))
             if data.get("stage")=="providers" and data.get("reason")=="timeout":
@@ -650,16 +663,25 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage"}
+        from .device_diagnostics import DEVICE_REASONS, DEVICE_COMPONENTS, IMAGE_STAGES, IMAGE_REASONS
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer"}
         if name not in allowed: return
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
-        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active"):
+        if name=="camera_transfer": stages=stages | IMAGE_STAGES
+        reasons={"timeout","unavailable","device_proof"}
+        if name=="camera_transfer": reasons=reasons | IMAGE_REASONS
+        if name=="device_diagnostic": reasons=reasons | DEVICE_REASONS
+        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active","cpu","reset_code","sensor_pid","received_bytes","expected_bytes"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
-            elif isinstance(value,str) and (key=="state" and value in states or key in {"stage","provider_stage"} and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in {"timeout","unavailable","device_proof"}): safe[key]=value
+            elif isinstance(value,str) and (key=="state" and value in states or key in {"stage","provider_stage"} and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in reasons): safe[key]=value
+        if name=="device_diagnostic":
+            if isinstance(data.get("component"),str) and data["component"] in DEVICE_COMPONENTS: safe["component"]=data["component"]
+            trace=data.get("backtrace")
+            if isinstance(trace,list) and 0<len(trace)<=16 and all(type(pc) is int and 0x40000000<=pc<0x44000000 for pc in trace): safe["backtrace"]=trace
         if name=="device" and data.get("presentation") in states: safe["state"]=data["presentation"]
         record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
         self.diagnostic.append(record)
