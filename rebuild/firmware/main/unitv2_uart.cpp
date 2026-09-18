@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "cJSON.h"
+#include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_timer.h"
