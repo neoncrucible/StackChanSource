@@ -12,7 +12,7 @@ from .host import VoiceTurnFailure
 async def request_device(host, name: str, payload: dict | None = None, *, timeout=3.0):
     payload = dict(payload or {})
     media = name in {"voice.alert", "camera.snapshot"}
-    if name not in {"device.status", "device.settings", "sensors.status", "sensors.gesture", "sensors.tof", "voice.alert", "camera.snapshot"}:
+    if name not in {"device.status", "device.settings", "sensors.status", "sensors.gesture", "sensors.tof", "voice.alert", "camera.snapshot", "camera.unitv2.status"}:
         raise ValueError("unsupported device command")
     if type(timeout) not in (int, float) or not 0 < timeout <= 210: raise ValueError("invalid command timeout")
     if media:
