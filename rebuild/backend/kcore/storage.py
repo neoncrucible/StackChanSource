@@ -5,10 +5,28 @@ import hashlib
 import os
 import shutil
 import sqlite3
+import threading
+import uuid
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+_layout_lock = threading.RLock()
+
+
+def connect_database(path: Path, *, timeout: float = 0.25) -> sqlite3.Connection:
+    """Each caller owns and closes its connection; foreign keys are never implicit."""
+    db = sqlite3.connect(path, timeout=timeout)
+    try:
+        db.execute("PRAGMA foreign_keys=ON")
+        if db.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+            raise RuntimeError("SQLite foreign key enforcement unavailable")
+        return db
+    except BaseException:
+        db.close()
+        raise
 
 
 def default_data_dir() -> Path:
@@ -136,6 +154,10 @@ class KadencePaths:
 
     def prepare(self) -> None:
         """Create the layout and migrate legacy database files without losing rollback data."""
+        with _layout_lock:
+            self._prepare()
+
+    def _prepare(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         for directory in (self.database_dir, self.images_dir, self.thumbnails_dir,
                           self.backups_dir, self.exports_dir):
@@ -143,16 +165,19 @@ class KadencePaths:
 
         legacy = self.legacy_database
         if legacy.exists():
-            # Snapshot the old database twice before cleaning the root copy: one
-            # becomes the new live DB and one remains an explicit rollback point.
-            if not self.pre_layout_backup.exists():
-                backup_sqlite(legacy, self.pre_layout_backup)
-            if not self.database.exists():
-                backup_sqlite(legacy, self.database)
-            if self.pre_layout_backup.exists() and self.database.exists():
-                legacy.unlink(missing_ok=True)
-                Path(str(legacy) + "-wal").unlink(missing_ok=True)
-                Path(str(legacy) + "-shm").unlink(missing_ok=True)
+            if self.database.exists():
+                # Existence is not equivalence. Preserve both, including WAL, for
+                # explicit reconciliation instead of discarding historical rows.
+                raise RuntimeError("Both legacy and canonical databases exist; close Kadence and reconcile them before startup.")
+            snapshot = self.pre_layout_backup
+            if snapshot.exists():
+                snapshot = self.backups_dir / f"context-before-storage-layout-{uuid.uuid4().hex}.sqlite3"
+            backup_sqlite(legacy, snapshot)
+            # Use the same verified snapshot for the canonical copy and rollback.
+            backup_sqlite(snapshot, self.database)
+            legacy.unlink()
+            Path(str(legacy) + "-wal").unlink(missing_ok=True)
+            Path(str(legacy) + "-shm").unlink(missing_ok=True)
 
         _relocate_plain(self.root / "context-before-utilities.sqlite3", self.utility_backup)
 

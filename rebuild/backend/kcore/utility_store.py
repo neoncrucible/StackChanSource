@@ -10,7 +10,8 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
-from .storage import KadencePaths, backup_sqlite
+from .storage import KadencePaths, connect_database
+from .schema import ensure_schema
 
 
 class UtilityStore:
@@ -23,41 +24,7 @@ class UtilityStore:
         await asyncio.to_thread(self._start)
 
     def _start(self):
-        self.paths.prepare()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.path, timeout=0.25)) as db:
-            version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (1, 2, 3):
-            raise RuntimeError("context store must be initialised first")
-        if version == 1 and not self.paths.utility_backup.exists():
-            backup_sqlite(self.path, self.paths.utility_backup)
-        if version == 2 and not self.paths.observation_schema_backup.exists():
-            backup_sqlite(self.path, self.paths.observation_schema_backup)
-
-        with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
-            db.execute("PRAGMA foreign_keys=ON")
-            db.execute("CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                       "text TEXT NOT NULL, due REAL NOT NULL, timezone TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', "
-                       "kind TEXT NOT NULL DEFAULT 'reminder', extra TEXT NOT NULL DEFAULT '{}', "
-                       "robot TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL, request_key TEXT NOT NULL UNIQUE)")
-            db.execute("CREATE INDEX IF NOT EXISTS reminders_due ON reminders(state,due)")
-            db.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, created REAL NOT NULL)")
-            db.execute("CREATE TABLE IF NOT EXISTS project_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, "
-                       "kind TEXT NOT NULL, text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL, "
-                       "FOREIGN KEY(project_id) REFERENCES projects(id))")
-            db.execute("CREATE TABLE IF NOT EXISTS media (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                       "path TEXT NOT NULL UNIQUE, media_type TEXT NOT NULL, mime_type TEXT NOT NULL, source TEXT NOT NULL, "
-                       "captured REAL NOT NULL, width INTEGER, height INTEGER, size_bytes INTEGER NOT NULL, "
-                       "sha256 TEXT NOT NULL, created REAL NOT NULL)")
-            db.execute("CREATE INDEX IF NOT EXISTS media_captured ON media(captured)")
-            db.execute("CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                       "media_id INTEGER NOT NULL UNIQUE, project_id INTEGER NOT NULL, captured REAL NOT NULL, "
-                       "question TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', qr TEXT NOT NULL DEFAULT '[]', "
-                       "source_device TEXT NOT NULL, created REAL NOT NULL, "
-                       "FOREIGN KEY(media_id) REFERENCES media(id) ON DELETE CASCADE, "
-                       "FOREIGN KEY(project_id) REFERENCES projects(id))")
-            db.execute("CREATE INDEX IF NOT EXISTS observations_project ON observations(project_id,captured)")
-            db.execute("PRAGMA user_version=3")
+        ensure_schema(self.paths)
 
     async def call(self, action: str, **args):
         return await asyncio.to_thread(self._call, action, args)
@@ -75,9 +42,8 @@ class UtilityStore:
         return value.strip()
 
     def _call(self, action, args):
-        with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
+        with closing(connect_database(self.path)) as db, db:
             db.row_factory = sqlite3.Row
-            db.execute("PRAGMA foreign_keys=ON")
             now = args.get("now", datetime.now(timezone.utc).timestamp())
             if action == "reminder_add":
                 text = self._text(args["text"])

@@ -1,0 +1,21 @@
+-- Historical v3 contracts, independent of the new migrator.
+PRAGMA user_version=3;
+CREATE TABLE records(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, text TEXT NOT NULL, created TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE reminders(id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, due REAL NOT NULL, timezone TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', kind TEXT NOT NULL DEFAULT 'reminder', extra TEXT NOT NULL DEFAULT '{}', robot TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL, request_key TEXT NOT NULL UNIQUE);
+CREATE INDEX reminders_due ON reminders(state,due);
+CREATE TABLE projects(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, created REAL NOT NULL);
+CREATE TABLE project_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
+CREATE TABLE media(id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE, media_type TEXT NOT NULL, mime_type TEXT NOT NULL, source TEXT NOT NULL, captured REAL NOT NULL, width INTEGER, height INTEGER, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, created REAL NOT NULL);
+CREATE INDEX media_captured ON media(captured);
+CREATE TABLE observations(id INTEGER PRIMARY KEY AUTOINCREMENT, media_id INTEGER NOT NULL UNIQUE, project_id INTEGER NOT NULL, captured REAL NOT NULL, question TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', qr TEXT NOT NULL DEFAULT '[]', source_device TEXT NOT NULL, created REAL NOT NULL, FOREIGN KEY(media_id) REFERENCES media(id) ON DELETE CASCADE, FOREIGN KEY(project_id) REFERENCES projects(id));
+CREATE INDEX observations_project ON observations(project_id,captured);
+INSERT INTO records VALUES(7,'memory','Keep the old lab note — unchanged','2026-09-01T12:00:00+00:00',0);
+INSERT INTO records VALUES(9,'task','Completed historical task','2026-09-02T12:00:00+00:00',1);
+INSERT INTO reminders VALUES(11,'Pending reminder',2000000000,'Europe/London','scheduled','reminder','{}','pending',1000,'request-a');
+INSERT INTO reminders VALUES(12,'Do not replay this',1500,'Europe/London','due','reminder','{}','attempted',1000,'request-b');
+INSERT INTO reminders VALUES(13,'Already delivered',1500,'Europe/London','due','focus','{"break_minutes":5}','delivered',1000,'request-c');
+INSERT INTO reminders VALUES(14,'Cancelled reminder',1500,'Europe/London','cancelled','reminder','{}','pending',1000,'request-d');
+INSERT INTO projects VALUES(3,'Camera bench',1000);
+INSERT INTO project_entries VALUES(6,3,'note','Existing saved observation',0,1000);
+INSERT INTO media VALUES(4,'media/images/2026/09/abcdef.png','image','image/png','unitv2-camera',1000,640,480,4,'old-digest',1000);
+INSERT INTO observations VALUES(5,4,3,1000,'What is visible?','Original description','["original QR"]','unitv2-camera',1000);

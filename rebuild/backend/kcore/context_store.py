@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .storage import KadencePaths, default_data_dir
+from .storage import KadencePaths, default_data_dir, connect_database
+from .schema import ensure_schema
 
 
 class ContextStore:
@@ -19,22 +19,7 @@ class ContextStore:
         self.path = self.paths.database
 
     async def start(self) -> None:
-        def initialise() -> None:
-            self.paths.prepare()
-            self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
-                db.execute("PRAGMA journal_mode=WAL")
-                version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1, 2, 3):
-                    raise RuntimeError("unsupported context database version")
-                db.execute("CREATE TABLE IF NOT EXISTS records ("
-                           "id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, "
-                           "text TEXT NOT NULL, created TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
-                if version == 0:
-                    db.execute("PRAGMA user_version=1")
-            if os.name != "nt":
-                self.path.chmod(0o600)
-        await asyncio.to_thread(initialise)
+        await asyncio.to_thread(ensure_schema, self.paths, target=1)
 
     async def perform(self, action: str, **args) -> dict:
         # Each worker owns its connection. SQLite's transaction and busy deadline
@@ -46,7 +31,7 @@ class ContextStore:
         # SQLite's context manager commits/rolls back; it does not close.
         # Close on the owning worker even when returning or raising, so Windows
         # never has to wait for garbage collection to release database handles.
-        with closing(sqlite3.connect(self.path, timeout=0.25)) as db, db:
+        with closing(connect_database(self.path)) as db, db:
             db.row_factory = sqlite3.Row
             kind = args.get("kind", "memory")
             if kind not in ("memory", "task"):
