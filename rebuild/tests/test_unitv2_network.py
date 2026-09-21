@@ -13,19 +13,30 @@ PART = b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + JPEG
 
 
 @contextlib.contextmanager
-def server(body=PART, content_type='multipart/x-mixed-replace; boundary=frame', stall=False, needs_start=False, start_status=200):
+def server(body=PART, content_type='multipart/x-mixed-replace; boundary=frame', stall=False, needs_start=False, start_status=200, root_status=200, root_body=b"<html></html>"):
     started = False
+    bootstrapped = False
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             nonlocal started
             payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             expected = {"type_id": "3", "type_name": "camera_stream", "args": ""}
-            valid = self.path == '/func' and payload == expected
+            valid = bootstrapped and self.path == '/func' and payload == expected
             started = valid and start_status == 200
             self.send_response(start_status if valid else 400)
             self.end_headers()
 
         def do_GET(self):
+            nonlocal bootstrapped
+            if self.path == '/':
+                bootstrapped = root_status == 200
+                self.send_response(root_status)
+                self.end_headers()
+                try:
+                    self.wfile.write(root_body)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
             if needs_start and not started:
                 self.send_response(503)
                 self.end_headers()
@@ -97,4 +108,14 @@ class UnitV2NetworkTests(unittest.TestCase):
     def test_startup_error_is_not_readiness(self):
         with server(start_status=500) as port:
             with self.assertRaisesRegex(ValueError, 'startup returned HTTP 500'):
+                start_camera_stream('127.0.0.1', port=port)
+
+    def test_bootstrap_http_failure(self):
+        with server(root_status=500) as port:
+            with self.assertRaisesRegex(ValueError, 'bootstrap returned HTTP 500'):
+                start_camera_stream('127.0.0.1', port=port)
+
+    def test_bootstrap_size_limit(self):
+        with server(root_body=b'x' * (256 * 1024 + 1)) as port:
+            with self.assertRaisesRegex(ValueError, 'bootstrap response exceeds limit'):
                 start_camera_stream('127.0.0.1', port=port)

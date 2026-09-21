@@ -19,7 +19,7 @@ def main():
     args = parser.parse_args()
     from PIL import Image
     try:
-        print("UNITV2_START selecting Camera Stream", flush=True)
+        print("UNITV2_START initializing camera service and selecting Camera Stream", flush=True)
         start_camera_stream(args.address)
         for number in range(1, args.count + 1):
             start = time.monotonic()

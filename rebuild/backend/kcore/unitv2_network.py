@@ -21,6 +21,35 @@ def start_camera_stream(address: str, *, timeout: float = 10.0, port: int = 80) 
     address = str(ipaddress.ip_address(address))
     if not 0 < timeout <= 30:
         raise ValueError("timeout must be between 0 and 30 seconds")
+    # Hardware requires the root-page request before mode selection. Consume
+    # its bounded response without executing HTML/JavaScript or saving it.
+    bootstrap = http.client.HTTPConnection(address, port, timeout=timeout)
+    deadline = time.monotonic() + timeout
+    try:
+        bootstrap.request("GET", "/", headers={"Connection": "close"})
+        sock = bootstrap.sock
+        response = bootstrap.getresponse()
+        try:
+            if response.status != 200:
+                raise ValueError(f"UnitV2 bootstrap returned HTTP {response.status}")
+            size = 0
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("UnitV2 bootstrap timed out")
+                sock.settimeout(remaining)
+                chunk = response.read1(4096)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > 256 * 1024:
+                    raise ValueError("UnitV2 bootstrap response exceeds limit")
+        finally:
+            response.close()
+    except TimeoutError as exc:
+        raise TimeoutError("UnitV2 bootstrap timed out") from exc
+    finally:
+        bootstrap.close()
     connection = http.client.HTTPConnection(address, port, timeout=timeout)
     payload = json.dumps({"type_id": "3", "type_name": "camera_stream", "args": ""})
     try:

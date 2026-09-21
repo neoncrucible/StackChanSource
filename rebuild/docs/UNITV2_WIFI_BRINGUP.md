@@ -76,3 +76,15 @@ predate this startup fix; the fix itself still needs a browser-free cold-boot te
 Close browser camera tabs, power-cycle UnitV2, allow a minute for Wi-Fi, then run
 the same diagnostic command without visiting the web UI. No firmware flash needed.
 Desktop UI integration and simultaneous robot voice/sensor verification remain pending.
+
+
+### Follow-up: root-page initialization required
+
+The mode-only fix b26c4ab failed on hardware: POST /func succeeded, but frame
+retrieval timed out. User then confirmed that a plain PowerShell GET / followed
+by the diagnostic succeeded, without browser JavaScript. This identifies a
+required request in the observed startup sequence; internal factory-server side
+effects have not been inspected. Startup now GETs /, consumes/discards at most
+256 KiB, then POSTs /func, then captures. Bootstrap failures are stage-labelled.
+Ten local tests pass; the cold-camera regression requires root initialization
+before accepting mode selection. Integrated cold-boot confirmation remains pending.
