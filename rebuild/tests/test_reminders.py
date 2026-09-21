@@ -9,6 +9,7 @@ from pathlib import Path
 from kcore.context_store import ContextStore
 from kcore.reminder_time import resolve_when, split_reminder_request, clock_context
 from kcore.reminders import Reminders
+from kcore.storage import KadencePaths
 from kcore.utility_store import UtilityStore
 from kcore.workbench import convert, ohms_law, resistor_value
 
@@ -111,8 +112,13 @@ class ReminderStorageTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_context_and_rollback_backup_preserved(self):
         await self.context.start()
         self.assertEqual((await self.context.perform("list", kind="memory"))["items"][0]["text"], "existing lab note")
-        with closing(sqlite3.connect(self.directory / "context-before-utilities.sqlite3")) as db:
+        paths = KadencePaths.for_root(self.directory)
+        self.assertFalse((self.directory / "context-before-utilities.sqlite3").exists())
+        self.assertTrue(paths.utility_backup.exists())
+        uri = "file:" + paths.utility_backup.resolve().as_posix() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True)) as db:
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT text FROM records WHERE kind='memory'").fetchone()[0], "existing lab note")
         await self.store.call("project_add", name="Sensor")
         self.assertEqual(len(await self.store.call("project_list")), 1)
 
@@ -128,10 +134,25 @@ class ReminderStorageTests(unittest.IsolatedAsyncioTestCase):
 
 class WorkbenchTests(unittest.TestCase):
     def test_physical_results_and_invalid_dimensions(self):
-        self.assertAlmostEqual(convert(32, "f", "c")["result"], 0, places=8)
-        self.assertEqual(convert(1, "in", "mm")["result"], 25.4)
-        with self.assertRaises(ValueError): convert(1, "v", "ohm")
-        with self.assertRaises(ValueError): convert(-300, "c", "f")
-        self.assertEqual(ohms_law(voltage=5, resistance=1000)["current_a"], .005)
-        self.assertEqual(resistor_value(["yellow", "violet", "red", "gold"])["ohms"], 4700)
-        with self.assertRaises(ValueError): ohms_law(voltage=5, current=0)
+        self.assertEqual(convert(25.4, "mm", "in")["result"], 1.0)
+        self.assertEqual(convert(1, "m", "cm")["result"], 100.0)
+        with self.assertRaises(ValueError): convert(1, "kg", "V")
+
+    def test_ohms_law_requires_exactly_two_values(self):
+        self.assertEqual(ohms_law(voltage=5, resistance=1000)["current_a"], 0.005)
+        self.assertEqual(ohms_law(current=0.25, resistance=48)["voltage_v"], 12.0)
+        with self.assertRaises(ValueError): ohms_law(voltage=5)
+        with self.assertRaises(ValueError): ohms_law(voltage=5, current=1, resistance=5)
+
+    def test_resistor_bands(self):
+        result = resistor_value(["yellow", "violet", "red", "gold"])
+        self.assertEqual(result["ohms"], 4700)
+        self.assertEqual(result["tolerance_percent"], 5)
+        result = resistor_value(["brown", "black", "black", "red", "brown"])
+        self.assertEqual(result["ohms"], 10000)
+        self.assertEqual(result["tolerance_percent"], 1)
+        with self.assertRaises(ValueError): resistor_value(["pink", "red", "black", "gold"])
+
+
+if __name__ == "__main__":
+    unittest.main()

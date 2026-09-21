@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
+import hashlib
 import hmac
 import io
 import json
@@ -11,6 +13,8 @@ import struct
 import time
 import uuid
 from pathlib import Path
+
+from .storage import KadencePaths
 
 IMAGE_BYTES = 320*240*2
 
@@ -21,13 +25,53 @@ async def read_media_auth(reader, *, magic: bytes, token: str):
         raise ValueError("invalid media authentication")
 
 
-async def read_image(reader) -> bytes:
-    magic = await reader.readexactly(4)
-    if magic == b"KDI0": raise RuntimeError("Camera did not produce an image. Try again with the robot idle.")
-    if magic != b"KDI1": raise ValueError("invalid image header")
-    width, height, size = struct.unpack("!HHI", await reader.readexactly(8))
-    if (width, height, size) != (320, 240, IMAGE_BYTES): raise ValueError("image exceeds fixed QVGA contract")
-    return await reader.readexactly(size)
+async def read_image(reader, *, emit=None) -> bytes:
+    stage, received, expected = "image-header", 0, 4
+    reason = None
+
+    def report():
+        if emit:
+            data = {"stage": stage, "received_bytes": received, "expected_bytes": expected}
+            if reason: data["reason"] = reason
+            with contextlib.suppress(Exception):
+                emit("camera_transfer", data)
+
+    try:
+        report()
+        magic = await reader.readexactly(4)
+        received = 4
+        if magic == b"KDI0":
+            reason = "no-frame"
+            raise RuntimeError("Camera did not produce an image. Try again with the robot idle.")
+        if magic != b"KDI1":
+            reason = "bad-header"
+            raise ValueError("invalid image header")
+        stage, received, expected = "image-metadata", 0, 8
+        report()
+        width, height, size = struct.unpack("!HHI", await reader.readexactly(8))
+        received = 8
+        if (width, height, size) != (320, 240, IMAGE_BYTES):
+            reason = "bad-format"
+            raise ValueError("image exceeds fixed QVGA contract")
+        stage, received, expected = "image-data", 0, IMAGE_BYTES
+        report()
+        raw = bytearray()
+        while received < expected:
+            chunk = await reader.read(min(16384, expected - received))
+            if not chunk:
+                raise asyncio.IncompleteReadError(bytes(raw), expected)
+            raw.extend(chunk)
+            received += len(chunk)
+        stage = "image-complete"
+        report()
+        return bytes(raw)
+    except BaseException as exc:
+        if isinstance(exc, asyncio.IncompleteReadError):
+            received = len(exc.partial)
+            reason = "truncated"
+        reason = reason or ("interrupted" if isinstance(exc, asyncio.CancelledError) else "unavailable")
+        report()
+        raise
 
 
 def decode_image(raw: bytes) -> tuple[bytes, list[str]]:
@@ -83,25 +127,61 @@ async def describe_image(png: bytes, question: str, settings) -> str:
 
 
 class DeskVision:
-    def __init__(self, emit=None):
+    def __init__(self, emit=None, source_device="robot-camera"):
         self.emit = emit or (lambda name, data: None)
+        self.source_device = source_device
+        self.width, self.height = 320, 240
+        self.generation = 0
         self.png: bytes | None = None
         self.qr: list[str] = []
         self.description = ""
+        self.question = ""
         self.captured = 0.0
 
     async def accept(self, raw: bytes):
         self.png, self.qr = await asyncio.to_thread(decode_image, raw)
+        self.source_device = "robot-camera"
+        self.width, self.height = 320, 240
+        self.generation += 1
         self.description = ""
+        self.question = ""
         self.captured = time.time()
+        self.publish()
+
+    async def accept_jpeg(self, jpeg: bytes, generation: int):
+        def decode():
+            from PIL import Image
+            with Image.open(io.BytesIO(jpeg)) as image:
+                if image.format != "JPEG" or not (0 < image.width <= 1920 and 0 < image.height <= 1080):
+                    raise ValueError("Unsupported UnitV2 image dimensions.")
+                image.load()
+                image = image.convert("RGB")
+                image.thumbnail((640, 480))
+                output = io.BytesIO()
+                image.save(output, format="PNG")
+                png = output.getvalue()
+                if len(png) > 700 * 1024:
+                    raise ValueError("UnitV2 preview exceeds desktop transfer limit.")
+                return png, image.size
+        png, (width, height) = await asyncio.to_thread(decode)
+        if self.generation != generation:
+            raise RuntimeError("Image was cleared or replaced during capture. Capture again.")
+        self.png, self.qr = png, []
+        self.source_device = "unitv2-camera"
+        self.width, self.height = width, height
+        self.description = self.question = ""
+        self.captured = time.time()
+        self.generation += 1
         self.publish()
 
     def publish(self):
         self.emit("snapshot", {"png": base64.b64encode(self.png).decode("ascii") if self.png else "",
+            "source_device": self.source_device, "width": self.width, "height": self.height,
             "qr": self.qr, "description": self.description, "captured": self.captured, "retained": False})
 
     def clear(self):
-        self.png = None; self.qr = []; self.description = ""; self.captured = 0
+        self.generation += 1
+        self.png = None; self.qr = []; self.description = ""; self.question = ""; self.captured = 0
         self.publish()
 
     async def describe(self, question: str, settings):
@@ -110,30 +190,36 @@ class DeskVision:
         reply = await describe_image(image, question, settings)
         if self.png is not image: raise RuntimeError("Image changed during description. Capture again.")
         self.description = reply
+        self.question = question.strip()
         self.publish()
         return {"spoken": reply, "qr": self.qr, "source": "Gemini"}
 
-    async def save(self, directory: Path, store, project_id: int):
+    async def save(self, directory: Path | KadencePaths, store, project_id: int):
         if self.png is None: raise ValueError("Capture an image first.")
-        image, description, captured = self.png, self.description, self.captured
+        image, description, question, captured = self.png, self.description, self.question, self.captured
+        width, height, source_device, qr = self.width, self.height, self.source_device, list(self.qr)
         projects = await store.call("project_list")
         if not any(p["id"] == project_id for p in projects): raise ValueError("Choose an existing project.")
-        folder = directory / "observations"
-        folder.mkdir(parents=True, exist_ok=True)
-        path = folder / (uuid.uuid4().hex + ".png")
+        paths = directory if isinstance(directory, KadencePaths) else KadencePaths.for_root(directory)
+        await asyncio.to_thread(paths.prepare)
+        path, relative = paths.image_path(captured, uuid.uuid4().hex)
+        digest = hashlib.sha256(image).hexdigest()
         def persist():
             try:
                 path.write_bytes(image)
-                return store._call("entry_add", {"project_id":project_id, "kind":"note",
-                    "text":f"Observation {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(captured))}. Image: observations/{path.name}. " + description[:600]})
+                return store._call("observation_add", {"project_id": project_id, "path": relative,
+                    "captured": captured, "width": width, "height": height, "size_bytes": len(image),
+                    "sha256": digest, "source_device": source_device, "question": question,
+                    "description": description[:1200], "qr": qr})
             except BaseException:
                 path.unlink(missing_ok=True)
                 raise
-        # Once the explicit save starts, settle both records even if the UI
-        # closes. Cancellation cannot strand an image without its project note.
+        # Once the explicit save starts, settle the file and metadata transaction
+        # together even if the UI closes. Failed metadata cannot strand a file.
         task = asyncio.create_task(asyncio.to_thread(persist))
         try: record = await asyncio.shield(task)
         except asyncio.CancelledError:
             await task
             raise
-        return {"id": record["id"], "message": "Observation and image saved to the selected project."}
+        return {"id": record["id"], "media_id": record["media_id"],
+                "message": "Observation and image saved to the selected project."}

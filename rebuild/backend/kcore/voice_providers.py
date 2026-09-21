@@ -7,6 +7,7 @@ import wave
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+from .providers import Thinker
 
 
 class VoiceProviderUnavailable(RuntimeError):
@@ -27,6 +28,14 @@ class VoiceProviderSettings:
     thinker_model: str = "gemini-3.5-flash-lite"
     tts_voice: str = "en-GB-SoniaNeural"
     tts_rate: str = "+0%"
+    thinker_provider: str = "gemini"
+    ollama_model: str = ""
+
+    def __post_init__(self):
+        if self.thinker_provider not in {"gemini", "ollama"}:
+            raise ValueError("Choose Gemini or Ollama.")
+        if self.thinker_provider == "ollama" and not self.ollama_model.strip():
+            raise ValueError("Enter the exact installed Ollama model name.")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "VoiceProviderSettings":
@@ -40,13 +49,15 @@ class VoiceProviderSettings:
             thinker_model=values.get("KADENCE_THINKER_MODEL", "gemini-3.5-flash-lite"),
             tts_voice=values.get("KADENCE_TTS_VOICE", "en-GB-SoniaNeural"),
             tts_rate=values.get("KADENCE_TTS_RATE", "+0%"),
+            thinker_provider=values.get("KADENCE_THINKER_PROVIDER", "gemini"),
+            ollama_model=values.get("KADENCE_OLLAMA_MODEL", ""),
         )
 
     def missing_credentials(self) -> tuple[str, ...]:
         missing: list[str] = []
         if not self.openai_api_key:
             missing.append("OPENAI_API_KEY")
-        if not self.gemini_api_key:
+        if self.thinker_provider == "gemini" and not self.gemini_api_key:
             missing.append("GEMINI_API_KEY")
         return tuple(missing)
 
@@ -206,6 +217,53 @@ class GeminiThinker:
                         yield chunk
 
 
+class OllamaThinker:
+    """Explicit local-only reasoning; failures never fall back to a cloud model."""
+    endpoint = "http://127.0.0.1:11434/api/chat"
+
+    def __init__(self, *, model: str):
+        if not model.strip() or len(model) > 160:
+            raise ValueError("Enter the exact installed Ollama model name.")
+        self.model = model.strip()
+
+    async def stream_reply(self, text: str) -> AsyncIterator[str]:
+        if not text.strip():
+            raise ValueError("thinker input must not be empty")
+        httpx = _require_httpx()
+        from .identity import KADENCE_IDENTITY
+        body = {"model": self.model, "stream": True, "think": False,
+                "messages": [{"role": "system", "content": KADENCE_IDENTITY.system_context()},
+                             {"role": "user", "content": text}],
+                "options": {"num_predict": 1024}}
+        # Ignore proxy environment settings for the local service.
+        async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
+            async with client.stream("POST", self.endpoint, json=body) as response:
+                response.raise_for_status()
+                length = 0
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    if len(line) > 65536:
+                        raise VoiceProviderUnavailable("Ollama response exceeded limit")
+                    event = json.loads(line)
+                    if not isinstance(event, dict) or event.get("error"):
+                        raise VoiceProviderUnavailable("Ollama reported an error")
+                    message = event.get("message", {})
+                    if not isinstance(message, dict):
+                        raise VoiceProviderUnavailable("Invalid Ollama message")
+                    chunk = message.get("content", "")
+                    if not isinstance(chunk, str):
+                        raise VoiceProviderUnavailable("Invalid Ollama content")
+                    length += len(chunk)
+                    if length > 8192:
+                        raise VoiceProviderUnavailable("Ollama reply exceeded limit")
+                    if chunk:
+                        yield chunk
+                    if event.get("done") is True:
+                        return
+                raise VoiceProviderUnavailable("Ollama stream ended before completion")
+
+
 class EdgeNeuralTTS:
     """Streaming Edge neural TTS adapter using Kadence's selected voice."""
 
@@ -249,7 +307,7 @@ class EdgeNeuralTTS:
 @dataclass(frozen=True, slots=True)
 class LiveVoiceProviders:
     stt: OpenAITranscriber
-    thinker: GeminiThinker
+    thinker: Thinker
     tts: EdgeNeuralTTS
 
     @classmethod
@@ -259,7 +317,7 @@ class LiveVoiceProviders:
                 api_key=settings.openai_api_key,
                 model=settings.stt_model,
             ),
-            thinker=GeminiThinker(
+            thinker=OllamaThinker(model=settings.ollama_model) if settings.thinker_provider == "ollama" else GeminiThinker(
                 api_key=settings.gemini_api_key,
                 model=settings.thinker_model,
             ),

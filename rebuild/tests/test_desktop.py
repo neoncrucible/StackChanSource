@@ -49,9 +49,29 @@ class DesktopTests(unittest.TestCase):
                 for edit in window.secret_fields.values():
                     edit.setText(fake)
                     self.assertEqual(edit.echoMode(),QLineEdit.Password)
+                window.camera_source.setCurrentIndex(1)
+                window.unitv2_address.setText('192.168.40.175')
+                self.assertTrue(window.unitv2_address.isEnabled())
+                from unittest.mock import patch
+                with patch.object(window.control, 'send') as send:
+                    window.capture_camera()
+                    send.assert_called_once_with('camera_capture', {'source':'unitv2-camera', 'address':'192.168.40.175'})
                 window.save_preferences()
+                preferences=json.loads(window.settings_path.read_text())
+                self.assertEqual(preferences['camera_source'],'unitv2-camera')
+                self.assertEqual(preferences['unitv2_address'],'192.168.40.175')
                 self.assertNotIn(fake,window.settings_path.read_text())
                 window.record_diagnostic('device',{'state':fake,'connected':True,'password':fake,'qr':fake})
+                self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
+                window.record_diagnostic('device_diagnostic',{'reason':'interrupt-watchdog','cpu':1,
+                    'backtrace':[0x42012345,0x40371234],'message':fake,'component':fake})
+                self.assertEqual(window.diagnostic[-1]['reason'],'interrupt-watchdog')
+                self.assertEqual(window.diagnostic[-1]['backtrace'],[0x42012345,0x40371234])
+                self.assertNotIn('component',window.diagnostic[-1])
+                window.record_diagnostic('camera_transfer',{'stage':'image-data','reason':'interrupted',
+                    'received_bytes':123,'expected_bytes':153600,'pixels':fake})
+                self.assertEqual(window.diagnostic[-1]['received_bytes'],123)
+                self.assertEqual(window.diagnostic[-1]['stage'],'image-data')
                 self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
                 for index in range(6):
                     window.navigate(index); QApplication.processEvents()
