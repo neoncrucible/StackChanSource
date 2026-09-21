@@ -49,7 +49,17 @@ class DesktopTests(unittest.TestCase):
                 for edit in window.secret_fields.values():
                     edit.setText(fake)
                     self.assertEqual(edit.echoMode(),QLineEdit.Password)
+                window.camera_source.setCurrentIndex(1)
+                window.unitv2_address.setText('192.168.40.175')
+                self.assertTrue(window.unitv2_address.isEnabled())
+                from unittest.mock import patch
+                with patch.object(window.control, 'send') as send:
+                    window.capture_camera()
+                    send.assert_called_once_with('camera_capture', {'source':'unitv2-camera', 'address':'192.168.40.175'})
                 window.save_preferences()
+                preferences=json.loads(window.settings_path.read_text())
+                self.assertEqual(preferences['camera_source'],'unitv2-camera')
+                self.assertEqual(preferences['unitv2_address'],'192.168.40.175')
                 self.assertNotIn(fake,window.settings_path.read_text())
                 window.record_diagnostic('device',{'state':fake,'connected':True,'password':fake,'qr':fake})
                 self.assertNotIn(fake,json.dumps(list(window.diagnostic)))

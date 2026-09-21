@@ -293,17 +293,29 @@ class MainWindow(QMainWindow):
         return page
 
     def vision_page(self):
-        page,layout=self.page("Take a closer look.","One requested image. Local QR decoding; Gemini descriptions only when you ask.")
-        self.preview=label("CAMERA OFF\n\nCapture a snapshot to begin.","muted"); self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(480,290)
+        page,layout=self.page("Take a closer look.","One requested image. StackChan QR decoding; Gemini descriptions only when you ask.")
+        self.camera_source=QComboBox()
+        self.camera_source.addItem("StackChan camera", "robot-camera")
+        self.camera_source.addItem("UnitV2 over Wi-Fi", "unitv2-camera")
+        self.unitv2_address=line("UnitV2 Wi-Fi IPv4 address",45)
+        self.unitv2_address.setEnabled(False)
+        self.camera_source.currentIndexChanged.connect(lambda: self.unitv2_address.setEnabled(self.camera_source.currentData()=="unitv2-camera"))
+        layout.addWidget(row(self.camera_source,self.unitv2_address))
+        self.preview=label("NO SNAPSHOT\n\nCapture a snapshot to begin.","muted"); self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(480,290)
         self.preview.setStyleSheet("border: 1px solid #293c2f;"); layout.addWidget(self.preview,1)
         self.vision_question=line("What am I holding? Read the large label. What objects can you see?",500)
         layout.addWidget(self.vision_question)
-        layout.addWidget(row(button("CAPTURE",lambda:self.control.send("camera_capture"),primary=True),button("DESCRIBE WITH GEMINI",lambda:self.control.send("camera_describe",{"question":self.vision_question.text() or "Describe the visible desk objects."})),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR",lambda:self.control.send("camera_clear"))))
+        layout.addWidget(row(button("CAPTURE",self.capture_camera,primary=True),button("DESCRIBE WITH GEMINI",lambda:self.control.send("camera_describe",{"question":self.vision_question.text() or "Describe the visible desk objects."})),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR",lambda:self.control.send("camera_clear"))))
         self.vision_result=QPlainTextEdit(); self.vision_result.setReadOnly(True); self.vision_result.setMaximumHeight(140); self.vision_result.setPlaceholderText("Description and decoded QR text appear here. QR text is never opened or executed."); layout.addWidget(self.vision_result)
         self.vision_project=QComboBox()
         layout.addWidget(row(self.vision_project,button("SAVE OBSERVATION",lambda:self.control.send("camera_save",{"project_id":self.vision_project.currentData()}))))
-        layout.addWidget(label("Images remain temporary until SAVE OBSERVATION. Continuous tracking and familiar-person profiles are reserved for later qualification.","muted"))
+        layout.addWidget(label("Images remain temporary until SAVE OBSERVATION. CLEAR removes the preview; UnitV2 camera mode stays active.","muted"))
         return page
+
+    def capture_camera(self):
+        self.save_preferences()
+        self.control.send("camera_capture", {"source":self.camera_source.currentData(),
+            "address":self.unitv2_address.text().strip()})
 
     def device_page(self):
         page,layout=self.page("Device controls","Front-screen touch still starts or cancels a voice turn.")
@@ -354,6 +366,9 @@ class MainWindow(QMainWindow):
         value=self._settings.get("capture_ms",4800)
         if type(value) is int: self.capture.setValue(value)
         self.ollama_model.setText(str(self._settings.get("ollama_model", "")))
+        self.unitv2_address.setText(str(self._settings.get("unitv2_address", "")))
+        camera_index=self.camera_source.findData(self._settings.get("camera_source", "robot-camera"))
+        if camera_index>=0: self.camera_source.setCurrentIndex(camera_index)
         for key,widget in (("thinker_provider",self.thinker_provider),("audio_output",self.audio_output)):
             index=widget.findData(self._settings.get(key))
             if index >= 0: widget.setCurrentIndex(index)
@@ -375,6 +390,7 @@ class MainWindow(QMainWindow):
     def save_preferences(self):
         values=self.connection_settings()
         safe={key:values[key] for key in ("port","ssid","lan_host","timezone","capture_ms","thinker_provider","ollama_model","audio_output")}
+        safe.update(camera_source=self.camera_source.currentData(),unitv2_address=self.unitv2_address.text().strip())
         safe.update(remember=self.remember.isChecked(),tray=self.tray_check.isChecked())
         temporary=self.settings_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(safe,indent=2)+"\n","utf-8"); temporary.replace(self.settings_path)
@@ -590,8 +606,8 @@ class MainWindow(QMainWindow):
             if encoded:
                 pixmap=QPixmap(); pixmap.loadFromData(base64.b64decode(encoded,validate=True),"PNG"); self.snapshot_pixmap=pixmap
                 self.preview.setPixmap(pixmap.scaled(self.preview.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
-            else: self.snapshot_pixmap=None; self.preview.setPixmap(QPixmap()); self.preview.setText("CAMERA OFF\n\nCapture a snapshot to begin.")
-            values=[data.get("description","")]
+            else: self.snapshot_pixmap=None; self.preview.setPixmap(QPixmap()); self.preview.setText("NO SNAPSHOT\n\nCapture a snapshot to begin.")
+            values=[("UnitV2" if data.get("source_device")=="unitv2-camera" else "StackChan") + f" · {data.get('width',320)} × {data.get('height',240)}" if encoded else "",data.get("description","")]
             values.extend("QR (local, text only): "+str(qr) for qr in data.get("qr",[]))
             self.vision_result.setPlainText("\n\n".join(x for x in values if x))
         elif name=="result":

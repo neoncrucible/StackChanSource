@@ -130,6 +130,8 @@ class DeskVision:
     def __init__(self, emit=None, source_device="robot-camera"):
         self.emit = emit or (lambda name, data: None)
         self.source_device = source_device
+        self.width, self.height = 320, 240
+        self.generation = 0
         self.png: bytes | None = None
         self.qr: list[str] = []
         self.description = ""
@@ -138,16 +140,47 @@ class DeskVision:
 
     async def accept(self, raw: bytes):
         self.png, self.qr = await asyncio.to_thread(decode_image, raw)
+        self.source_device = "robot-camera"
+        self.width, self.height = 320, 240
+        self.generation += 1
         self.description = ""
         self.question = ""
         self.captured = time.time()
         self.publish()
 
+    async def accept_jpeg(self, jpeg: bytes, generation: int):
+        def decode():
+            from PIL import Image
+            with Image.open(io.BytesIO(jpeg)) as image:
+                if image.format != "JPEG" or not (0 < image.width <= 1920 and 0 < image.height <= 1080):
+                    raise ValueError("Unsupported UnitV2 image dimensions.")
+                image.load()
+                image = image.convert("RGB")
+                image.thumbnail((640, 480))
+                output = io.BytesIO()
+                image.save(output, format="PNG")
+                png = output.getvalue()
+                if len(png) > 700 * 1024:
+                    raise ValueError("UnitV2 preview exceeds desktop transfer limit.")
+                return png, image.size
+        png, (width, height) = await asyncio.to_thread(decode)
+        if self.generation != generation:
+            raise RuntimeError("Image was cleared or replaced during capture. Capture again.")
+        self.png, self.qr = png, []
+        self.source_device = "unitv2-camera"
+        self.width, self.height = width, height
+        self.description = self.question = ""
+        self.captured = time.time()
+        self.generation += 1
+        self.publish()
+
     def publish(self):
         self.emit("snapshot", {"png": base64.b64encode(self.png).decode("ascii") if self.png else "",
+            "source_device": self.source_device, "width": self.width, "height": self.height,
             "qr": self.qr, "description": self.description, "captured": self.captured, "retained": False})
 
     def clear(self):
+        self.generation += 1
         self.png = None; self.qr = []; self.description = ""; self.question = ""; self.captured = 0
         self.publish()
 
@@ -164,6 +197,7 @@ class DeskVision:
     async def save(self, directory: Path | KadencePaths, store, project_id: int):
         if self.png is None: raise ValueError("Capture an image first.")
         image, description, question, captured = self.png, self.description, self.question, self.captured
+        width, height, source_device, qr = self.width, self.height, self.source_device, list(self.qr)
         projects = await store.call("project_list")
         if not any(p["id"] == project_id for p in projects): raise ValueError("Choose an existing project.")
         paths = directory if isinstance(directory, KadencePaths) else KadencePaths.for_root(directory)
@@ -174,9 +208,9 @@ class DeskVision:
             try:
                 path.write_bytes(image)
                 return store._call("observation_add", {"project_id": project_id, "path": relative,
-                    "captured": captured, "width": 320, "height": 240, "size_bytes": len(image),
-                    "sha256": digest, "source_device": self.source_device, "question": question,
-                    "description": description[:1200], "qr": list(self.qr)})
+                    "captured": captured, "width": width, "height": height, "size_bytes": len(image),
+                    "sha256": digest, "source_device": source_device, "question": question,
+                    "description": description[:1200], "qr": qr})
             except BaseException:
                 path.unlink(missing_ok=True)
                 raise

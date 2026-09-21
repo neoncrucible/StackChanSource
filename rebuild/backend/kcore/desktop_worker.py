@@ -58,6 +58,7 @@ class DesktopController:
         self.state = "stopped"
         self._lifecycle = asyncio.Lock()
         self._media = None
+        self._network_media = False
 
     async def start(self):
         await self.services.start()
@@ -139,7 +140,7 @@ class DesktopController:
         if action == "media_cancel":
             app = self.app
             if self._media: self._media.cancel()
-            if app and app._body:
+            if app and app._body and not self._network_media:
                 await app._handle_touch_cancel(app._body, __import__("types").SimpleNamespace(payload={"trigger": "touch"}))
             return {"message": "Cancellation requested."}
         if action.startswith("device."):
@@ -152,10 +153,23 @@ class DesktopController:
             if action == "camera_clear": self.app.vision.clear(); return {"message": "Transient image cleared."}
             if action == "camera_save": return await self.app.vision.save(self.services.paths, self.services.store, args["project_id"])
             if self._media and not self._media.done(): raise RuntimeError("Camera is busy.")
-            coroutine = self.app.capture_snapshot() if action == "camera_capture" else self.app.vision.describe(args.get("question", "What is visible?"), self.app.settings.providers)
+            if action == "camera_capture":
+                source = args.get("source", "robot-camera")
+                if source == "unitv2-camera":
+                    address = str(ipaddress.IPv4Address(args.get("address", "")))
+                    coroutine = self.app.capture_unitv2_snapshot(address)
+                elif source == "robot-camera":
+                    coroutine = self.app.capture_snapshot()
+                else:
+                    raise ValueError("Choose a supported camera source.")
+            else:
+                coroutine = self.app.vision.describe(args.get("question", "What is visible?"), self.app.settings.providers)
+            self._network_media = action == "camera_capture" and args.get("source") == "unitv2-camera"
             self._media = asyncio.create_task(coroutine, name="kadence-camera-ui")
             try: return await self._media
-            finally: self._media = None
+            finally:
+                self._media = None
+                self._network_media = False
         return await self.services.command(action, args)
 
     async def close(self):

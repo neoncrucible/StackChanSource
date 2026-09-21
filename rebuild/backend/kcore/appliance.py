@@ -72,6 +72,7 @@ class KadenceAppliance:
         self.services = services
         self._owns_services = services is None
         self.vision = DeskVision(self.emit)
+        self._unitv2_capture_lock = asyncio.Lock()
         self._utility_task = None
         self._media_mode = "voice"
         self._media_result = None
@@ -285,6 +286,29 @@ class KadenceAppliance:
             await self._close_connections()
             self._media_mode = "voice"
             self.emit("activity", {"state": "idle"})
+
+    async def capture_unitv2_snapshot(self, address):
+        from .unitv2_network import start_camera_stream, capture_jpeg
+        if self._unitv2_capture_lock.locked():
+            raise RuntimeError("UnitV2 capture is still finishing. Try again shortly.")
+        async with self._unitv2_capture_lock:
+            generation = self.vision.generation
+            def capture():
+                start_camera_stream(address)
+                return capture_jpeg(address, timeout=15)
+            task = asyncio.create_task(asyncio.to_thread(capture))
+            try:
+                jpeg = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # Keep ownership until bounded blocking I/O finishes. Never publish
+                # a cancelled result or permit overlapping camera startup requests.
+                with contextlib.suppress(Exception):
+                    await task
+                raise
+            except (OSError, ValueError) as exc:
+                raise RuntimeError("UnitV2 capture failed. Check its power and Wi-Fi address.") from exc
+            await self.vision.accept_jpeg(jpeg, generation)
+            return {"message": "UnitV2 snapshot captured locally. Image is temporary."}
 
     async def capture_snapshot(self):
         body = self._body

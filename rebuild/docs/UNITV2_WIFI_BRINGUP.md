@@ -97,3 +97,33 @@ HTTP/1.0 socket, and the next loop previously called settimeout on the closed
 socket. Bootstrap now stops when the response closes; truncated frame streams
 also check closure before touching their socket. Eleven tests pass, including
 an explicit closed-socket regression. Actual hardware cold-start recheck pending.
+
+## Desktop candidate 0.3.6 — 2026-09-21
+
+User confirmed browser-free cold startup after 728246b. Prior run of that commit
+returned three decoded 640x480 frames in 0.125/0.109/0.125 seconds, with different
+hashes. Wi-Fi capture/startup is physically confirmed; UI coexistence is next.
+
+Vision now offers StackChan camera (default) or UnitV2 over Wi-Fi and a saved
+numeric IPv4 address. Start the Kadence server, choose UnitV2, enter its address,
+and press CAPTURE. Root initialization and camera-mode selection run on demand;
+there is no startup capture or polling. The network worker never opens COM4.
+Blocking network I/O runs outside the asyncio loop. Cancellation waits for bounded
+I/O ownership to settle and discards the cancelled frame. CLEAR invalidates any
+in-flight network result. Voice capture still uses the robot camera.
+
+UnitV2 JPEGs are validated and converted to PNG with a maximum 640x480 preview,
+700 KiB PNG ceiling, and 1920x1080 input ceiling. No UnitV2 QR decoding or automatic
+recognition/actions in this candidate. Existing explicit Gemini description and
+save controls act on the captured preview. Stored observation dimensions and
+source identify the actual preview; frames are not persisted unless Save is used.
+CLEAR removes the local preview; it does not stop the UnitV2 producer. Camera
+power/producer shutdown policies are not implemented by this integration.
+
+Validation: 30 focused tests passed, 1 Windows-only test skipped, 7 subtests passed;
+updated Qt preference/capture dispatch test also passed. Actual Qt pages rendered
+at 1160x800 and 980x690; Vision layout inspected. No firmware change or flash.
+
+Physical acceptance next: capture UnitV2 twice from desktop, confirm source and
+preview; make a normal voice turn; check gesture and ToF remain healthy; capture
+the built-in camera as before. UI/voice/sensor coexistence is not yet signed off.
