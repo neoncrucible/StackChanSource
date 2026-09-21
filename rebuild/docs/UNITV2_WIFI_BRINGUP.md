@@ -127,3 +127,32 @@ at 1160x800 and 980x690; Vision layout inspected. No firmware change or flash.
 Physical acceptance next: capture UnitV2 twice from desktop, confirm source and
 preview; make a normal voice turn; check gesture and ToF remain healthy; capture
 the built-in camera as before. UI/voice/sensor coexistence is not yet signed off.
+
+
+## Physical acceptance — 2026-09-21
+
+Integration at 2265b64 is accepted following the user's hardware tests:
+
+- Browser-free UnitV2 cold startup and decoded network frames passed.
+- Desktop UnitV2 capture passed after entering the camera IPv4 address.
+- A normal robot voice exchange followed by another UnitV2 capture passed.
+- Switching back to the onboard StackChan camera passed. Its pre-existing
+  requirement for two Capture clicks remains an explicitly accepted limitation;
+  UnitV2 captures on the first click.
+- Subsequent serial diagnostics detected Gesture at channel 0 / 0x73 and ToF4M
+  at channel 1 / 0x29, with zero reported bus errors. ToF returned changing valid
+  distances with zero reported measurement errors. Gesture reached ready/fresh
+  and advanced event_seq through 22 with directional and rotation events.
+
+Scope: the sensor diagnostics ran with the desktop closed to release COM4.
+These confirm sensor operation after camera tests, not simultaneous desktop,
+voice, both cameras and sensor stress testing. Sensor startup latency and
+periodic discovery-related measurement pauses remain tuning items.
+
+The camera address is DHCP-assigned, not static. Desktop preferences retain it;
+reserve the address on the router for stability rather than hard-code it.
+
+Keep kadence/sensor-clean-base as the accepted integration baseline. Subsequent
+functionality belongs on kadence/functionality, branched from this sign-off.
+No automatic perception, sensor action mappings, or camera shutdown policy is
+accepted or introduced by these tests.
