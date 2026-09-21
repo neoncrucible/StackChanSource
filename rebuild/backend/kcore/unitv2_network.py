@@ -33,7 +33,8 @@ def start_camera_stream(address: str, *, timeout: float = 10.0, port: int = 80) 
             if response.status != 200:
                 raise ValueError(f"UnitV2 bootstrap returned HTTP {response.status}")
             size = 0
-            while True:
+            while not response.isclosed():
+                # A Content-Length response closes its socket on the last read.
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError("UnitV2 bootstrap timed out")
@@ -96,6 +97,8 @@ def capture_jpeg(address: str, *, timeout: float = 5.0, port: int = 80) -> bytes
         headers_done = False
         body = bytearray()
         while True:
+            if response.isclosed():
+                raise ValueError("UnitV2 stream ended before a complete JPEG")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("UnitV2 frame deadline exceeded")

@@ -1,5 +1,6 @@
 import contextlib
 import json
+import socket
 import threading
 import time
 import unittest
@@ -31,6 +32,7 @@ def server(body=PART, content_type='multipart/x-mixed-replace; boundary=frame', 
             if self.path == '/':
                 bootstrapped = root_status == 200
                 self.send_response(root_status)
+                self.send_header('Content-Length', str(len(root_body)))
                 self.end_headers()
                 try:
                     self.wfile.write(root_body)
@@ -119,3 +121,14 @@ class UnitV2NetworkTests(unittest.TestCase):
         with server(root_body=b'x' * (256 * 1024 + 1)) as port:
             with self.assertRaisesRegex(ValueError, 'bootstrap response exceeds limit'):
                 start_camera_stream('127.0.0.1', port=port)
+
+    def test_windows_closed_socket_after_content_length(self):
+        original = socket.socket.settimeout
+        def windows_settimeout(sock, value):
+            if sock.fileno() == -1:
+                raise OSError(10038, "An operation was attempted on something that is not a socket")
+            return original(sock, value)
+        with server(needs_start=True) as port:
+            with patch.object(socket.socket, 'settimeout', windows_settimeout):
+                start_camera_stream('127.0.0.1', port=port)
+                self.assertEqual(capture_jpeg('127.0.0.1', port=port), JPEG)

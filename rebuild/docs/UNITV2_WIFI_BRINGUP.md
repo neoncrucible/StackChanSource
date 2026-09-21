@@ -88,3 +88,12 @@ effects have not been inspected. Startup now GETs /, consumes/discards at most
 256 KiB, then POSTs /func, then captures. Bootstrap failures are stage-labelled.
 Ten local tests pass; the cold-camera regression requires root initialization
 before accepting mode selection. Integrated cold-boot confirmation remains pending.
+
+### Content-Length completion fix
+
+064bfb1 reported WinError 10038 during bootstrap on Windows. Reproduced locally
+by sending Content-Length on the home-page response: the final read closes the
+HTTP/1.0 socket, and the next loop previously called settimeout on the closed
+socket. Bootstrap now stops when the response closes; truncated frame streams
+also check closure before touching their socket. Eleven tests pass, including
+an explicit closed-socket regression. Actual hardware cold-start recheck pending.
