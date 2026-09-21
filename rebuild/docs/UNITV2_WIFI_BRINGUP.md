@@ -35,7 +35,7 @@ Uploaded factory HTML and JavaScript inspected; no guessed routes:
   description=480P real-time video preview.
 - JS selects mode via POST /func JSON:
   {"type_id":"3","type_name":"camera_stream","args":""}.
-  Not needed by the initial diagnostic; never switch mode implicitly.
+  Initial diagnostic did not select mode; see the 2026-09-21 correction below.
 - UI snapshots copy canvas pixels locally, not a separate snapshot endpoint.
 - POST /func/result and /render_items provide separate pipe-delimited streams.
   Recognition/behaviour integration is deferred.
@@ -54,3 +54,25 @@ headers and JPEG size, applies socket timeouts and a body deadline, closes the
 stream, and decodes with Pillow. No files saved, cloud calls, serial commands,
 recognition, automatic actions or desktop UI changes. Six local transport tests
 pass. Physical JPEG decoding, coexistence and desktop integration remain pending.
+
+## 2026-09-21: browser startup dependency found and addressed
+
+Cold camera accepted TCP but /video_feed returned no HTTP headers or bytes in
+8 seconds. Opening the factory UI and selecting Camera Stream enabled capture:
+three decoded 320x240 JPEGs, 26319/26271/26279 bytes, 0.125/0.046/0.063 seconds,
+with distinct hashes. Thus earlier cold-boot signoff establishes Wi-Fi and video
+AFTER UI activation; it does not establish unattended camera-producer startup.
+The actual returned frame dimensions are QVGA despite UI description saying 480P.
+
+Diagnostic now explicitly POSTs the factory /func camera_stream payload once
+before sampling (overrides any currently selected recognition mode). It does not
+write boot settings. Low-level capture_jpeg remains a read-only frame request.
+Mode request success is not labelled readiness; only decoded frames are PASS.
+First frame gets 15 seconds, subsequent frames 5 seconds. Startup HTTP failures
+are reported. Eight local transport tests pass, including a producer that rejects
+capture until the correct mode POST. The three successful hardware captures above
+predate this startup fix; the fix itself still needs a browser-free cold-boot test.
+
+Close browser camera tabs, power-cycle UnitV2, allow a minute for Wi-Fi, then run
+the same diagnostic command without visiting the web UI. No firmware flash needed.
+Desktop UI integration and simultaneous robot voice/sensor verification remain pending.

@@ -1,13 +1,43 @@
-"""Bounded, explicit UnitV2 LAN captures; no serial access or mode changes."""
+"""Bounded, explicit UnitV2 LAN captures; no serial access."""
 from __future__ import annotations
 
 import http.client
 import ipaddress
+import json
 import time
 from email.message import Message
 
 MAX_FRAME_BYTES = 2 * 1024 * 1024
 MAX_HEADER_BYTES = 8192
+
+
+
+def start_camera_stream(address: str, *, timeout: float = 10.0, port: int = 80) -> None:
+    """Explicitly select Camera Stream, as the factory UI does; not boot config.
+
+    Call once before a capture session, not for each frame. Last-function metadata
+    can remember a mode without a running producer after a cold boot.
+    """
+    address = str(ipaddress.ip_address(address))
+    if not 0 < timeout <= 30:
+        raise ValueError("timeout must be between 0 and 30 seconds")
+    connection = http.client.HTTPConnection(address, port, timeout=timeout)
+    payload = json.dumps({"type_id": "3", "type_name": "camera_stream", "args": ""})
+    try:
+        connection.request("POST", "/func", body=payload.encode("utf-8"), headers={
+            "Content-Type": "application/json;charset=UTF-8", "Connection": "close"})
+        response = connection.getresponse()
+        try:
+            if response.status != 200:
+                raise ValueError(f"UnitV2 camera startup returned HTTP {response.status}")
+            # The UI response is descriptive metadata. Frame receipt/decoding,
+            # rather than a successful mode request, is the readiness check.
+        finally:
+            response.close()
+    except TimeoutError as exc:
+        raise TimeoutError("UnitV2 camera-mode startup timed out") from exc
+    finally:
+        connection.close()
 
 
 def capture_jpeg(address: str, *, timeout: float = 5.0, port: int = 80) -> bytes:

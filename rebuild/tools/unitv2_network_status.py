@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
-from kcore.unitv2_network import capture_jpeg
+from kcore.unitv2_network import capture_jpeg, start_camera_stream
 
 
 def main():
@@ -19,9 +19,11 @@ def main():
     args = parser.parse_args()
     from PIL import Image
     try:
+        print("UNITV2_START selecting Camera Stream", flush=True)
+        start_camera_stream(args.address)
         for number in range(1, args.count + 1):
             start = time.monotonic()
-            jpeg = capture_jpeg(args.address)
+            jpeg = capture_jpeg(args.address, timeout=15.0 if number == 1 else 5.0)
             with Image.open(io.BytesIO(jpeg)) as frame:
                 width, height = frame.size
                 if frame.format != "JPEG" or not (0 < width <= 1920 and 0 < height <= 1080):
