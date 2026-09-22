@@ -7,6 +7,8 @@ on:
       - 'rebuild/backend/**'
       - 'rebuild/tests/**'
       - 'rebuild/pyproject.toml'
+      - 'rebuild/docs/DESKTOP_INSTALL_UPDATE.md'
+      - 'rebuild/docs/CAMERA_PERCEPTION.md'
       - 'rebuild/tools/phase_a4_gate.py'
       - 'rebuild/tools/package_desktop.py'
       - 'rebuild/tools/prepare_face_models.py'
