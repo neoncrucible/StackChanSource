@@ -302,15 +302,36 @@ class MainWindow(QMainWindow):
         return page
 
     def vision_page(self):
-        page,layout=self.page("Take a closer look.","One requested image. StackChan QR decoding; Gemini descriptions only when you ask.")
+        page,layout=self.page("Vision & presence", "Local perception. Object descriptions go to Gemini only when you ask.")
+        self.camera_policy=QComboBox()
+        for text,value in (("OFF · manual capture only","OFF"),("EVENT ONLY · arrival / gesture","EVENT_ONLY"),("AWARE · events + occasional checks","AWARE")):
+            self.camera_policy.addItem(text,value)
+        self.camera_privacy=QCheckBox("PRIVACY · block all camera access")
+        self.camera_privacy.clicked.connect(self.apply_camera_policy)
+        layout.addWidget(row(self.camera_policy,self.camera_privacy,button("APPLY AND SAVE",self.apply_camera_policy)))
+        self.camera_state=label("Camera IDLE · automatic capture OFF", "status")
+        self.perception_state=label("Occupancy UNKNOWN · no visual identity evidence", "muted")
+        layout.addWidget(self.camera_state); layout.addWidget(self.perception_state)
+        layout.addWidget(label("Privacy blocks Kadence capture and clears its preview. UnitV2 hardware standby is unverified.","muted"))
         self.camera_source=QComboBox()
         self.camera_source.addItem("StackChan camera", "robot-camera")
         self.camera_source.addItem("UnitV2 over Wi-Fi", "unitv2-camera")
+        self.camera_source.addItem("AUTO · prefer UnitV2", "auto")
         self.unitv2_address=line("UnitV2 Wi-Fi IPv4 address",45)
         self.unitv2_address.setEnabled(False)
-        self.camera_source.currentIndexChanged.connect(lambda: self.unitv2_address.setEnabled(self.camera_source.currentData()=="unitv2-camera"))
+        self.camera_source.currentIndexChanged.connect(lambda: self.unitv2_address.setEnabled(self.camera_source.currentData()!="robot-camera"))
         layout.addWidget(row(self.camera_source,self.unitv2_address))
-        self.preview=label("NO SNAPSHOT\n\nCapture a snapshot to begin.","muted"); self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(480,290)
+        profiles=QGroupBox("LOCAL FACE PROFILES"); profile_layout=QVBoxLayout(profiles)
+        self.face_name=line("Name for explicit enrollment — one person in view",80)
+        self.face_profiles=QComboBox()
+        profile_layout.addWidget(row(self.face_name,button("ENROLL 3 SAMPLES",self.enroll_face)))
+        profile_layout.addWidget(row(self.face_profiles,button("REFRESH",self.refresh_faces),button("REMOVE PROFILE",self.forget_face)))
+        self.presence_greetings=QCheckBox("Greet confirmed people once per visit")
+        self.presence_unknown=QCheckBox("Show a local notice for an unenrolled face")
+        profile_layout.addWidget(row(self.presence_greetings,self.presence_unknown))
+        profile_layout.addWidget(label("Embeddings stay on this PC. Enrollment saves no photographs. Apply & Save also saves these switches.","muted"))
+        layout.addWidget(profiles)
+        self.preview=label("NO SNAPSHOT\n\nCapture a snapshot to begin.","muted"); self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(480,240)
         self.preview.setStyleSheet("border: 1px solid #293c2f;"); layout.addWidget(self.preview,1)
         self.vision_question=line("What am I holding? Read the large label. What objects can you see?",500)
         layout.addWidget(self.vision_question)
@@ -318,8 +339,37 @@ class MainWindow(QMainWindow):
         self.vision_result=QPlainTextEdit(); self.vision_result.setReadOnly(True); self.vision_result.setMaximumHeight(140); self.vision_result.setPlaceholderText("Description and decoded QR text appear here. QR text is never opened or executed."); layout.addWidget(self.vision_result)
         self.vision_project=QComboBox()
         layout.addWidget(row(self.vision_project,button("SAVE OBSERVATION",lambda:self.control.send("camera_save",{"project_id":self.vision_project.currentData()}))))
-        layout.addWidget(label("Images remain temporary until SAVE OBSERVATION. CLEAR removes the preview; UnitV2 camera mode stays active.","muted"))
+        layout.addWidget(label("Automatic images are discarded after local analysis. SAVE OBSERVATION keeps only your manual snapshot.","muted"))
         return page
+
+    def camera_policy_values(self):
+        return {"policy":self.camera_policy.currentData(),"privacy":self.camera_privacy.isChecked(),
+            "source":self.camera_source.currentData(),"address":self.unitv2_address.text().strip(),
+            "greetings":self.presence_greetings.isChecked(),"unknown_alerts":self.presence_unknown.isChecked()}
+
+    def apply_camera_policy(self, *args):
+        self.control.send("camera_settings",self.camera_policy_values())
+
+    def refresh_faces(self, *args):
+        self.control.send("face_profiles",{},self.faces_result)
+
+    def faces_result(self,response):
+        if not response.get("ok"): return
+        self.face_profiles.clear()
+        for person in response.get("result",{}).get("persons",[]):
+            self.face_profiles.addItem(person["display_name"],person["id"])
+
+    def enroll_face(self):
+        name=self.face_name.text().strip()
+        if not name: self.message.setText("Enter the name of the person facing the camera."); return
+        def configured(response):
+            if response.get("ok"): self.control.send("face_enroll",{"name":name},self.faces_result)
+        self.control.send("camera_settings",self.camera_policy_values(),configured)
+
+    def forget_face(self):
+        person=self.face_profiles.currentData()
+        if person and QMessageBox.question(self,"Remove local face profile", "Remove this person's local face samples and name?") == QMessageBox.Yes:
+            self.control.send("face_forget",{"person_id":person},self.faces_result)
 
     def capture_camera(self):
         self.save_preferences()
@@ -377,7 +427,7 @@ class MainWindow(QMainWindow):
         saved=self._settings.get("ollama_model") or DEFAULT_OLLAMA_MODEL
         if isinstance(saved,str) and saved!=DEFAULT_OLLAMA_MODEL: self.ollama_model.addItem(saved)
         self.ollama_model.setCurrentText(saved if isinstance(saved,str) else DEFAULT_OLLAMA_MODEL)
-        self.unitv2_address.setText(str(self._settings.get("unitv2_address", "")))
+        self.unitv2_address.setText(str(self._settings.get("unitv2_address", "192.168.40.175")))
         camera_index=self.camera_source.findData(self._settings.get("camera_source", "robot-camera"))
         if camera_index>=0: self.camera_source.setCurrentIndex(camera_index)
         for key,widget in (("thinker_provider",self.thinker_provider),("audio_output",self.audio_output)):
@@ -595,9 +645,27 @@ class MainWindow(QMainWindow):
         self.control.send("device.settings",values)
 
     def on_event(self,name,data):
-        if name=="ready":
+        if name=="camera_settings":
+            self.camera_policy.setCurrentIndex(max(0,self.camera_policy.findData(data.get("policy"))))
+            self.camera_privacy.setChecked(data.get("privacy") is True)
+            self.camera_source.setCurrentIndex(max(0,self.camera_source.findData(data.get("source"))))
+            self.unitv2_address.setText(data.get("address","192.168.40.175"))
+            self.presence_greetings.setChecked(data.get("greetings") is True)
+            self.presence_unknown.setChecked(data.get("unknown_alerts") is True)
+        elif name=="camera_state":
+            self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · {data.get('policy','OFF')} · {data.get('source','auto')}")
+        elif name=="perception":
+            distance=f" · {data['distance_mm']} mm" if data.get("distance_mm") is not None else ""
+            self.perception_state.setText(f"Zone {data.get('occupancy','UNKNOWN')}{distance} · sensor {data.get('sensor_health','unavailable')}\nLocal vision {data.get('health','idle')} · models {data.get('model_health','not_loaded')} · recent subjects {data.get('subjects',0)} · confirmed {len(data.get('confirmed_persons',[]))}")
+        elif name=="presence_notice":
+            self.message.setText(data.get("message","Local presence notice."))
+            if hasattr(self,"tray") and self.tray.isVisible(): self.tray.showMessage("Kadence",data.get("message",""),QSystemTrayIcon.Information,6000)
+        elif name=="enrollment":
+            self.message.setText(f"Enrollment: sample {data.get('sample',0)} of 3. Keep one face in view.")
+        elif name=="ready":
             self.message.setText("Local utilities ready. Connect Kadence when you're ready.")
             self.apply_timezone()
+            self.refresh_faces()
             self.update_controls()
         elif name=="server":
             self.server_state=data.get("state","stopped")

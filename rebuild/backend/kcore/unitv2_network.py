@@ -12,6 +12,12 @@ MAX_HEADER_BYTES = 8192
 
 
 
+def _remaining(connection, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0: raise TimeoutError("UnitV2 request timed out")
+    if connection.sock is not None: connection.sock.settimeout(remaining)
+
+
 def start_camera_stream(address: str, *, timeout: float = 10.0, port: int = 80) -> None:
     """Explicitly select Camera Stream, as the factory UI does; not boot config.
 
@@ -26,7 +32,10 @@ def start_camera_stream(address: str, *, timeout: float = 10.0, port: int = 80) 
     bootstrap = http.client.HTTPConnection(address, port, timeout=timeout)
     deadline = time.monotonic() + timeout
     try:
+        bootstrap.connect()
+        _remaining(bootstrap, deadline)
         bootstrap.request("GET", "/", headers={"Connection": "close"})
+        _remaining(bootstrap, deadline)
         sock = bootstrap.sock
         response = bootstrap.getresponse()
         try:
@@ -51,11 +60,16 @@ def start_camera_stream(address: str, *, timeout: float = 10.0, port: int = 80) 
         raise TimeoutError("UnitV2 bootstrap timed out") from exc
     finally:
         bootstrap.close()
-    connection = http.client.HTTPConnection(address, port, timeout=timeout)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0: raise TimeoutError("UnitV2 startup timed out")
+    connection = http.client.HTTPConnection(address, port, timeout=remaining)
     payload = json.dumps({"type_id": "3", "type_name": "camera_stream", "args": ""})
     try:
+        connection.connect()
+        _remaining(connection, deadline)
         connection.request("POST", "/func", body=payload.encode("utf-8"), headers={
             "Content-Type": "application/json;charset=UTF-8", "Connection": "close"})
+        _remaining(connection, deadline)
         response = connection.getresponse()
         try:
             if response.status != 200:
@@ -78,7 +92,10 @@ def capture_jpeg(address: str, *, timeout: float = 5.0, port: int = 80) -> bytes
     deadline = time.monotonic() + timeout
     connection = http.client.HTTPConnection(address, port, timeout=timeout)
     try:
+        connection.connect()
+        _remaining(connection, deadline)
         connection.request("GET", "/video_feed", headers={"Connection": "close"})
+        _remaining(connection, deadline)
         # HTTP/1.0 closes connection ownership after getresponse; retain the socket
         # so every body read still uses the remaining total deadline.
         sock = connection.sock

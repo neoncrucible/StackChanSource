@@ -539,3 +539,21 @@ before physical deployment; no local hardware test is implied by these gates.
 by this candidate. No sensor readings trigger actions, enter LLM context, or
 change the avatar. Keep the current accepted Capture second-click exception
 and pre-existing app-volume issue as recorded; neither is modified here.
+
+## Camera/perception host candidate — 2026-09-22
+
+Work continues only on `kadence/functionality`. Host 0.4.0 adds a single camera
+owner, saved OFF/EVENT_ONLY/AWARE policy selector and privacy override, bounded
+sensor-triggered local perception, explicit three-frame YuNet/SFace enrollment,
+per-subject sessions and transactional optional greeting/notice delivery. Schema
+stays v4 and firmware stays 0.21.6. No flash required. Defaults keep autonomy and
+actions off. See `CAMERA_PERCEPTION.md` for capabilities, limits, model hashes,
+rollback and one physical acceptance pass.
+
+Local verification: 179 tests passed, four platform/model checks skipped, plus
+78 subtests; phase_a4 ownership/reconnect/head-alignment gate passed. Windows CI
+also verifies the downloaded model hashes, real local inference, executable
+model loading, saved privacy, speech and clean shutdown. Owner acceptance of the
+new policy/enrollment/autonomy behaviour is pending. Previously accepted manual
+camera and voice behaviour remains covered; the onboard two-click quirk remains.
+UnitV2 producer-off/sensor standby is still unsupported, not claimed by privacy.

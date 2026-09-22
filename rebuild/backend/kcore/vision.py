@@ -129,6 +129,7 @@ async def describe_image(png: bytes, question: str, settings) -> str:
 class DeskVision:
     def __init__(self, emit=None, source_device="robot-camera"):
         self.emit = emit or (lambda name, data: None)
+        self.guard = lambda: None
         self.source_device = source_device
         self.width, self.height = 320, 240
         self.generation = 0
@@ -174,6 +175,15 @@ class DeskVision:
         self.generation += 1
         self.publish()
 
+    def accept_frame(self, frame):
+        self.guard()
+        self.png, self.qr = frame.png, list(frame.qr)
+        self.width, self.height = frame.width, frame.height
+        self.source_device, self.captured = frame.source, frame.captured_at
+        self.description = self.question = ""
+        self.generation += 1
+        self.publish()
+
     def publish(self):
         self.emit("snapshot", {"png": base64.b64encode(self.png).decode("ascii") if self.png else "",
             "source_device": self.source_device, "width": self.width, "height": self.height,
@@ -185,9 +195,11 @@ class DeskVision:
         self.publish()
 
     async def describe(self, question: str, settings):
+        self.guard()
         if self.png is None: raise ValueError("Capture an image first.")
         image = self.png
         reply = await describe_image(image, question, settings)
+        self.guard()
         if self.png is not image: raise RuntimeError("Image changed during description. Capture again.")
         self.description = reply
         self.question = question.strip()
@@ -195,6 +207,7 @@ class DeskVision:
         return {"spoken": reply, "qr": self.qr, "source": "Gemini"}
 
     async def save(self, directory: Path | KadencePaths, store, project_id: int):
+        self.guard()
         if self.png is None: raise ValueError("Capture an image first.")
         image, description, question, captured = self.png, self.description, self.question, self.captured
         width, height, source_device, qr = self.width, self.height, self.source_device, list(self.qr)
@@ -204,6 +217,8 @@ class DeskVision:
         await asyncio.to_thread(paths.prepare)
         path, relative = paths.image_path(captured, uuid.uuid4().hex)
         digest = hashlib.sha256(image).hexdigest()
+        self.guard()
+        if self.png is not image: raise RuntimeError("Image changed before saving.")
         def persist():
             try:
                 path.write_bytes(image)

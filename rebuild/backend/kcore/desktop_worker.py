@@ -60,9 +60,13 @@ class DesktopController:
         self._lifecycle = asyncio.Lock()
         self._media = None
         self._network_media = False
+        self._camera_settings_lock = asyncio.Lock()
 
     async def start(self):
         await self.services.start()
+        from .camera_manager import CameraConfig
+        from dataclasses import asdict
+        self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
         self.emit("ready", {"protocol": 1})
         self.emit("utilities", await self.services.snapshot())
 
@@ -113,6 +117,61 @@ class DesktopController:
                 self.emit("server", {"state": "stopped", "error": failure})
 
     async def command(self, action, args):
+        if action == "face_model_check":
+            from .local_faces import LocalFaces
+            from .camera_manager import settled_thread
+            import io
+            from PIL import Image
+            image=io.BytesIO(); Image.new("RGB",(320,240)).save(image,format="PNG")
+            faces=LocalFaces(self.services.paths.root)
+            result=await settled_thread(faces.analyze,image.getvalue())
+            return {"model_health":faces.health,"faces":len(result)}
+        if action == "camera_settings":
+            from .camera_manager import CameraConfig
+            from dataclasses import asdict
+            async with self._camera_settings_lock:
+                # Privacy must remain reachable even while an address edit is invalid.
+                if args.get("privacy") is True:
+                    from dataclasses import replace
+                    previous = self.app.camera.config if self.app else CameraConfig.load(self.services.paths.root)
+                    blocked = replace(previous, privacy=True)
+                    if self.app:
+                        self.app.camera.configure(blocked)
+                        self.app.vision.clear()
+                        if self._media: self._media.cancel()
+                    blocked.save(self.services.paths.root)
+                    if self.app and self.app.perception: await self.app.perception.reset("privacy")
+                try: config = CameraConfig.parse(args)
+                except ValueError:
+                    self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
+                    raise
+                # Apply privacy immediately before any asynchronous work or disk I/O.
+                if self.app:
+                    self.app.camera.configure(config)
+                    self.app.vision.clear()
+                    if self._media: self._media.cancel()
+                config.save(self.services.paths.root)
+                self.emit("camera_settings", asdict(config))
+                if self.app and self.app.perception: await self.app.perception.reset("settings_changed")
+            return {"message": "Camera policy saved."}
+        if action in {"face_profiles", "face_forget", "face_enroll"}:
+            from .perception_store import PerceptionStore
+            from .camera_manager import settled_thread
+            store = PerceptionStore(self.services.paths.database)
+            if action == "face_forget":
+                if self.app and self.app.perception:
+                    self.app.camera.configure(self.app.camera.config)
+                    if self._media: self._media.cancel()
+                    await self.app.perception.reset("profile_removed")
+                await settled_thread(lambda: store.call("forget", person=args.get("person_id")))
+            if action == "face_enroll":
+                if not self.app or not self.app.perception: raise RuntimeError("Start the server before enrollment.")
+                if self._media and not self._media.done(): raise RuntimeError("Camera is busy.")
+                self._network_media = True
+                self._media = asyncio.create_task(self.app.perception.enroll(args.get("name")))
+                try: return await self._media
+                finally: self._media = None; self._network_media = False
+            return {"persons":await settled_thread(lambda: store.call("persons")),"message":"Local face profiles updated."}
         if action == "ollama_models":
             if args: raise ValueError("Model discovery takes no arguments.")
             return {"models": await installed_models()}
@@ -164,11 +223,13 @@ class DesktopController:
                     coroutine = self.app.capture_unitv2_snapshot(address)
                 elif source == "robot-camera":
                     coroutine = self.app.capture_snapshot()
+                elif source == "auto":
+                    coroutine = self.app.capture_camera(source="auto", address=args.get("address"))
                 else:
                     raise ValueError("Choose a supported camera source.")
             else:
                 coroutine = self.app.vision.describe(args.get("question", "What is visible?"), self.app.settings.providers)
-            self._network_media = action == "camera_capture" and args.get("source") == "unitv2-camera"
+            self._network_media = action == "camera_capture" and args.get("source") in {"unitv2-camera", "auto"}
             self._media = asyncio.create_task(coroutine, name="kadence-camera-ui")
             try: return await self._media
             finally:

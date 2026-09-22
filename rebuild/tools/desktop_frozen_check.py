@@ -41,6 +41,10 @@ def check(executable, expected_commit, *, offline=False):
             assert local['ok'] and local['result']['local_voice'],local
             assert local['result']['pcm_bytes']>16000,local
             print('DESKTOP_LOCAL_SPEECH',json.dumps(local['result']),flush=True)
+            send(7,'face_model_check',{}); models=until('result',7)
+            assert models['ok'] and models['result']['model_health']=='ready' and models['result']['faces']==0,models
+            send(8,'camera_settings',{'privacy':True}); assert until('result',8)['ok']
+            assert json.loads((Path(tmp)/'camera-settings.json').read_text())['privacy'] is True
             send(6,'quit',{})
             assert until('closed')['clean'] is True
             assert process.wait(timeout=15)==0

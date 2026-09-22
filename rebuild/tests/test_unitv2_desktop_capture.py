@@ -62,7 +62,8 @@ class UnitV2DesktopCaptureTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_capture_never_publishes(self):
         app = KadenceAppliance.__new__(KadenceAppliance)
         app.vision = DeskVision()
-        app._unitv2_capture_lock = asyncio.Lock()
+        from kcore.camera_manager import CameraManager
+        app.camera = CameraManager(None)
         started = asyncio.Event()
         loop = asyncio.get_running_loop()
         def capture(*args, **kwargs):
@@ -71,8 +72,8 @@ class UnitV2DesktopCaptureTests(unittest.IsolatedAsyncioTestCase):
             return jpeg()
         with patch('kcore.unitv2_network.start_camera_stream'), patch('kcore.unitv2_network.capture_jpeg', side_effect=capture):
             task = asyncio.create_task(app.capture_unitv2_snapshot('192.168.40.175'))
-            await started.wait()
+            await asyncio.wait_for(started.wait(), 2)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError): await task
         self.assertIsNone(app.vision.png)
-        self.assertFalse(app._unitv2_capture_lock.locked())
+        self.assertIsNone(app.camera._active)

@@ -72,7 +72,10 @@ class KadenceAppliance:
         self.services = services
         self._owns_services = services is None
         self.vision = DeskVision(self.emit)
-        self._unitv2_capture_lock = asyncio.Lock()
+        from .camera_manager import CameraManager
+        self.camera = CameraManager(self._capture_robot_raw, emit=self.emit)
+        self.vision.guard = self.camera.check
+        self.perception = None
         self._utility_task = None
         self._media_mode = "voice"
         self._media_result = None
@@ -107,6 +110,13 @@ class KadenceAppliance:
     async def run_forever(self) -> None:
         await self._start_companion()
         await self._start_voice_server()
+        if self.services:
+            from .camera_manager import CameraConfig
+            from .perception import PerceptionController
+            self.camera.configure(CameraConfig.load(self.services.paths.root))
+            self.perception = PerceptionController(self.camera, self.services.paths, self.emit,
+                self._deliver_presence, lambda: self._voice_task is not None and not self._voice_task.done())
+            await self.perception.start()
         self._utility_task = asyncio.create_task(self._utility_loop(), name="kadence-device-status")
         self.emit("server", {"state": "running", "port": self.settings.port, "lan": self.settings.lan_host, "media_port": self._server_port})
         print(
@@ -169,6 +179,10 @@ class KadenceAppliance:
 
     async def close(self) -> None:
         self._stop.set()
+        if self.perception:
+            await self.perception.close()
+            self.perception = None
+        await self.camera.close()
         if self._utility_task:
             self._utility_task.cancel()
             with contextlib.suppress(asyncio.CancelledError): await self._utility_task
@@ -232,6 +246,14 @@ class KadenceAppliance:
                     ack = await request_device(body.host, "device.status")
                     self._last_device_status = ack.payload
                     self.emit("device", ack.payload)
+                    if self.perception and not ack.payload.get("media_busy"):
+                        from .sensors import read_tof_status, read_gesture_status
+                        try:
+                            tof = await read_tof_status(body.host, timeout=2)
+                            gesture = await read_gesture_status(body.host, timeout=2)
+                            await self.perception.sample(tof, gesture, id(body))
+                        except asyncio.CancelledError: raise
+                        except Exception: await self.perception.sample(None, body_id=id(body))
                     idle = self._voice_task is None or self._voice_task.done()
                     if self.services and idle and not ack.payload.get("media_busy"):
                         reminders = await self.services.store.call("reminder_list")
@@ -288,43 +310,62 @@ class KadenceAppliance:
             self.emit("activity", {"state": "idle"})
 
     async def capture_unitv2_snapshot(self, address):
-        from .unitv2_network import start_camera_stream, capture_jpeg
-        if self._unitv2_capture_lock.locked():
-            raise RuntimeError("UnitV2 capture is still finishing. Try again shortly.")
-        async with self._unitv2_capture_lock:
-            generation = self.vision.generation
-            def capture():
-                start_camera_stream(address)
-                return capture_jpeg(address, timeout=15)
-            task = asyncio.create_task(asyncio.to_thread(capture))
-            try:
-                jpeg = await asyncio.shield(task)
-            except asyncio.CancelledError:
-                # Keep ownership until bounded blocking I/O finishes. Never publish
-                # a cancelled result or permit overlapping camera startup requests.
-                with contextlib.suppress(Exception):
-                    await task
-                raise
-            except (OSError, ValueError) as exc:
-                raise RuntimeError("UnitV2 capture failed. Check its power and Wi-Fi address.") from exc
-            await self.vision.accept_jpeg(jpeg, generation)
-            return {"message": "UnitV2 snapshot captured locally. Image is temporary."}
+        return await self.capture_camera(source="unitv2-camera", address=address)
 
     async def capture_snapshot(self):
+        return await self.capture_camera(source="robot-camera")
+
+    async def capture_camera(self, source=None, address=None):
+        if getattr(self, "perception", None): await self.perception.interrupt()
+        generation = self.vision.generation
+        frame = await self.camera.acquire(source=source, address=address)
+        self.camera.check(frame.generation)
+        if self.vision.generation != generation: raise RuntimeError("Image was cleared during capture. Capture again.")
+        self.vision.accept_frame(frame)
+        return {"message": "Snapshot captured locally. Image is temporary.", "source": frame.source}
+
+    async def _capture_robot_raw(self):
         body = self._body
         if body is None or not body.connected: raise RuntimeError("Connect the robot first.")
         if self._voice_task is not None and not self._voice_task.done(): raise RuntimeError("Wait for the current voice or camera task.")
         self._voice_task = asyncio.create_task(self._run_media(body, "camera.snapshot"), name="kadence-snapshot")
         self._voice_task.add_done_callback(self._voice_task_done)
-        raw = await self._voice_task
-        await self.vision.accept(raw)
-        return {"message": "Snapshot captured. Local QR decoding complete."}
+        return await self._voice_task
 
     async def _look_during_voice(self, question):
         if self._capture_in_voice is None: raise RuntimeError("No active camera request channel")
-        raw = await self._capture_in_voice()
-        await self.vision.accept(raw)
+        if self.perception: await self.perception.interrupt()
+        frame = await self.camera.acquire(purpose="voice", in_voice=self._capture_in_voice)
+        self.camera.check(frame.generation)
+        self.vision.accept_frame(frame)
         return await self.vision.describe(question, self.settings.providers)
+
+    async def _deliver_presence(self, action, check):
+        check()
+        if action["kind"] == "unknown_alert":
+            self.emit("presence_notice", {"message": "An unenrolled face was seen. Identity is unknown."})
+            return
+        # A fixed greeting is data, not a model/tool request. No head movement.
+        if self._voice_task is not None and not self._voice_task.done(): raise RuntimeError("Voice is busy.")
+        async def speak():
+            try:
+                providers = LiveVoiceProviders.from_settings(self.settings.providers)
+                pcm = await _synthesize_reply(providers, "Welcome back, " + action["greeting_name"][:80] + ". Try not to break the universe before tea.")
+                check()
+                if time.time() > action["expires_at"]: raise RuntimeError("Greeting expired.")
+                if self.settings.audio_output == "windows":
+                    self._windows_audio.start(pcm)
+                    await self._windows_audio.finish()
+                else:
+                    if not self._body or not self._body.connected: raise RuntimeError("Robot unavailable.")
+                    self._alert_pcm = pcm
+                    await self._run_media(self._body, "voice.alert")
+            finally:
+                self._alert_pcm = b""
+                self._windows_audio.stop()
+        self._voice_task = asyncio.create_task(speak(), name="kadence-presence-greeting")
+        self._voice_task.add_done_callback(self._voice_task_done)
+        await self._voice_task
 
     async def _close_connections(self) -> None:
         connections = tuple(self._connections.items())
