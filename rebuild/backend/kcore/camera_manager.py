@@ -88,7 +88,13 @@ async def settled_thread(function, *args, on_cancel=None):
     try: return await asyncio.shield(task)
     except asyncio.CancelledError:
         if on_cancel: on_cancel()
-        with contextlib.suppress(Exception): await task
+        # Several consumers may cancel the same request (privacy, explicit work,
+        # shutdown). Repeated cancellation must not abandon a live OS worker.
+        while not task.done():
+            try: await asyncio.shield(task)
+            except asyncio.CancelledError: continue
+            except Exception: break
+        with contextlib.suppress(asyncio.CancelledError, Exception): task.result()
         raise
 
 

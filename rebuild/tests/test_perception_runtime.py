@@ -268,3 +268,17 @@ def test_real_packaged_models_load_and_run_locally(tmp_path):
     import numpy as np
     feature=model._recognizer.feature(np.zeros((112,112,3),dtype=np.uint8)).reshape(-1)
     assert len(normalize(feature))==128
+
+
+def test_repeated_cancellation_keeps_worker_owned_until_settled():
+    async def case():
+        started=threading.Event();finish=threading.Event()
+        def operation():started.set();finish.wait(2);return 1
+        task=asyncio.create_task(settled_thread(operation))
+        await asyncio.to_thread(started.wait,1)
+        task.cancel();await asyncio.sleep(.01)
+        task.cancel();await asyncio.sleep(.01)
+        assert not task.done()
+        finish.set()
+        with pytest.raises(asyncio.CancelledError):await task
+    run(case())
