@@ -96,6 +96,7 @@ def build(commit: str, firmware: Path | None = None):
         # Let PyInstaller's maintained cv2 hook collect the OpenCV loader, extension,
         # config files, and numpy dependencies.  ``--collect-all cv2`` duplicates that
         # collection and can leave the frozen Windows loader blocked during ``import cv2``.
+        '--runtime-hook',str(ROOT/'rebuild'/'tools'/'pyi_rth_cv2.py'),
         '--hidden-import','_cffi_backend',
         '--add-data',str(model_dir)+os.pathsep+'face_models',
         '--add-data',str(work/'BUILD.json')+os.pathsep+'.',str(entry)],cwd=ROOT,check=True)
