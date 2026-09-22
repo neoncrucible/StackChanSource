@@ -165,7 +165,7 @@ def test_corrupt_settings_fail_closed(tmp_path):
 
 
 def test_embedding_validation_and_person_level_margin():
-    for bad in ([0]*128,[float('nan')]*128,[1]*127):
+    for bad in ([0]*128,[float('nan')]*128,[1e308]*128,[1]*127):
         with pytest.raises(ValueError):normalize(bad)
     assert decode(encode(vector()))==vector()
     assert match(vector(),[('a',vector()),('a',vector())])==('a','candidate')

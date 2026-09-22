@@ -20,9 +20,15 @@ def check(executable, expected_commit, *, offline=False):
         threading.Thread(target=lambda:[output.put(line) for line in process.stdout],daemon=True).start()
         def until(event,ident=None):
             for _ in range(30):
-                raw=output.get(timeout=30)
+                try: raw=output.get(timeout=30)
+                except queue.Empty:
+                    code=process.poll()
+                    if code is not None:
+                        raise AssertionError(f"Frozen worker exited {code}; stderr: {process.stderr.read()[-4000:]}") from None
+                    raise AssertionError("Frozen worker is alive but did not answer within 30 seconds") from None
                 value=json.loads(raw)
                 assert value['v']==1,value
+                if value['event']=='model_check': print('DESKTOP_MODEL_STAGE',value['data'],flush=True)
                 if value['event']==event and (ident is None or value['data'].get('id')==ident): return value['data']
             raise AssertionError('Expected control response missing')
         def send(ident,action,args):

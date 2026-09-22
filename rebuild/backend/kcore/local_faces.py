@@ -21,7 +21,7 @@ def normalize(values):
     values = tuple(float(x) for x in values)
     if len(values) != 128 or not all(math.isfinite(x) for x in values): raise ValueError("Invalid face embedding.")
     length = math.sqrt(sum(x*x for x in values))
-    if length < 1e-8: raise ValueError("Invalid face embedding.")
+    if not math.isfinite(length) or length < 1e-8: raise ValueError("Invalid face embedding.")
     return tuple(x/length for x in values)
 
 
@@ -52,7 +52,8 @@ def match(embedding, profiles, *, threshold=.55, margin=.08):
 
 
 class LocalFaces:
-    def __init__(self, root):
+    def __init__(self, root, progress=None):
+        self.progress = progress or (lambda stage: None)
         bundled = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "face_models"
         self.directory = bundled if all((bundled / n).exists() for n in MODELS) else Path(root) / "models" / "faces"
         self._lock = threading.Lock()
@@ -60,7 +61,9 @@ class LocalFaces:
         self.health = "not_loaded"
 
     def load(self):
+        self.progress("import_cv2")
         import cv2
+        self.progress("verify_models")
         for name, (_, size, digest) in MODELS.items():
             path = self.directory / name
             if not path.exists():
@@ -69,11 +72,14 @@ class LocalFaces:
             if path.stat().st_size != size or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 self.health = "models_invalid"
                 raise RuntimeError("Local face model verification failed.")
+        self.progress("load_detector")
         self._detector = cv2.FaceDetectorYN.create(str(self.directory / next(iter(MODELS))), "", (320, 240), .9, .3, 100)
+        self.progress("load_recognizer")
         self._recognizer = cv2.FaceRecognizerSF.create(str(self.directory / "face_recognition_sface_2021dec.onnx"), "")
         self.health = "ready"
 
     def analyze(self, png):
+        self.progress("import_cv2")
         import cv2
         import numpy as np
         with self._lock:
@@ -81,7 +87,9 @@ class LocalFaces:
             image = cv2.imdecode(np.frombuffer(png, dtype=np.uint8), cv2.IMREAD_COLOR)
             if image is None or image.shape[0] > 480 or image.shape[1] > 640: raise ValueError("Invalid perception frame.")
             self._detector.setInputSize((image.shape[1], image.shape[0]))
+            self.progress("detect")
             _, detections = self._detector.detect(image)
+            self.progress("detected")
             faces = []
             for detection in (() if detections is None else detections[:8]):
                 x, y, w, h = (float(v) for v in detection[:4])

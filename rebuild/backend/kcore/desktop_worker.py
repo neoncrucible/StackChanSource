@@ -123,7 +123,8 @@ class DesktopController:
             import io
             from PIL import Image
             image=io.BytesIO(); Image.new("RGB",(320,240)).save(image,format="PNG")
-            faces=LocalFaces(self.services.paths.root)
+            loop=asyncio.get_running_loop()
+            faces=LocalFaces(self.services.paths.root, progress=lambda stage:loop.call_soon_threadsafe(self.emit,"model_check",{"stage":stage}))
             result=await settled_thread(faces.analyze,image.getvalue())
             return {"model_health":faces.health,"faces":len(result)}
         if action == "camera_settings":
