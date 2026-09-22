@@ -86,7 +86,11 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
                 record=(await service.store.call('reminder_list'))[0]
                 self.assertEqual((record['state'],record['robot']),('due','attempted'))
                 self.assertIn(('alert',{'state':'review_in_windows','count':1}),events)
-            finally: await service.close()
+            finally:
+                await service.close()
+                # Cancelling a scheduler await does not stop its to_thread worker.
+                # Join executor work before Windows removes the temporary database.
+                await asyncio.get_running_loop().shutdown_default_executor()
 
     async def test_camera_rejects_busy_voice(self):
         app=KadenceAppliance(settings()); app._body=SimpleNamespace(connected=True)
@@ -155,4 +159,8 @@ class VisionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn('UTC',record['text']); self.assertIn('media/images/',record['text'])
                 vision.clear(); self.assertIsNone(vision.png)
                 self.assertEqual(len(list(service.paths.images_dir.rglob('*.png'))),1)
-            finally: await service.close()
+            finally:
+                await service.close()
+                # Cancelling a scheduler await does not stop its to_thread worker.
+                # Join executor work before Windows removes the temporary database.
+                await asyncio.get_running_loop().shutdown_default_executor()
