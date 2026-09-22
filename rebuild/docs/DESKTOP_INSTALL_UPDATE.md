@@ -26,5 +26,20 @@ Restart the server after changes. Credentials follow Remember when starting.
 
 This package uses the already tested firmware 0.21.6. No firmware is included.
 Alignment fix in host 0.3.8 was physically accepted on 2026-09-22, including
-normal Ollama replies after correcting the model name. The 0.3.9 dropdown and
-installer are a new change requiring an owner desktop launch/reopen check.
+normal Ollama replies after correcting the model name.
+
+Desktop 0.3.9 physical sign-off — 2026-09-22
+Accepted build: ec766bf0c93bf5c1958e62f657bf0296cf30bd30
+The owner confirmed all requested checks passed: launch using the desktop
+shortcut, quit and reopen, saved Ollama / qwen3.5:4b selection, normal spoken
+answers, and unchanged head/camera alignment after answering.
+The initial START SERVER issue was resolved by the owner; its cause was not
+reported. No further code change was needed for this acceptance.
+
+Windows CI for this build passed 30 tests plus 8 subtests, the runtime gate,
+and the packaged executable's worker, storage, local speech and shutdown
+checks. Package update/reinstall and corrupt-package rejection were exercised
+in CI. An update from this installed version to a future release has not yet
+been physically tested. The previously accepted onboard camera two-click
+quirk remains unchanged. Autonomous perception functionality is not signed
+off by these desktop checks.
