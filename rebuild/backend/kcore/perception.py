@@ -90,11 +90,6 @@ class PerceptionController:
         return await settled_thread(lambda: self.store.call(operation, **args))
 
     async def start(self):
-        # PyInstaller's OpenCV loader must be initialised before the first
-        # executor call; otherwise a frozen Windows worker can hang in import.
-        preload = getattr(self.faces, "preload", None)
-        if preload is not None:
-            preload()
         await self.reset("startup")
         self._ticker = asyncio.create_task(self._tick_loop(), name="kadence-perception-clock")
         self.publish()

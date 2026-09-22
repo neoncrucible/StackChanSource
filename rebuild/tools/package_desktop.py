@@ -93,7 +93,10 @@ def build(commit: str, firmware: Path | None = None):
         '--onedir','--name','Kadence','--console','--hide-console','hide-early',
         '--distpath',str(work/'app'),'--workpath',str(work/'objects'),'--specpath',str(work),
         '--collect-submodules','kcore','--collect-data','tzdata','--collect-data','certifi',
-        '--collect-all','cv2','--hidden-import','_cffi_backend',
+        # Let PyInstaller's maintained cv2 hook collect the OpenCV loader, extension,
+        # config files, and numpy dependencies.  ``--collect-all cv2`` duplicates that
+        # collection and can leave the frozen Windows loader blocked during ``import cv2``.
+        '--hidden-import','_cffi_backend',
         '--add-data',str(model_dir)+os.pathsep+'face_models',
         '--add-data',str(work/'BUILD.json')+os.pathsep+'.',str(entry)],cwd=ROOT,check=True)
     desktop=work/'app'/'Kadence'
