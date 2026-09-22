@@ -308,7 +308,15 @@ def main():
     # The protocol never parses appliance print output. Suppress raw adapter and
     # device logs; typed status is the only path to GUI diagnostics.
     with open(os.devnull, "w") as discard, contextlib.redirect_stdout(discard), contextlib.redirect_stderr(discard):
-        try: asyncio.run(run_worker(incoming, outgoing))
+        try:
+            # Frozen NumPy/OpenCV native initialization must happen before the
+            # control reader or any other worker thread exists. Delayed first
+            # import can deadlock the Windows frozen loader after normal host
+            # activity even though the same modules work in source runs.
+            if getattr(sys, "frozen", False):
+                from .local_faces import LocalFaces
+                LocalFaces.preload()
+            asyncio.run(run_worker(incoming, outgoing))
         except KeyboardInterrupt: pass
         except Exception:
             outgoing.write('{"v":1,"event":"fatal","data":{"message":"Local services could not start."}}\n'); outgoing.flush()
