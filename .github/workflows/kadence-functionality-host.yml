@@ -1,0 +1,30 @@
+name: Kadence functionality host regression
+
+on:
+  push:
+    branches: [kadence/functionality]
+    paths:
+      - 'rebuild/backend/**'
+      - 'rebuild/tests/**'
+      - 'rebuild/pyproject.toml'
+      - 'rebuild/tools/phase_a4_gate.py'
+      - '.github/workflows/kadence-functionality-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  voice-alignment:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install host test dependencies
+        run: python -m pip install -e "./rebuild[voice,vision,dev]"
+      - name: Voice completion and recovery regression
+        run: python -m pytest rebuild/tests/test_appliance_candidate.py rebuild/tests/test_voice_failures.py rebuild/tests/test_rc2_media.py -q
+      - name: Runtime ownership and alignment gate
+        run: python rebuild/tools/phase_a4_gate.py

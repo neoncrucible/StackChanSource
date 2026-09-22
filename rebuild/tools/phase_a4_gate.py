@@ -27,7 +27,7 @@ def main() -> None:
     wire = wire_path.read_text(encoding="utf-8")
     pyproject = pyproject_path.read_text(encoding="utf-8")
 
-    ast.parse(appliance, filename=str(appliance_path))
+    appliance_tree = ast.parse(appliance, filename=str(appliance_path))
     ast.parse(serial, filename=str(serial_path))
     ast.parse(runtime, filename=str(runtime_path))
     ast.parse(providers, filename=str(providers_path))
@@ -49,8 +49,15 @@ def main() -> None:
             "normal runtime does not own the real provider voice pipeline")
     require("body.send_voice_turn(" in appliance and "body.send_voice_cancel(" in appliance,
             "normal runtime is missing the proven device voice control path")
-    require("body.send_body_pose(0, 430" in appliance and "torque_released" in appliance,
-            "normal runtime does not use the proven safe body reaction lane")
+    voice_turn = next(node for node in ast.walk(appliance_tree)
+                      if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_voice_turn")
+    require(not any(isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "send_body_pose"
+                    for node in ast.walk(voice_turn)),
+            "voice completion must preserve camera alignment")
+    require("async def send_body_pose" in runtime and "torque_released" in appliance,
+            "explicit body control or voice torque-release recovery is missing")
     require("body.wait_disconnected()" in appliance,
             "normal runtime does not supervise physical disconnects")
     require("KADENCE_RUNTIME RECONNECT" in appliance and "reconnect_delay" in appliance,
@@ -88,7 +95,7 @@ def main() -> None:
     print(
         "PHASE_A4_GATE PASS "
         "normal_entry=1 runtime_owner=1 device_events=1 repeated_turns=1 "
-        "touch_cancel=1 provider_cancel=1 body_reaction=1 reconnect=1 clean_shutdown=1 "
+        "touch_cancel=1 provider_cancel=1 body_reaction=0 reconnect=1 clean_shutdown=1 "
         "no_speech_recovery=1 single_voice_server=1 no_test_harness=1"
     )
 

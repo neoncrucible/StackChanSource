@@ -59,6 +59,7 @@ class Device:
         self.states = []
         self.played = 0
         self.moved = 0
+        self.pose = (120, 510)
         self.fail_playback = False
         self.cancel_calls = 0
 
@@ -67,6 +68,7 @@ class Device:
 
     async def send_body_pose(self, yaw, pitch, **kwargs):
         self.moved += 1
+        self.pose = (yaw, pitch)
         return Envelope(MessageKind.ACK, "body.pose", {"executed": True, "torque_released": True})
 
     async def send_voice_cancel(self, **kwargs):
@@ -119,11 +121,12 @@ class ApplianceTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(self.app._voice_task, 2)
         await asyncio.sleep(0)
 
-    async def test_repeated_normal_turns_and_device_ack_commit(self):
+    async def test_repeated_normal_turns_preserve_camera_pose_and_commit(self):
         await self.turn()
         await self.turn()
         self.assertGreater(self.device.played,0)
-        self.assertEqual(self.device.moved,2)
+        self.assertEqual(self.device.moved,0)
+        self.assertEqual(self.device.pose,(120,510))
         self.assertEqual(len(self.app._companion.history),2)
         self.assertIn("tool-working",self.device.states)
         self.assertEqual(self.app._connections,{})
@@ -189,7 +192,9 @@ class ApplianceTests(unittest.IsolatedAsyncioTestCase):
         self.device=Device(self.app)
         self.app._body=self.device
         await self.turn()
-        self.assertEqual(self.device.moved,1)
+        self.assertGreater(self.device.played,0)
+        self.assertEqual(self.device.moved,0)
+        self.assertEqual(self.device.pose,(120,510))
         self.assertEqual(len(self.app._companion.history),2)
 
     async def test_cancel_during_serial_start_closes_port(self):

@@ -469,23 +469,11 @@ class KadenceAppliance:
         self._turn_sequence += 1
         self.emit("turn", {"completed": self._turn_sequence})
         self.emit("activity", {"state": "idle"})
-        body_ok = False
-        try:
-            movement = await body.send_body_pose(0, 430, timeout=8.0)
-            body_ok = (
-                movement.payload.get("executed") is True
-                and movement.payload.get("torque_released") is True
-            )
-        except Exception as exc:
-            self._report_issue("body", exc)
-            print(
-                "KADENCE_RUNTIME BODY degraded "
-                f"reason={type(exc).__name__}:{_safe_message(exc)}"
-            )
-
+        # Completing speech must preserve the operator's camera alignment.
+        # A fixed acknowledgement pose has no verified return-to-home contract.
         print(
             "KADENCE_RUNTIME TURN complete "
-            f"seq={self._turn_sequence} voice=1 body_reaction={int(body_ok)} idle_return=1"
+            f"seq={self._turn_sequence} voice=1 body_reaction=0 idle_return=1"
         )
 
     async def _handle_touch_cancel(self, body: RuntimeBody, event: Envelope) -> None:

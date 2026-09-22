@@ -121,7 +121,7 @@ still initialize a new installation. Successful upgrade prints its rollback path
 Expected: KADENCE_STORAGE PASS schema=4 integrity=ok foreign_keys=ok. Old table
 counts remain equal; the six perception tables have zero rows. Re-running is a
 no-op. Then start the source desktop normally and check existing reminders and a
-saved observation. Physical confirmation on the owner's database is still pending.
+saved observation. The owner confirmed migration, reopen, reminders and normal voice on 2026-09-22.
 
 Rollback is a data restore, not merely a Git switch: close all Kadence processes;
 archive the current v4 DB together with any -wal/-shm sidecars; restore the exact
@@ -154,7 +154,7 @@ visible in the eventual camera adapter's capabilities.
 
 ## Subsequent milestones
 
-1. Confirm owner's v4 migration and investigate camera lifecycle.
+1. Investigate camera lifecycle (owner's v4 migration and reopen confirmed).
 2. CameraManager, immutable frame results, source arbitration and privacy/cancel tests.
 3. In-memory occupancy in observation-only mode; sensor stale/reset/sleep tests.
 4. Local enrollment, recognition and multi-subject session evidence.
@@ -171,3 +171,19 @@ concurrent migration, invalid FKs, future/incomplete schemas, legacy/canonical
 ambiguity, reminder states, saved media, operator read-only/upgrade checks, and
 existing desktop/voice/camera tests. Tests use temporary databases; the owner's
 Windows database has not been touched by this development session.
+
+## Windows confirmation and post-answer alignment (2026-09-22)
+
+Owner's storage upgrade passed with schema=4, integrity=ok and foreign_keys=ok.
+The pre-upgrade rollback snapshot was created; four reminders remained and the
+new perception tables were empty. The owner subsequently confirmed the reopen
+and normal operation check passed.
+
+Host 0.3.8 removes the unconditional post-answer body.pose(yaw=0, pitch=430).
+That command moved to a fixed target and released torque there; it did not
+return to the previous pose. Completing speech now sends no servo repositioning,
+preserving the operator's camera alignment. No guessed home angle, calibration
+change or firmware change is introduced. Explicit movement remains available.
+The existing repeated-turn and reconnect tests now require zero pose commands
+and preservation of a nonzero initial pose. Physical confirmation of the fix
+requires two normal questions after restarting the updated host; no flash is needed.
