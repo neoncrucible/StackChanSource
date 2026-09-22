@@ -25,7 +25,11 @@ function Test-PackageFiles([string]$Root) {
         }
         $file = Join-Path $Root $relative
         if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Package file missing: $relative" }
-        if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $expected) { throw "Package checksum failed: $relative" }
+        $stream = [IO.File]::OpenRead($file)
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $actual = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+        finally { $stream.Dispose(); $hasher.Dispose() }
+        if ($actual -ne $expected) { throw "Package checksum failed: $relative" }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'Kadence.exe') -PathType Leaf)) { throw 'Kadence.exe is missing.' }
 }
