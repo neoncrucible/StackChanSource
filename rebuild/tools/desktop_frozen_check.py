@@ -18,6 +18,7 @@ def check(executable, expected_commit, *, offline=False):
             env={**os.environ,'KADENCE_DATA_DIR':tmp})
         output=queue.Queue()
         threading.Thread(target=lambda:[output.put(line) for line in process.stdout],daemon=True).start()
+        threading.Thread(target=lambda:[print('DESKTOP_STDERR',line.rstrip(),flush=True) for line in process.stderr],daemon=True).start()
         def until(event,ident=None):
             for _ in range(30):
                 try: raw=output.get(timeout=30)
