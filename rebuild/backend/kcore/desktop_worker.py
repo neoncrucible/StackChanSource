@@ -126,7 +126,7 @@ class DesktopController:
             loop=asyncio.get_running_loop()
             faces=LocalFaces(self.services.paths.root, progress=lambda stage:loop.call_soon_threadsafe(self.emit,"model_check",{"stage":stage}))
             self.emit("model_check", {"stage":"preload_cv2"})
-            faces.preload()
+            faces.preload(progress=lambda stage:self.emit("model_check", {"stage":stage}))
             result=await settled_thread(faces.analyze,image.getvalue())
             return {"model_health":faces.health,"faces":len(result)}
         if action == "camera_settings":

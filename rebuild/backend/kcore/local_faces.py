@@ -61,15 +61,18 @@ class LocalFaces:
         self.health = "not_loaded"
 
     @staticmethod
-    def preload():
+    def preload(progress=None):
         """Import OpenCV on the worker's event-loop thread before thread workers.
 
         The frozen Windows OpenCV loader is not safe to initialise from a
         newly-created worker thread. Model inference still runs off-loop, but
         native module loading happens once in the owning process thread.
         """
-        import cv2  # noqa: F401
+        report = progress or (lambda stage: None)
+        report("import_numpy")
         import numpy  # noqa: F401
+        report("import_cv2")
+        import cv2  # noqa: F401
 
     def load(self):
         self.progress("import_cv2")
