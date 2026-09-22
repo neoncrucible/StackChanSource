@@ -1,4 +1,4 @@
-Kadence Desktop 0.3.9 — install and update
+Kadence Desktop — install and update
 
 1. Quit Kadence completely, including its tray icon. Close any source host too.
 2. Extract the entire desktop ZIP to a new folder. Do not run inside the ZIP.
@@ -43,3 +43,17 @@ in CI. An update from this installed version to a future release has not yet
 been physically tested. The previously accepted onboard camera two-click
 quirk remains unchanged. Autonomous perception functionality is not signed
 off by these desktop checks.
+
+
+Desktop 0.4.0 perception candidate — 2026-09-22
+Host 0.4.0 adds saved camera policy/privacy controls, single-owner camera
+acquisition and bounded local face perception. Firmware remains 0.21.6; no
+firmware flash is required. The accepted 0.3.9 desktop remains the rollback.
+
+During Windows packaging, delayed first import of NumPy/OpenCV in the frozen
+worker could deadlock after the control-reader thread had started. The frozen
+worker now preloads those native modules before creating any worker thread.
+The packaged executable gate, perception/voice regressions, runtime ownership
+gate and artifact upload all passed after this loader-order change with the
+normal dependency set. Physical camera/perception acceptance is still pending;
+follow CAMERA-PERCEPTION.txt after installing the 0.4.0 candidate.
