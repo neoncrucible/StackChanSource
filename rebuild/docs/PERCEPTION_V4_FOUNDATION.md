@@ -187,3 +187,12 @@ change or firmware change is introduced. Explicit movement remains available.
 The existing repeated-turn and reconnect tests now require zero pose commands
 and preservation of a nonzero initial pose. Physical confirmation of the fix
 requires two normal questions after restarting the updated host; no flash is needed.
+
+## Alignment fix physical sign-off (2026-09-22)
+
+Owner confirmed the head remains aligned after answers on host 0.3.8.
+The thinking-service fallback was resolved by correcting the saved model name
+from `qwen 3.5` to the installed `qwen3.5:4b`; normal replies then passed.
+Alignment fix commits: 845ca73339e4 and bfd96e8ea0c9. Signed off.
+Host 0.3.9 separately adds saved model selection and desktop install/update
+packaging; it does not expand this physical sign-off to untested features.

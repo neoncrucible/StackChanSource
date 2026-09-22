@@ -61,6 +61,24 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(preferences['camera_source'],'unitv2-camera')
                 self.assertEqual(preferences['unitv2_address'],'192.168.40.175')
                 self.assertNotIn(fake,window.settings_path.read_text())
+                self.assertEqual(window.ollama_model.currentText(),'qwen3.5:4b')
+                with patch.object(window.control, 'send') as send:
+                    window.refresh_models()
+                    callback=send.call_args.args[2]
+                    callback({'ok':True,'result':{'models':['qwen3.5:4b','custom:latest']}})
+                self.assertGreaterEqual(window.ollama_model.findText('custom:latest'),0)
+                self.assertEqual(window.ollama_model.currentText(),'qwen3.5:4b')
+                window.ollama_model.setCurrentText('custom:latest')
+                window.save_settings()
+                self.assertEqual(json.loads(window.settings_path.read_text())['ollama_model'],'custom:latest')
+                window.ollama_model.setCurrentText('qwen3.5:4b')
+                window._load_settings(False)
+                self.assertEqual(window.ollama_model.currentText(),'custom:latest')
+                with patch.object(window.control, 'send') as send:
+                    window.refresh_models()
+                    send.call_args.args[2]({'ok':False,'message':'Ollama unavailable'})
+                self.assertEqual(window.ollama_model.currentText(),'custom:latest')
+                self.assertTrue(window.models_refresh.isEnabled())
                 window.record_diagnostic('device',{'state':fake,'connected':True,'password':fake,'qr':fake})
                 self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
                 window.record_diagnostic('device_diagnostic',{'reason':'interrupt-watchdog','cpu':1,

@@ -25,6 +25,7 @@ from .credential_vault import CredentialVault
 from .desktop_process import ControlProcess
 from .workbench import UNITS
 from .build_info import build_info
+from .ollama_models import DEFAULT_OLLAMA_MODEL, model_name
 
 STYLE = """
 QWidget { background: #000000; color: #d4dfd7; font-family: 'Cascadia Mono','Consolas','DejaVu Sans Mono'; font-size: 12px; }
@@ -195,6 +196,10 @@ class MainWindow(QMainWindow):
         self.message=label("Local utilities are starting…", "muted"); self.message.setMinimumHeight(36); shell.addWidget(self.message)
         self.navigate(0)
         self._load_settings(load_credentials)
+        self.ollama_model.activated.connect(self.save_settings)
+        self.ollama_model.lineEdit().editingFinished.connect(self.save_settings)
+        self.thinker_provider.currentIndexChanged.connect(self.save_settings)
+        self.audio_output.currentIndexChanged.connect(self.save_settings)
         self.timezone.editingFinished.connect(self.apply_timezone)
         self._make_tray()
         self.ticker=QTimer(self); self.ticker.setInterval(1000); self.ticker.timeout.connect(self.tick); self.ticker.start()
@@ -233,14 +238,18 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.remember,6,1); grid.addWidget(button("FORGET",self.forget_credentials),6,2)
         grid.addWidget(label("Timezone"),7,0); grid.addWidget(self.timezone,7,1); grid.addWidget(self.capture,7,2)
         self.thinker_provider=QComboBox(); self.thinker_provider.addItem("Gemini", "gemini"); self.thinker_provider.addItem("Ollama (this PC)", "ollama")
-        self.ollama_model=line("Exact name from ollama list",160)
+        self.ollama_model=QComboBox(); self.ollama_model.setEditable(True)
+        self.ollama_model.addItem(DEFAULT_OLLAMA_MODEL)
+        self.ollama_model.lineEdit().setMaxLength(160)
+        self.models_refresh=button("REFRESH",self.refresh_models)
         self.audio_output=QComboBox()
         for title,value in (("Robot speaker","robot"),("Windows speaker / Bluetooth","windows"),("Robot + Windows","both")):
             self.audio_output.addItem(title,value)
         grid.addWidget(label("Thinking provider"),8,0); grid.addWidget(self.thinker_provider,8,1,1,2)
-        grid.addWidget(label("Ollama model"),9,0); grid.addWidget(self.ollama_model,9,1,1,2)
+        grid.addWidget(label("Ollama model"),9,0); grid.addWidget(self.ollama_model,9,1); grid.addWidget(self.models_refresh,9,2)
         grid.addWidget(label("Speech output"),10,0); grid.addWidget(self.audio_output,10,1,1,2)
         grid.addWidget(label("Ollama changes reasoning only. Transcription and Edge speech still use online services.\nWindows output follows your default speaker. Restart the server after changes.","muted"),11,0,1,3)
+        grid.addWidget(button("SAVE SETTINGS",self.save_settings),12,1)
         layout.addWidget(group)
         layout.addWidget(label("Session-only credentials by default. SHOW reveals a field here; diagnostics never include it.","muted"))
         layout.addStretch()
@@ -365,7 +374,9 @@ class MainWindow(QMainWindow):
             if isinstance(value,str) and value: widget.setCurrentText(value)
         value=self._settings.get("capture_ms",4800)
         if type(value) is int: self.capture.setValue(value)
-        self.ollama_model.setText(str(self._settings.get("ollama_model", "")))
+        saved=self._settings.get("ollama_model") or DEFAULT_OLLAMA_MODEL
+        if isinstance(saved,str) and saved!=DEFAULT_OLLAMA_MODEL: self.ollama_model.addItem(saved)
+        self.ollama_model.setCurrentText(saved if isinstance(saved,str) else DEFAULT_OLLAMA_MODEL)
         self.unitv2_address.setText(str(self._settings.get("unitv2_address", "")))
         camera_index=self.camera_source.findData(self._settings.get("camera_source", "robot-camera"))
         if camera_index>=0: self.camera_source.setCurrentIndex(camera_index)
@@ -383,7 +394,7 @@ class MainWindow(QMainWindow):
         lan=self.lan.currentText().strip()
         values={"port":self.port.currentText().strip(),"ssid":self.ssid.text(),"lan_host":"" if lan=="Auto-detect" else lan,
             "timezone":self.timezone.text().strip() or "Europe/London","capture_ms":self.capture.value(), "thinker_provider":self.thinker_provider.currentData(),
-            "ollama_model":self.ollama_model.text().strip(), "audio_output":self.audio_output.currentData()}
+            "ollama_model":self.ollama_model.currentText().strip() or DEFAULT_OLLAMA_MODEL, "audio_output":self.audio_output.currentData()}
         values.update({key:edit.text().strip() if key!="wifi_password" else edit.text() for key,edit in self.secret_fields.items()})
         return values
 
@@ -394,6 +405,31 @@ class MainWindow(QMainWindow):
         safe.update(remember=self.remember.isChecked(),tray=self.tray_check.isChecked())
         temporary=self.settings_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(safe,indent=2)+"\n","utf-8"); temporary.replace(self.settings_path)
+
+    def save_settings(self,*args):
+        try:
+            model_name(self.ollama_model.currentText())
+            self.save_preferences()
+            self.message.setText("Settings saved. Restart the server to apply changes. Credentials follow the Remember option when you start the server.")
+        except ValueError as exc: self.message.setText(str(exc))
+        except OSError: self.message.setText("Settings could not be saved. Check access to the Kadence data folder.")
+
+    def refresh_models(self):
+        self.models_refresh.setEnabled(False)
+        def refreshed(response):
+            self.models_refresh.setEnabled(True)
+            if not response.get("ok"):
+                self.message.setText(response.get("message","Cannot load Ollama models. Open Ollama and try again.")); return
+            current=self.ollama_model.currentText()
+            names=response["result"]["models"]
+            self.ollama_model.blockSignals(True)
+            self.ollama_model.clear()
+            self.ollama_model.addItems(list(dict.fromkeys([DEFAULT_OLLAMA_MODEL,current,*names])))
+            self.ollama_model.setCurrentText(current)
+            self.ollama_model.blockSignals(False)
+            self.message.setText(f"Found {len(names)} installed model(s)." + (" Selected model is installed." if current in names else " Selected model is not installed; choose an installed model or install it in Ollama."))
+        if self.control.send("ollama_models",{},refreshed,timeout=8) is None:
+            self.models_refresh.setEnabled(True)
 
     def apply_timezone(self):
         if not self.control.ready or self.server_state != "stopped": return

@@ -14,6 +14,7 @@ from .appliance import ApplianceSettings, KadenceAppliance, _local_lan_ipv4
 from .device_control import request_device
 from .services import LocalServices
 from .voice_providers import VoiceProviderSettings
+from .ollama_models import DEFAULT_OLLAMA_MODEL, model_name, installed_models
 
 MAX_INPUT = 32768
 MAX_OUTPUT = 1024*1024
@@ -44,7 +45,7 @@ def settings_from_control(value: dict):
     providers = replace(providers, openai_api_key=string("openai_api_key", "", 1024) or None,
         gemini_api_key=string("gemini_api_key", "", 1024) or None,
         thinker_provider=string("thinker_provider", "gemini", 16),
-        ollama_model=string("ollama_model", "", 160))
+        ollama_model=model_name(string("ollama_model", DEFAULT_OLLAMA_MODEL, 160)))
     return ApplianceSettings(port, 115200, capture, 2, ssid, password, lan, providers, timezone_name, string("audio_output", "robot", 16))
 
 
@@ -112,6 +113,9 @@ class DesktopController:
                 self.emit("server", {"state": "stopped", "error": failure})
 
     async def command(self, action, args):
+        if action == "ollama_models":
+            if args: raise ValueError("Model discovery takes no arguments.")
+            return {"models": await installed_models()}
         if action == "speech_check":
             if set(args)-{"local"} or type(args.get("local", False)) is not bool:
                 raise ValueError("Invalid speech check options.")
