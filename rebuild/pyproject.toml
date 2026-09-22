@@ -11,8 +11,8 @@ dependencies = ["pyserial>=3.5,<4", "tzdata>=2025.2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-vision = ["Pillow>=11,<13", "numpy==2.2.1", "opencv-python-headless>=4.11,<5"]
-desktop = ["PySide6>=6.8,<7", "Pillow>=11,<13", "numpy==2.2.1", "opencv-python-headless>=4.11,<5"]
+vision = ["Pillow>=11,<13", "opencv-python-headless>=4.11,<5"]
+desktop = ["PySide6>=6.8,<7", "Pillow>=11,<13", "opencv-python-headless>=4.11,<5"]
 package = ["pyinstaller>=6.12,<7"]
 voice = [
     "httpx>=0.28,<1",
