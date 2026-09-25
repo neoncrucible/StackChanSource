@@ -1,9 +1,10 @@
-# Camera states and local perception — host 0.4.1
+# Camera states and local perception — host 0.4.2
 
 Branch: `kadence/functionality`. Firmware stays at 0.21.6; **no flash**.
 The owner accepted the 0.4.0 physical baseline on 25 September 2026.
 Host 0.4.1 adds Gate 2 observation-only reflex diagnostics. Automatic perception
 is paused regardless of the saved policy until this gate is physically accepted.
+Host 0.4.2 retains this gate and corrects Ollama reply handling and diagnostics.
 Read REFLEX-OBSERVATION.txt for the current test pass. The accepted 0.4.0 desktop
 is the rollback; firmware and schema v4 are unchanged.
 
@@ -69,7 +70,7 @@ provider; embeddings and autonomous images never leave local recognition.
 ## Runtime contracts and limits
 
 The automatic perception capabilities below remain part of the foundation, but
-0.4.1 does not dispatch automatic capture or presence actions. Observe-only
+0.4.1 and 0.4.2 do not dispatch automatic capture or presence actions. Observe-only
 reflexes only record proposals; camera policies do not activate them.
 
 One CameraManager owns acquisition for manual, voice, enrollment and automatic

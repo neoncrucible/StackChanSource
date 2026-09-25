@@ -178,6 +178,35 @@ class DesktopController:
         if action == "ollama_models":
             if args: raise ValueError("Model discovery takes no arguments.")
             return {"models": await installed_models()}
+        if action == "ollama_reply_check":
+            if set(args) != {"model"}: raise ValueError("Choose an Ollama model to test.")
+            model = model_name(args["model"])
+            async with self._lifecycle:
+                if self.state != "stopped": raise ValueError("Stop the server before testing the Ollama reply.")
+                from .companion import Companion
+                from .voice_providers import OllamaThinker
+                from .thinking import request_plan, ThinkingServiceError, issue_data, failure_message
+                thinker = OllamaThinker(model=model)
+                # Full voice planner context, but no user history, tool execution,
+                # camera, microphone or speech. A discovered tag is not this check.
+                companion = Companion(self.services.tools, reminders=self.services.reminders,
+                                      timezone_name=self.services.reminders.timezone_name)
+                prompt = companion.planner_prompt("For this diagnostic check, reply briefly that you are ready. Do not request a tool.")
+                started = time.monotonic()
+                try:
+                    plan = await request_plan(thinker, prompt)
+                    if set(plan) != {"reply"}:
+                        raise ThinkingServiceError("invalid_plan")
+                except ThinkingServiceError as exc:
+                    data = issue_data(thinker, exc)
+                    self.emit("runtime_issue", data)
+                    return {"passed": False, "reason": exc.reason,
+                            "elapsed_ms": round((time.monotonic()-started)*1000),
+                            "message": failure_message(exc.reason, "ollama")}
+                elapsed = round((time.monotonic()-started)*1000)
+                self.emit("thinking_check", {"provider": "ollama", "state": "ready", "elapsed_ms": elapsed})
+                return {"passed": True, "elapsed_ms": elapsed,
+                        "message": f"Ollama generated a valid Kadence reply in {elapsed/1000:.1f}s. Start the server and try a voice turn."}
         if action == "speech_check":
             if set(args)-{"local"} or type(args.get("local", False)) is not bool:
                 raise ValueError("Invalid speech check options.")

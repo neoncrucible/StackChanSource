@@ -1,4 +1,7 @@
-# Reflex observation — host 0.4.1 / Gate 2
+# Reflex observation — host 0.4.2 / Gate 2
+
+Host 0.4.2 retains the 0.4.1 observer and adds the Ollama reply correction.
+Resolve a thinking-service failure with TEST REPLY before the observation pass.
 
 Branch: `kadence/functionality`. Firmware remains **0.21.6**. Schema remains **v4**.
 This package contains no firmware and requires no flash.

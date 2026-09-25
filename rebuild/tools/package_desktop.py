@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.4.1'
+HOST_VERSION='0.4.2'
 
 
 def archive_package(output: Path):

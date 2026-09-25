@@ -79,6 +79,24 @@ class DesktopTests(unittest.TestCase):
                     send.call_args.args[2]({'ok':False,'message':'Ollama unavailable'})
                 self.assertEqual(window.ollama_model.currentText(),'custom:latest')
                 self.assertTrue(window.models_refresh.isEnabled())
+                with patch.object(window.control, 'send') as send:
+                    window.test_ollama_reply()
+                    self.assertEqual(send.call_args.args[:2], ('ollama_reply_check', {'model':'custom:latest'}))
+                    self.assertFalse(window.reply_check.isEnabled())
+                    send.call_args.args[2]({'ok':True,'result':{'passed':True,'message':'Valid reply'}})
+                self.assertTrue(window.reply_check.isEnabled())
+                self.assertEqual(window.message.text(),'Valid reply')
+                window.on_event('runtime_issue',{'stage':'providers','provider_stage':'reasoning',
+                    'provider':'ollama','reason':'invalid_plan','reply':fake,'error':fake})
+                self.assertIn('reply format',window.message.text())
+                self.assertEqual(window.diagnostic[-1]['reason'],'invalid_plan')
+                self.assertEqual(window.diagnostic[-1]['provider'],'ollama')
+                window.on_event('runtime_issue',{'stage':'providers','provider_stage':'reasoning',
+                    'provider':'ollama','reason':'model_error','http_status':500,'message':fake})
+                self.assertEqual(window.diagnostic[-1]['http_status'],500)
+                self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
+                window.record_diagnostic('runtime_issue',{'provider':fake,'http_status':fake,'reason':fake})
+                self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
                 window.record_diagnostic('device',{'state':fake,'connected':True,'password':fake,'qr':fake})
                 self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
                 window.record_diagnostic('device_diagnostic',{'reason':'interrupt-watchdog','cpu':1,
@@ -97,6 +115,10 @@ class DesktopTests(unittest.TestCase):
                 self.assertFalse(window.timezone.isReadOnly())
                 window.on_event('server',{'state':'running'})
                 self.assertFalse(window.timezone.isEnabled())
+                with patch.object(window.control,'send') as send:
+                    window.test_ollama_reply()
+                    send.assert_not_called()
+                    self.assertIn('Stop the server',window.message.text())
                 window.on_event('activity',{'state':'listening','capture_ms':4800})
                 self.assertIn('LISTENING',window.activity.text())
                 self.assertGreater(window.capture_until,time.monotonic())

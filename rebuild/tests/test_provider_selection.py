@@ -3,6 +3,7 @@ from unittest.mock import patch
 from kcore.voice_providers import VoiceProviderSettings, LiveVoiceProviders, OllamaThinker, VoiceProviderUnavailable
 from kcore.sensors import GestureStatus
 from kcore.identity import KADENCE_IDENTITY
+from kcore.thinking import ThinkingServiceError
 
 class ProviderSelection(unittest.TestCase):
     def test_explicit_local_no_gemini_credentials(self):
@@ -39,5 +40,7 @@ class OllamaStream(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["messages"][0]["content"],KADENCE_IDENTITY.system_context())
         def fail(request): return httpx.Response(404,json={"error":"not installed"})
         with patch("httpx.AsyncClient",side_effect=lambda **kw:real(transport=httpx.MockTransport(fail),**kw)):
-            with self.assertRaises(httpx.HTTPStatusError):
+            with self.assertRaises(ThinkingServiceError) as caught:
                 _=[x async for x in OllamaThinker(model="missing").stream_reply("hi")]
+        self.assertEqual(caught.exception.reason,"model_missing")
+        self.assertEqual(caught.exception.http_status,404)

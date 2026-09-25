@@ -243,6 +243,8 @@ class MainWindow(QMainWindow):
         self.ollama_model.addItem(DEFAULT_OLLAMA_MODEL)
         self.ollama_model.lineEdit().setMaxLength(160)
         self.models_refresh=button("REFRESH",self.refresh_models)
+        self.reply_check=button("TEST REPLY",self.test_ollama_reply)
+        self.reply_check.setToolTip("Stop the server, then test the selected Ollama model's actual reply.")
         self.audio_output=QComboBox()
         for title,value in (("Robot speaker","robot"),("Windows speaker / Bluetooth","windows"),("Robot + Windows","both")):
             self.audio_output.addItem(title,value)
@@ -251,6 +253,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(label("Speech output"),10,0); grid.addWidget(self.audio_output,10,1,1,2)
         grid.addWidget(label("Ollama changes reasoning only. Transcription and Edge speech still use online services.\nWindows output follows your default speaker. Restart the server after changes.","muted"),11,0,1,3)
         grid.addWidget(button("SAVE SETTINGS",self.save_settings),12,1)
+        grid.addWidget(self.reply_check,12,2)
         layout.addWidget(group)
         layout.addWidget(label("Session-only credentials by default. SHOW reveals a field here; diagnostics never include it.","muted"))
         layout.addStretch()
@@ -498,6 +501,20 @@ class MainWindow(QMainWindow):
             else: self.timezone.setText(self.active_timezone)
         self.control.send("timezone", {"timezone":self.timezone.text().strip() or "Europe/London"}, applied)
 
+    def test_ollama_reply(self):
+        if self.server_state != "stopped":
+            self.message.setText("Stop the server before testing the Ollama reply."); return
+        try: selected=model_name(self.ollama_model.currentText())
+        except ValueError as exc: self.message.setText(str(exc)); return
+        self.reply_check.setEnabled(False)
+        self.message.setText("Testing the selected Ollama model's reply. Allow up to 22 seconds.")
+        def checked(response):
+            self.reply_check.setEnabled(True)
+            result=response.get("result",{}) if response.get("ok") else response
+            self.message.setText(result.get("message","Ollama reply check did not complete. Open Diagnostics."))
+        if self.control.send("ollama_reply_check", {"model":selected}, checked, timeout=26) is None:
+            self.reply_check.setEnabled(True)
+
     def start_server(self,checked=False,*,restart=False):
         try:
             values=self.connection_settings()
@@ -743,6 +760,9 @@ class MainWindow(QMainWindow):
             self.message.setText(hints.get(data.get("stage"),"An operation did not complete. Open Diagnostics for status."))
             if data.get("stage")=="providers" and data.get("reason")=="timeout":
                 self.message.setText("Speech service timed out. The microphone is closed; tap the robot to try again once it returns to idle.")
+            if data.get("provider_stage")=="reasoning":
+                from .thinking import failure_message
+                self.message.setText(failure_message(data.get("reason"),data.get("provider")))
         elif name in {"fatal","message"}:
             self.message.setText(data.get("message","Local services unavailable."))
             if name=="fatal": self.update_controls()
@@ -810,14 +830,17 @@ class MainWindow(QMainWindow):
                 self.reflex_log.appendPlainText(f"{stamp}Z  {safe['type'].upper()}  salience={safe['salience']:.2f} confidence={safe['confidence']:.2f}  proposed only")
             return
         from .device_diagnostics import DEVICE_REASONS, DEVICE_COMPONENTS, IMAGE_STAGES, IMAGE_REASONS
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer"}
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer","thinking_check"}
         if name not in allowed: return
         safe={}
-        states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive"}
+        states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive","ready"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
         if name=="camera_transfer": stages=stages | IMAGE_STAGES
         reasons={"timeout","unavailable","device_proof"}
+        if name=="runtime_issue" and data.get("provider_stage")=="reasoning":
+            from .thinking import THINKING_REASONS
+            reasons=reasons | THINKING_REASONS
         if name=="camera_transfer": reasons=reasons | IMAGE_REASONS
         if name=="device_diagnostic": reasons=reasons | DEVICE_REASONS
         for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active","cpu","reset_code","sensor_pid","received_bytes","expected_bytes"):
@@ -829,6 +852,9 @@ class MainWindow(QMainWindow):
             trace=data.get("backtrace")
             if isinstance(trace,list) and 0<len(trace)<=16 and all(type(pc) is int and 0x40000000<=pc<0x44000000 for pc in trace): safe["backtrace"]=trace
         if name=="device" and data.get("presentation") in states: safe["state"]=data["presentation"]
+        if name in {"runtime_issue", "thinking_check"}:
+            if data.get("provider") in {"ollama", "gemini", "unknown"}: safe["provider"]=data["provider"]
+            if type(data.get("http_status")) is int and 400<=data["http_status"]<=599: safe["http_status"]=data["http_status"]
         record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
         self.diagnostic.append(record)
         self.log.appendPlainText(record["at"][11:19]+"  "+name.upper()+"  "+" ".join(f"{k}={v}" for k,v in safe.items()))

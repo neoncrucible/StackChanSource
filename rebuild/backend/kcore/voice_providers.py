@@ -5,9 +5,11 @@ import json
 import os
 import wave
 from collections.abc import AsyncIterator, Mapping
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 from .providers import Thinker
+from .thinking import PLAN_FORMAT, MAX_PLAN_CHARS, ThinkingServiceError
 
 
 class VoiceProviderUnavailable(RuntimeError):
@@ -150,6 +152,7 @@ class OpenAITranscriber:
 class GeminiThinker:
     """Streaming Gemini Interactions adapter using cancellable SSE over HTTP."""
 
+    provider = "gemini"
     endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
     def __init__(
@@ -219,6 +222,7 @@ class GeminiThinker:
 
 class OllamaThinker:
     """Explicit local-only reasoning; failures never fall back to a cloud model."""
+    provider = "ollama"
     endpoint = "http://127.0.0.1:11434/api/chat"
 
     def __init__(self, *, model: str):
@@ -227,6 +231,16 @@ class OllamaThinker:
         self.model = model.strip()
 
     async def stream_reply(self, text: str) -> AsyncIterator[str]:
+        async with aclosing(self._stream(text)) as stream:
+            async for chunk in stream:
+                yield chunk
+
+    async def stream_plan(self, text: str) -> AsyncIterator[str]:
+        async with aclosing(self._stream(text, response_format=PLAN_FORMAT)) as stream:
+            async for chunk in stream:
+                yield chunk
+
+    async def _stream(self, text: str, *, response_format=None) -> AsyncIterator[str]:
         if not text.strip():
             raise ValueError("thinker input must not be empty")
         httpx = _require_httpx()
@@ -235,33 +249,54 @@ class OllamaThinker:
                 "messages": [{"role": "system", "content": KADENCE_IDENTITY.system_context()},
                              {"role": "user", "content": text}],
                 "options": {"num_predict": 1024}}
+        if response_format is not None:
+            body["format"] = response_format
         # Ignore proxy environment settings for the local service.
-        async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
-            async with client.stream("POST", self.endpoint, json=body) as response:
-                response.raise_for_status()
-                length = 0
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    if len(line) > 65536:
-                        raise VoiceProviderUnavailable("Ollama response exceeded limit")
-                    event = json.loads(line)
-                    if not isinstance(event, dict) or event.get("error"):
-                        raise VoiceProviderUnavailable("Ollama reported an error")
-                    message = event.get("message", {})
-                    if not isinstance(message, dict):
-                        raise VoiceProviderUnavailable("Invalid Ollama message")
-                    chunk = message.get("content", "")
-                    if not isinstance(chunk, str):
-                        raise VoiceProviderUnavailable("Invalid Ollama content")
-                    length += len(chunk)
-                    if length > 8192:
-                        raise VoiceProviderUnavailable("Ollama reply exceeded limit")
-                    if chunk:
-                        yield chunk
-                    if event.get("done") is True:
-                        return
-                raise VoiceProviderUnavailable("Ollama stream ended before completion")
+        try:
+            async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
+                async with client.stream("POST", self.endpoint, json=body) as response:
+                    if response.status_code >= 400:
+                        reason = "model_missing" if response.status_code == 404 else "http_error"
+                        if response.status_code >= 500:
+                            reason = "model_error"
+                        raise ThinkingServiceError(reason, http_status=response.status_code)
+                    response.raise_for_status()
+                    length = 0
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        if len(line) > 65536:
+                            raise ThinkingServiceError("response_limit")
+                        try:
+                            event = json.loads(line)
+                        except ValueError:
+                            raise ThinkingServiceError("invalid_response") from None
+                        if not isinstance(event, dict):
+                            raise ThinkingServiceError("invalid_response")
+                        if event.get("error"):
+                            raise ThinkingServiceError("model_error")
+                        message = event.get("message", {})
+                        if not isinstance(message, dict):
+                            raise ThinkingServiceError("invalid_response")
+                        chunk = message.get("content", "")
+                        if not isinstance(chunk, str):
+                            raise ThinkingServiceError("invalid_response")
+                        length += len(chunk)
+                        if length > MAX_PLAN_CHARS:
+                            raise ThinkingServiceError("response_limit")
+                        if chunk:
+                            yield chunk
+                        if event.get("done") is True:
+                            if event.get("done_reason") == "length":
+                                raise ThinkingServiceError("truncated_response")
+                            if not length:
+                                raise ThinkingServiceError("empty_response")
+                            return
+                    raise ThinkingServiceError("truncated_response")
+        except httpx.TimeoutException:
+            raise ThinkingServiceError("timeout") from None
+        except httpx.RequestError:
+            raise ThinkingServiceError("unavailable") from None
 
 
 class EdgeNeuralTTS:

@@ -228,7 +228,7 @@ class KadenceAppliance:
         if self.services:
             self.services.look_handler = self._look_during_voice
             self._companion = Companion(self.services.tools, self.services.context,
-                reminders=self.services.reminders, timezone_name=self.settings.timezone_name)
+                reminders=self.services.reminders, timezone_name=self.settings.timezone_name, emit=self.emit)
             return
         store = ContextStore(default_data_dir())
         try:
@@ -241,7 +241,7 @@ class KadenceAppliance:
             register_integrations(tools)
         except ValueError:
             print("KADENCE_RUNTIME INTEGRATION unavailable configuration=invalid")
-        self._companion = Companion(tools, store)
+        self._companion = Companion(tools, store, emit=self.emit)
 
     async def _utility_loop(self):
         while not self._stop.is_set():

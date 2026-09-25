@@ -1,6 +1,7 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.1, observe-only sensor reflexes. Firmware remains 0.21.6.
+Current update: 0.4.2, Ollama reply format and diagnostics fix, retaining the
+observe-only sensor reflexes. Firmware remains 0.21.6.
 Read REFLEX-OBSERVATION.txt for the single Gate 2 observation pass.
 Automatic perception is paused in this observation build, including when an
 older EVENT_ONLY or AWARE setting is saved. Explicit camera use remains available.
@@ -25,6 +26,10 @@ versions still requires the documented database backup procedure.
 
 Ollama: choose Ollama (this PC), then qwen3.5:4b in the model dropdown.
 REFRESH reads installed model names from the local Ollama service.
+Finding a model does not prove it can generate a Kadence reply. With the server
+stopped, TEST REPLY uses the selected model, the voice planner prompt and the
+same 22-second deadline. It validates a generated reply without microphone,
+speech, camera use or tool execution. Then START SERVER and try a voice turn.
 The default is offered even when Ollama is unavailable; it does not download it.
 Model/provider/output selections save automatically, or use SAVE SETTINGS.
 Restart the server after changes. Credentials follow Remember when starting.
@@ -75,3 +80,31 @@ Adds upstream sensor salience proposals, occupancy-session continuity, desktop
 observation diagnostics and bounded export. No reflex actions are enabled.
 Automatic perception is paused pending Gate 2 acceptance. Schema v4 and firmware
 0.21.6 are retained. The physically accepted 0.4.0 package is the rollback.
+
+Desktop 0.4.2 Ollama correction — 2026-09-25
+The owner reported the generic thinking-service failure in 0.4.1 even though
+REFRESH found the selected qwen3.5:4b model. The screenshot proves tag discovery;
+it does not identify the failing generation step. Source review found that
+the planner required JSON but the Ollama request did not constrain its output,
+and all request/parse exceptions were discarded as the same connection message.
+
+Ollama planner requests now use a JSON schema for either a spoken reply or one
+tool proposal. Tool validation and spoken confirmation still govern execution.
+Direct text-stream callers remain text streams. Interrupted, empty, oversized,
+token-limited and malformed replies fail without executing partial plans.
+
+Voice failures now produce safe Diagnostics codes for connection, timeout,
+missing model, rejected request, model error, stream failure or reply format;
+an HTTP status is retained when present. Provider bodies, hidden thinking,
+conversation text and credentials are not exported. The robot speaks a brief
+cause-specific recovery message; it can still handle local notes/list/clock.
+
+The 22-second planner, 52-second host and 55-second firmware budgets are retained.
+Slow model loading or inference can still time out; TEST REPLY exercises the
+same request path and deadline so discovery cannot hide that failure.
+This build needs a physical Ollama reply check. Gate 2 hardware acceptance
+remains pending; automatic perception/reflex actions remain paused.
+
+Ollama API references:
+https://docs.ollama.com/api/chat
+https://docs.ollama.com/capabilities/structured-outputs
