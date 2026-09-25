@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.4.0'
+HOST_VERSION='0.4.1'
 
 
 def archive_package(output: Path):
@@ -36,6 +36,7 @@ def host_package(desktop: Path, commit: str, output: Path):
         shutil.copyfile(ROOT/'rebuild'/'tools'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'docs'/'DESKTOP_INSTALL_UPDATE.md',output/'START-HERE.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'CAMERA_PERCEPTION.md',output/'CAMERA-PERCEPTION.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'REFLEX_OBSERVATION.md',output/'REFLEX-OBSERVATION.txt')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
         'firmware_included':False,'compatible_firmware':['0.21.6'],
@@ -54,10 +55,10 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
         shutil.copyfile(ROOT/'rebuild'/'docs'/name,output/name)
     shutil.copyfile(ROOT/'rebuild'/'tools'/'flash_desktop.ps1',output/'Flash-Kadence.ps1')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'candidate':'Kadence RC2',
-        'host_version':'0.4.0','firmware_version':'0.21.6','source_commit':commit,
+        'host_version':HOST_VERSION,'firmware_version':'0.21.6','source_commit':commit,
         'physical_signoff':False,'compatible_firmware':['0.21.2','0.21.3','0.21.4','0.21.5','0.21.6'],'entry':'Kadence.exe'},indent=2)+'\n')
     (output/'START-HERE.txt').write_text(
-        'KADENCE RC2 / SIGNAL CONSOLE 0.4.0\n\nExtract the entire ZIP to a new folder.\n'
+        f'KADENCE RC2 / SIGNAL CONSOLE {HOST_VERSION}\n\nExtract the entire ZIP to a new folder.\n'
         'GESTURE / TOF4M RANGING / FIRMWARE 0.21.6:\n'
         'The new sensor diagnostics require flashing the bundled firmware.\n'
         'Read TOF4M_BRINGUP.md for distance checks. Read GESTURE_PERSONA_AUDIO.md for wiring, persona, Ollama and Windows audio.\n'

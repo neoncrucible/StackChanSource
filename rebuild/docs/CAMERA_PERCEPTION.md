@@ -1,9 +1,11 @@
-# Camera states and local perception — host 0.4.0
+# Camera states and local perception — host 0.4.1
 
 Branch: `kadence/functionality`. Firmware stays at 0.21.6; **no flash**.
-This is a host implementation candidate. Software verification and the Windows
-package gate are separate from owner hardware acceptance, which is pending.
-The accepted 0.3.9 desktop remains available for rollback.
+The owner accepted the 0.4.0 physical baseline on 25 September 2026.
+Host 0.4.1 adds Gate 2 observation-only reflex diagnostics. Automatic perception
+is paused regardless of the saved policy until this gate is physically accepted.
+Read REFLEX-OBSERVATION.txt for the current test pass. The accepted 0.4.0 desktop
+is the rollback; firmware and schema v4 are unchanged.
 
 ## Console and daily use
 
@@ -66,6 +68,10 @@ provider; embeddings and autonomous images never leave local recognition.
 
 ## Runtime contracts and limits
 
+The automatic perception capabilities below remain part of the foundation, but
+0.4.1 does not dispatch automatic capture or presence actions. Observe-only
+reflexes only record proposals; camera policies do not activate them.
+
 One CameraManager owns acquisition for manual, voice, enrollment and automatic
 requests. Explicit requests preempt automatic work; one explicit waiter is
 allowed, and other concurrent requests fail busy rather than building a queue.
@@ -113,28 +119,13 @@ unverified. This release exposes standby as unsupported; no guessed stop endpoin
 SSH mutation or process killing is used. Physical sensor-off requires removing its
 power until a verified producer lifecycle implementation is available.
 
-## One owner acceptance pass
+## Current acceptance pass
 
-Keep StackChan USB on COM4 and UnitV2 powered on the same Wi-Fi. No terminal is
-needed for normal testing:
-
-1. Start the updated desktop. In Vision, leave OFF and capture UnitV2; confirm its
-   preview. Check StackChan capture too (its accepted two-click quirk remains).
-2. Tick Privacy. Capture and voice “look” must refuse; old preview clears. Restart
-   the desktop: privacy must still be checked. Untick, Apply & Save; capture again.
-3. Enroll your name with UnitV2, then select EVENT ONLY and Apply & Save. Move out
-   beyond 1.2 m and back within 0.9 m, or make a deliberate gesture after a pause.
-   Check zone state, local vision ready and confirmed count. No head movement.
-4. Enable the greeting switch and Apply & Save, then repeat arrival. Expect one
-   greeting, not repeated greetings while sitting there. Use AWARE for an occupied
-   desk check; automatic frames must not replace the manual preview. If multiple
-   people are available, test an additional person and replacement in the same seat.
-5. Try privacy during an automatic capture, temporarily disconnect UnitV2, then
-   restore it and retry after backoff. Verify voice, reminders, ToF and gesture
-   remain usable. An unavailable source must not create an identity or greet.
-
-Physical acceptance is not implied by the software tests. Record observations
-before changing the accepted hardware baseline or enabling unattended actions.
+The 0.4.0 camera/voice/home/privacy/host-restart baseline is owner-accepted.
+Follow REFLEX-OBSERVATION.txt for one Gate 2 observation pass. Keep Vision OFF,
+inspect arrival/desk-motion/gesture/close-approach/departure proposals, then
+export one diagnostics report. Face/visit semantics and live EVENT_ONLY/AWARE
+activation remain subsequent gates in the definitive handoff.
 
 ## Model provenance
 

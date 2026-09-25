@@ -12,47 +12,8 @@ from .local_faces import LocalFaces, match, similarity
 from .perception_store import PerceptionStore
 
 
-class Occupancy:
-    def __init__(self):
-        self.state = "UNKNOWN"
-        self.health = "unavailable"
-        self.sequence = None
-        self.since = 0.0
-        self.last_sample = None
-        self.distance = None
-
-    def update(self, sample, now):
-        before = self.state
-        if sample is None or not sample.fresh or not sample.valid:
-            self.state, self.health = "UNKNOWN", "unavailable" if sample is None else "invalid_or_stale"
-            self.since = now
-            self.distance = None
-            return before != self.state
-        if self.last_sample is not None and now-self.last_sample > 4:
-            self.state = "UNKNOWN"
-            self.since = now
-        if self.sequence is not None and sample.sequence < self.sequence:
-            self.state = "UNKNOWN"
-            self.since = now
-        if sample.sequence == self.sequence:
-            if self.last_sample is not None and now-self.last_sample > 3:
-                self.state, self.health = "UNKNOWN", "stale"
-            return before != self.state
-        self.sequence, self.last_sample = sample.sequence, now
-        self.distance, self.health = sample.distance_mm, "ready"
-        near, far = sample.distance_mm <= 900, sample.distance_mm >= 1200
-        if self.state == "UNKNOWN":
-            if near: self.state, self.since = "ARRIVAL_CANDIDATE", now
-            elif far: self.state, self.since = "DEPARTURE_CANDIDATE", now
-        elif self.state in {"CLEAR", "DEPARTURE_CANDIDATE"} and near:
-            self.state, self.since = "ARRIVAL_CANDIDATE", now
-        elif self.state in {"OCCUPIED", "ARRIVAL_CANDIDATE"} and far:
-            self.state, self.since = "DEPARTURE_CANDIDATE", now
-        elif self.state == "ARRIVAL_CANDIDATE" and near and now-self.since >= 2:
-            self.state = "OCCUPIED"
-        elif self.state == "DEPARTURE_CANDIDATE" and far and now-self.since >= 4:
-            self.state = "CLEAR"
-        return before != self.state
+from .occupancy import Occupancy  # compatibility for callers of the existing tracker
+from .sensor_sampler import SensorSampler, SensorObservation
 
 
 class CaptureBudget:
@@ -65,19 +26,18 @@ class CaptureBudget:
 
 
 class PerceptionController:
-    def __init__(self, camera, paths, emit, deliver, busy, *, faces=None, clock=time.monotonic):
+    def __init__(self, camera, paths, emit, deliver, busy, *, faces=None, clock=time.monotonic, sampler=None):
         self.camera, self.paths, self.emit = camera, paths, emit
         self.deliver, self.busy, self.clock = deliver, busy, clock
         self.faces = faces or LocalFaces(paths.root)
         self.store = PerceptionStore(paths.database)
-        self.occupancy, self.budget = Occupancy(), CaptureBudget()
+        self.sampler = sampler or SensorSampler(emit, clock=clock)
+        self.budget = CaptureBudget()
         self.run = None
         self.task = None
         self._ticker = None
         self._last_tick = self.clock()
         self._last_expire = 0
-        self._gesture_seq = None
-        self._body_id = None
         self._tracks = []
         self._last_status = None
         self._last_failure = None
@@ -85,6 +45,10 @@ class PerceptionController:
         self.subjects = 0
         self.health = "idle"
         self._closing = False
+
+    @property
+    def occupancy(self):
+        return self.sampler.occupancy
 
     async def db(self, operation, **args):
         return await settled_thread(lambda: self.store.call(operation, **args))
@@ -103,13 +67,12 @@ class PerceptionController:
         if self.task and not self.task.done():
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception): await self.task
+        await self._record_reflex(self.sampler.reset(reason))
         if self.run: await self.db("end", run=self.run, reason=reason)
         fingerprint = hashlib.sha256(json.dumps(asdict(self.camera.config),sort_keys=True).encode()).hexdigest()
         self.run = await self.db("begin", fingerprint=fingerprint)
         self._tracks.clear()
         self.subjects = 0
-        self.occupancy = Occupancy()
-        self._gesture_seq = None
         self.health = "idle"
         self.publish()
 
@@ -123,6 +86,7 @@ class PerceptionController:
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception): await self.task
         if self.run:
+            await self._record_reflex(self.sampler.reset("stopped"))
             await self.db("end", run=self.run, reason="stopped")
             self.run = None
 
@@ -139,8 +103,8 @@ class PerceptionController:
         now = self.clock()
         if now-self._last_tick > 15: await self.reset("resume")
         self._last_tick = now
-        if self.occupancy.last_sample is not None and now-self.occupancy.last_sample > 4:
-            self.occupancy.update(None,now)
+        if self.occupancy.last_sample is not None and now-self.occupancy.last_sample > 4 and self.occupancy.state != "UNKNOWN":
+            await self.sample(self.sampler.sample(None))
         if now-self._last_expire > 10 and self.run:
             await self.db("expire", run=self.run, cutoff=time.time()-180)
             self._tracks = [t for t in self._tracks if now-t["seen"] <= 180]
@@ -150,29 +114,33 @@ class PerceptionController:
             self.request("heartbeat")
         self.publish()
 
-    async def sample(self, tof, gesture=None, body_id=None):
+    async def _record_reflex(self, events):
+        run = self.run
+        if not run: return
+        for event in events:
+            await self.db("event", run=run, kind="reflex_proposed", trigger=event.type, evidence=event.payload())
+
+    async def sample(self, observation: SensorObservation):
+        """Receive already normalised occupancy and upstream reflex proposals.
+
+        Gate 2 records decisions only. Wiring proposals to request() belongs to
+        EVENT_ONLY acceptance, after physical observation has been reviewed.
+        """
         if self._closing or not self.run: return
-        if self._body_id is not None and self._body_id != body_id: await self.reset("device_reconnected")
-        self._body_id = body_id
-        changed = self.occupancy.update(tof,self.clock())
-        if changed and self.occupancy.state in {"OCCUPIED", "CLEAR", "UNKNOWN"}:
-            await self.db("event",run=self.run,kind="occupancy",trigger="tof",evidence={"state":self.occupancy.state})
-        if changed and self.occupancy.state == "OCCUPIED": self.request("arrival")
-        if changed and self.occupancy.state == "CLEAR":
+        await self._record_reflex(observation.events)
+        if observation.changed and observation.occupancy in {"OCCUPIED", "CLEAR", "UNKNOWN"}:
+            await self.db("event",run=self.run,kind="occupancy",trigger="tof",evidence={"state":observation.occupancy})
+        if observation.changed and observation.occupancy == "CLEAR":
             if self.task and not self.task.done():
                 self.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception): await self.task
             await self.db("expire",run=self.run,cutoff=float("inf"),reason="zone_clear")
             self._tracks.clear(); self.subjects = 0
-        if gesture and gesture.fresh:
-            if self._gesture_seq is None: self._gesture_seq = gesture.event_sequence
-            elif gesture.event_sequence < self._gesture_seq: self._gesture_seq = gesture.event_sequence
-            elif gesture.event_sequence != self._gesture_seq:
-                self._gesture_seq = gesture.event_sequence
-                if gesture.event_age_ms <= 1500 and gesture.flags: self.request("gesture")
         self.publish()
 
     def request(self, trigger):
+        # Observation cannot be activated by a saved camera policy or heartbeat.
+        if self.sampler.reflex.mode == "OBSERVE_ONLY": return False
         if self._closing or self._enrolling or self.camera.config.privacy or self.camera.config.policy == "OFF" or self.busy(): return False
         if self.task and not self.task.done(): return False
         if not self.budget.reserve(self.clock()): return False
@@ -236,6 +204,7 @@ class PerceptionController:
         finally: self.publish()
 
     async def dispatch(self, generation):
+        if self.sampler.reflex.mode == "OBSERVE_ONLY": return
         if self.busy(): return
         self.camera.check(generation)
         if self.camera.config.policy == "OFF": return

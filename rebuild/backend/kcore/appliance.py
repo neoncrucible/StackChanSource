@@ -76,6 +76,8 @@ class KadenceAppliance:
         self.camera = CameraManager(self._capture_robot_raw, emit=self.emit)
         self.vision.guard = self.camera.check
         self.perception = None
+        from .sensor_sampler import SensorSampler
+        self.sensor_sampler = SensorSampler(self.emit)
         self._utility_task = None
         self._media_mode = "voice"
         self._media_result = None
@@ -115,7 +117,8 @@ class KadenceAppliance:
             from .perception import PerceptionController
             self.camera.configure(CameraConfig.load(self.services.paths.root))
             self.perception = PerceptionController(self.camera, self.services.paths, self.emit,
-                self._deliver_presence, lambda: self._voice_task is not None and not self._voice_task.done())
+                self._deliver_presence, lambda: self._voice_task is not None and not self._voice_task.done(),
+                sampler=self.sensor_sampler)
             await self.perception.start()
         self._utility_task = asyncio.create_task(self._utility_loop(), name="kadence-device-status")
         self.emit("server", {"state": "running", "port": self.settings.port, "lan": self.settings.lan_host, "media_port": self._server_port})
@@ -136,6 +139,8 @@ class KadenceAppliance:
                         ready_timeout=30.0,
                         diagnostic_sink=self.emit,
                     )
+                    if self.perception:
+                        await self.perception.reset("device_reconnected")
                     self._body = body
                     self.emit("robot", {"connected": True})
                     print("KADENCE_RUNTIME DEVICE ready presence=local")
@@ -247,13 +252,7 @@ class KadenceAppliance:
                     self._last_device_status = ack.payload
                     self.emit("device", ack.payload)
                     if self.perception and not ack.payload.get("media_busy"):
-                        from .sensors import read_tof_status, read_gesture_status
-                        try:
-                            tof = await read_tof_status(body.host, timeout=2)
-                            gesture = await read_gesture_status(body.host, timeout=2)
-                            await self.perception.sample(tof, gesture, id(body))
-                        except asyncio.CancelledError: raise
-                        except Exception: await self.perception.sample(None, body_id=id(body))
+                        await self._sample_sensors(body)
                     idle = self._voice_task is None or self._voice_task.done()
                     if self.services and idle and not ack.payload.get("media_busy"):
                         reminders = await self.services.store.call("reminder_list")
@@ -264,6 +263,24 @@ class KadenceAppliance:
                 except Exception:
                     self.emit("device_status", {"state": "unavailable"})
             await asyncio.sleep(1)
+
+    async def _sample_sensors(self, body):
+        if self._stop.is_set(): return
+        from .sensors import read_tof_status, read_gesture_status
+        tof = gesture = None
+        # Preserve good evidence from one sensor if the other is unavailable.
+        # Requests stay sequential through the existing serial owner.
+        try:
+            tof = await read_tof_status(body.host, timeout=2)
+        except asyncio.CancelledError: raise
+        except Exception: pass
+        try:
+            gesture = await read_gesture_status(body.host, timeout=2)
+        except asyncio.CancelledError: raise
+        except Exception: pass
+        if not self._stop.is_set() and body is self._body and body.connected and self.perception:
+            observation = self.sensor_sampler.sample(tof, gesture)
+            await self.perception.sample(observation)
 
     async def _deliver_reminders(self, body):
         rows = await self.services.store.call("claim_robot")

@@ -9,6 +9,7 @@ on:
       - 'rebuild/pyproject.toml'
       - 'rebuild/docs/DESKTOP_INSTALL_UPDATE.md'
       - 'rebuild/docs/CAMERA_PERCEPTION.md'
+      - 'rebuild/docs/REFLEX_OBSERVATION.md'
       - 'rebuild/tools/phase_a4_gate.py'
       - 'rebuild/tools/package_desktop.py'
       - 'rebuild/tools/prepare_face_models.py'
@@ -39,6 +40,8 @@ jobs:
         env:
           KADENCE_TEST_MODELS: rebuild/dist/face_models
         run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py -q
+      - name: Observe-only reflex and desktop regression
+        run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py -q
       - name: Voice completion and recovery regression
         run: python -m pytest rebuild/tests/test_appliance_candidate.py rebuild/tests/test_voice_failures.py rebuild/tests/test_rc2_media.py rebuild/tests/test_provider_selection.py rebuild/tests/test_ollama_models.py rebuild/tests/test_desktop.py rebuild/tests/test_desktop_installer.py -q
       - name: Runtime ownership and alignment gate

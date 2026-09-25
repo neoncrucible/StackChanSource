@@ -164,6 +164,7 @@ class MainWindow(QMainWindow):
         self.server_state="stopped"; self.robot_connected=False; self.quitting=False
         self.started_at=None; self.reminders=[]; self.projects=[]; self.nav=[]; self.entries=[]
         self.diagnostic=deque(maxlen=400); self._settings={}; self.snapshot_pixmap=None
+        self.reflex_snapshot={}; self.reflex_events=deque(maxlen=120)
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
         self.active_timezone="Europe/London"; self.timings={}
         self.setWindowTitle("Kadence • Signal Console")
@@ -313,6 +314,15 @@ class MainWindow(QMainWindow):
         self.perception_state=label("Occupancy UNKNOWN · no visual identity evidence", "muted")
         layout.addWidget(self.camera_state); layout.addWidget(self.perception_state)
         layout.addWidget(label("Privacy blocks Kadence capture and clears its preview. UnitV2 hardware standby is unverified.","muted"))
+        reflex_group=QGroupBox("SENSOR OBSERVATIONS"); reflex_layout=QVBoxLayout(reflex_group)
+        reflex_layout.addWidget(label("OBSERVE ONLY · automatic vision and reflex movement are paused.","status"))
+        self.reflex_state=label("Waiting for sensor evidence.","muted")
+        self.reflex_counts=label("Proposals 0 · background 0 · cooldowns 0", "muted")
+        self.reflex_log=QPlainTextEdit(); self.reflex_log.setReadOnly(True)
+        self.reflex_log.setMaximumHeight(88); self.reflex_log.document().setMaximumBlockCount(120)
+        self.reflex_log.setPlaceholderText("Arrival, departure, gesture and close-approach proposals appear here.")
+        reflex_layout.addWidget(self.reflex_state); reflex_layout.addWidget(self.reflex_counts); reflex_layout.addWidget(self.reflex_log)
+        layout.addWidget(reflex_group)
         self.camera_source=QComboBox()
         self.camera_source.addItem("StackChan camera", "robot-camera")
         self.camera_source.addItem("UnitV2 over Wi-Fi", "unitv2-camera")
@@ -653,7 +663,7 @@ class MainWindow(QMainWindow):
             self.presence_greetings.setChecked(data.get("greetings") is True)
             self.presence_unknown.setChecked(data.get("unknown_alerts") is True)
         elif name=="camera_state":
-            self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · {data.get('policy','OFF')} · {data.get('source','auto')}")
+            self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')} · automatic capture paused")
         elif name=="perception":
             distance=f" · {data['distance_mm']} mm" if data.get("distance_mm") is not None else ""
             self.perception_state.setText(f"Zone {data.get('occupancy','UNKNOWN')}{distance} · sensor {data.get('sensor_health','unavailable')}\nLocal vision {data.get('health','idle')} · models {data.get('model_health','not_loaded')} · recent subjects {data.get('subjects',0)} · confirmed {len(data.get('confirmed_persons',[]))}")
@@ -783,6 +793,22 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
+        if name in {"reflex_status", "reflex_event"}:
+            from .reflex import diagnostic_event, diagnostic_status
+            if name == "reflex_status":
+                safe=diagnostic_status(data)
+                if safe is None: return
+                self.reflex_snapshot=safe
+                session=(safe["occupancy_session_id"] or "none")[:8]
+                self.reflex_state.setText(f"Zone {safe['occupancy']} · sensor {safe['sensor_health']} · occupancy session {session}")
+                self.reflex_counts.setText(f"Proposals {safe['proposed']} · background {safe['background']} · cooldowns {safe['cooldowns']}\nCached samples {safe['duplicates']} · invalid / missing {safe['invalid']}")
+            else:
+                safe=diagnostic_event(data)
+                if safe is None: return
+                self.reflex_events.append(safe)
+                stamp=datetime.fromtimestamp(safe["timestamp"],timezone.utc).strftime("%H:%M:%S")
+                self.reflex_log.appendPlainText(f"{stamp}Z  {safe['type'].upper()}  salience={safe['salience']:.2f} confidence={safe['confidence']:.2f}  proposed only")
+            return
         from .device_diagnostics import DEVICE_REASONS, DEVICE_COMPONENTS, IMAGE_STAGES, IMAGE_REASONS
         allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer"}
         if name not in allowed: return
@@ -810,10 +836,12 @@ class MainWindow(QMainWindow):
     def export_diagnostics(self):
         filename,_=QFileDialog.getSaveFileName(self,"Export diagnostics","Kadence-diagnostics.json","JSON (*.json)")
         if filename:
-            Path(filename).write_text(json.dumps({"format":"kadence-diagnostics-v1","build":build_info(),"events":list(self.diagnostic)},indent=2)+"\n","utf-8")
+            Path(filename).write_text(json.dumps({"format":"kadence-diagnostics-v1","build":build_info(),"events":list(self.diagnostic),
+                "reflex":{"status":self.reflex_snapshot,"events":list(self.reflex_events)}},indent=2)+"\n","utf-8")
             self.message.setText("Sanitised diagnostic report exported.")
 
-    def clear_diagnostics(self): self.diagnostic.clear(); self.log.clear()
+    def clear_diagnostics(self):
+        self.diagnostic.clear(); self.log.clear(); self.reflex_events.clear(); self.reflex_log.clear()
 
     def _make_tray(self):
         pixmap=QPixmap(64,64); pixmap.fill(QColor("#000000")); painter=QPainter(pixmap)

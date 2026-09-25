@@ -1,5 +1,10 @@
 Kadence Desktop — install and update
 
+Current update: 0.4.1, observe-only sensor reflexes. Firmware remains 0.21.6.
+Read REFLEX-OBSERVATION.txt for the single Gate 2 observation pass.
+Automatic perception is paused in this observation build, including when an
+older EVENT_ONLY or AWARE setting is saved. Explicit camera use remains available.
+
 1. Quit Kadence completely, including its tray icon. Close any source host too.
 2. Extract the entire desktop ZIP to a new folder. Do not run inside the ZIP.
 3. Double-click Install-Kadence.cmd. No administrator account is needed.
@@ -57,3 +62,16 @@ The packaged executable gate, perception/voice regressions, runtime ownership
 gate and artifact upload all passed after this loader-order change with the
 normal dependency set. Physical camera/perception acceptance is still pending;
 follow CAMERA-PERCEPTION.txt after installing the 0.4.0 candidate.
+
+
+Desktop 0.4.0 physical sign-off — 2026-09-25
+Accepted build: 3963b1c7d45fd2e8b4db9887e9418bdecb46ada9.
+The owner confirmed camera switching, then reported all agreed Gate 1 checks
+passed after resolving local Ollama availability. This supersedes the pending
+acceptance status above. UnitV2 physical standby remains unverified.
+
+Desktop 0.4.1 observation candidate — 2026-09-25
+Adds upstream sensor salience proposals, occupancy-session continuity, desktop
+observation diagnostics and bounded export. No reflex actions are enabled.
+Automatic perception is paused pending Gate 2 acceptance. Schema v4 and firmware
+0.21.6 are retained. The physically accepted 0.4.0 package is the rollback.
