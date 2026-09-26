@@ -56,6 +56,9 @@ particular delay.
   Windows completion. Cancellation kills/reaps children, discards drafts and
   stops the audio device. A failure after output starts cannot replay the full
   answer using a fallback voice.
+  The initial renderer startup deadline remains 12 seconds; after its first
+  PCM arrives, a stream has up to 30 further seconds to finish rendering a long
+  requested answer. The overall 52-second host provider limit still applies.
 - **Packaging:** PyAV is included for frame-based MP3 decoding. The original
   generic streaming decoder reads ahead 64 KiB (about eleven seconds at Edge's
   48 kbit/s encoding), so wrapping it in a streaming input did not solve this

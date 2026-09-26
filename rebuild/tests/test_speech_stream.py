@@ -95,6 +95,13 @@ raise SystemExit(main())
                 with self.assertRaises(VoiceProviderUnavailable):
                     await speech_output._render([sys.executable, "-c", script], b"x", timeout=3, pcm_sink=AsyncMock())
 
+    async def test_arriving_stream_can_outlive_the_initial_no_audio_deadline(self):
+        async def sink(pcm): await asyncio.sleep(2.1)
+        script = 'import sys;sys.stdin.read();sys.stdout.buffer.write(b\'{"pcm_bytes":2}\\n\\1\\0{"done":true}\\n\');sys.stdout.flush()'
+        pcm = await speech_output._render([sys.executable, "-c", script], b"x",
+            timeout=2, stream_timeout=4, pcm_sink=sink)
+        self.assertEqual(pcm, b"\1\0")
+
     async def test_cancel_after_first_samples_reaps_child(self):
         entered = asyncio.Event(); children = []
         original = asyncio.create_subprocess_exec

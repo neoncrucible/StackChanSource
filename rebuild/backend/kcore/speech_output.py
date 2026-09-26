@@ -14,6 +14,7 @@ from .voice_providers import VoiceProviderUnavailable
 
 MAX_PCM = 4 * 1024 * 1024
 EDGE_SECONDS = 12
+STREAM_SECONDS = 30
 LOCAL_SECONDS = 12
 STAGES = frozenset({"tts_connect", "tts_audio", "tts_decode", "tts_fallback",
                     "tts_local_input", "tts_local_load", "tts_local_render", "tts_ready"})
@@ -67,7 +68,7 @@ def child_environment():
         "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "KADENCE_WIFI_PASSWORD"}}
 
 
-async def _render(command, payload, *, timeout, progress_sink=None, pcm_sink=None):
+async def _render(command, payload, *, timeout, progress_sink=None, pcm_sink=None, stream_timeout=None):
     """Kill and reap even a wedged native decoder or websocket shutdown."""
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     spawning = asyncio.create_task(asyncio.create_subprocess_exec(*command, stdin=asyncio.subprocess.PIPE,
@@ -83,7 +84,7 @@ async def _render(command, payload, *, timeout, progress_sink=None, pcm_sink=Non
             await process.wait()
         raise
     try:
-        async with asyncio.timeout(timeout):
+        async with asyncio.timeout(timeout) as deadline:
             process.stdin.write(payload)
             await process.stdin.drain()
             process.stdin.close()
@@ -105,6 +106,11 @@ async def _render(command, payload, *, timeout, progress_sink=None, pcm_sink=Non
                 if total > MAX_PCM or (pcm_sink and size > 16384): break
                 pcm = await process.stdout.readexactly(size)
                 if pcm_sink:
+                    if not parts and stream_timeout is not None:
+                        # Keep the original no-audio deadline. Once audio is
+                        # arriving, allow a longer requested answer to finish;
+                        # the appliance's 52-second provider cap still applies.
+                        deadline.reschedule(asyncio.get_running_loop().time() + stream_timeout)
                     parts.append(pcm)
                     await pcm_sink(pcm)
                     continue
@@ -135,6 +141,7 @@ async def synthesize_pcm(text, *, voice, rate, progress_sink=None, pcm_sink=None
     if pcm_sink is not None:
         request["stream"] = True
         options["pcm_sink"] = deliver
+        options["stream_timeout"] = STREAM_SECONDS
     try:
         pcm = await _render(child_command(), json.dumps(request, ensure_ascii=True).encode(),
             timeout=EDGE_SECONDS, progress_sink=progress_sink, **options)
