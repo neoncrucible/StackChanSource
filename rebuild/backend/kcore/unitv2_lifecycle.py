@@ -9,7 +9,9 @@ import ipaddress
 import json
 from pathlib import Path
 import re
+import socket
 import sys
+import threading
 import time
 import uuid
 
@@ -49,15 +51,28 @@ class Client:
     def __init__(self, address, key, *, port=80):
         self.address = str(ipaddress.IPv4Address(address))
         self.port, self.key = port, bytes.fromhex(key)
+        self._socket = None
         if len(self.key) != 32: raise ValueError("Invalid UnitV2 pairing")
 
-    def _http(self, method, path, deadline, *, body=None, signature=None):
+    def interrupt(self):
+        active = self._socket
+        if active is not None:
+            with contextlib.suppress(OSError): active.shutdown(socket.SHUT_RDWR)
+
+    def _http(self, method, path, deadline, *, body=None, signature=None, cancel=None):
+        if cancel and cancel.is_set(): raise LifecycleError("UnitV2 request cancelled")
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError("UnitV2 deadline expired")
-        connection = http.client.HTTPConnection(self.address, self.port, timeout=remaining)
+        connection = http.client.HTTPConnection(self.address, self.port, timeout=min(2,remaining))
         headers = {"Connection": "close"}
         if signature: headers.update({"Content-Type":"application/json", "X-Kadence-Signature":signature})
         try:
+            connection.connect()
+            self._socket = connection.sock
+            remaining = deadline-time.monotonic()
+            if remaining <= 0: raise TimeoutError("UnitV2 deadline expired")
+            self._socket.settimeout(remaining)
+            if cancel and cancel.is_set(): raise LifecycleError("UnitV2 request cancelled")
             connection.request(method, path, body=body, headers=headers)
             response = connection.getresponse()
             length = response.getheader("Content-Length", "")
@@ -66,9 +81,10 @@ class Client:
                 raise LifecycleError("Invalid UnitV2 service response")
             data = bytearray()
             while len(data) < int(length):
+                if cancel and cancel.is_set(): raise LifecycleError("UnitV2 request cancelled")
                 left = deadline-time.monotonic()
                 if left <= 0: raise TimeoutError("UnitV2 deadline expired")
-                if connection.sock is not None: connection.sock.settimeout(left)
+                if self._socket is not None: self._socket.settimeout(left)
                 chunk = response.read(min(65536, int(length)-len(data)))
                 if not chunk: raise LifecycleError("Truncated UnitV2 response")
                 data.extend(chunk)
@@ -83,11 +99,13 @@ class Client:
             value = json.loads(data)
             if not isinstance(value, dict): raise LifecycleError("Invalid UnitV2 service response")
             return value
-        finally: connection.close()
+        finally:
+            self._socket = None
+            connection.close()
 
-    def call(self, operation, lease=None, *, timeout=5):
+    def call(self, operation, lease=None, *, timeout=5, cancel=None):
         deadline = time.monotonic()+timeout
-        challenge = self._http("GET", "/kadence/v1/challenge", deadline)
+        challenge = self._http("GET", "/kadence/v1/challenge", deadline, cancel=cancel)
         if (not isinstance(challenge, dict) or challenge.get("service") != "kadence-unitv2" or challenge.get("api") != 1
                 or not isinstance(challenge.get("nonce"), str) or not re.fullmatch(r"[0-9a-f]{32}", challenge["nonce"])):
             raise LifecycleError("UnitV2 lifecycle service is not compatible")
@@ -95,7 +113,7 @@ class Client:
         if lease is not None: data["lease"] = lease
         body = json.dumps(data, separators=(",", ":")).encode()
         signature = hmac.new(self.key, body, hashlib.sha256).hexdigest()
-        result = self._http("POST", "/kadence/v1/control", deadline, body=body, signature=signature)
+        result = self._http("POST", "/kadence/v1/control", deadline, body=body, signature=signature, cancel=cancel)
         if operation == "frame":
             if not isinstance(result, tuple): raise LifecycleError("UnitV2 returned no image")
             return result
@@ -140,7 +158,11 @@ class UnitV2Owner:
 
     async def _call(self, operation, *, lease=None, timeout=5):
         from .camera_manager import settled_thread
-        result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout))
+        cancelled=threading.Event()
+        def interrupt():
+            cancelled.set()
+            self.client.interrupt()
+        result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout, cancel=cancelled),on_cancel=interrupt)
         if operation != "frame": self.publish(result)
         return result
 
@@ -297,7 +319,7 @@ class UnitV2Owner:
 
     async def stop(self, address=None):
         self.revoke()
-        self.mode = "ON_DEMAND"
+        self.mode = "STOPPED" if self.mode=="STOPPED" else "ON_DEMAND"
         if self.heartbeat:
             self.heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError): await self.heartbeat

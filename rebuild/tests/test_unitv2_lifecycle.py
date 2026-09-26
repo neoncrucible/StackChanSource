@@ -171,7 +171,8 @@ def test_cancellation_waits_for_network_then_stops_and_never_returns_image():
         entered,released=threading.Event(),threading.Event();calls=[]
         class Stub:
             address='127.0.0.1'
-            def call(self,op,lease=None,timeout=None):
+            def interrupt(self):pass
+            def call(self,op,lease=None,timeout=None,cancel=None):
                 calls.append(op)
                 if op=='start':entered.set();released.wait(2)
                 return {'state':'STOPPED' if op=='stop' else 'STARTING','stop_confirmed':op=='stop'}
@@ -194,6 +195,35 @@ def test_burst_shares_lease_then_releases(service):
             assert owner.status['producer_running']
         status=await owner.refresh('127.0.0.1')
         assert status['starts']==1 and status['stops']==1 and status['stop_confirmed']
+        await owner.close()
+    asyncio.run(case())
+
+
+def test_cancel_interrupts_blocked_real_http_frame_without_waiting_for_timeout(service,producer):
+    server,_=service
+    producer.command=[sys.executable,'-c','import time;time.sleep(60)']
+    async def case():
+        owner=UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda a,k:Client(a,k,port=server.server_port))
+        task=asyncio.create_task(owner.capture('127.0.0.1'))
+        for _ in range(100):
+            if producer.process is not None:break
+            await asyncio.sleep(.01)
+        await asyncio.sleep(.1)
+        started=time.monotonic();task.cancel()
+        with pytest.raises(asyncio.CancelledError):await task
+        assert time.monotonic()-started<2
+        assert producer.status()['stop_confirmed']
+        await owner.close()
+    asyncio.run(case())
+
+
+def test_stop_mode_survives_unrelated_settings_reconciliation(service):
+    server,_=service
+    async def case():
+        owner=UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda a,k:Client(a,k,port=server.server_port))
+        await owner.control_mode('STOPPED','127.0.0.1')
+        await owner.stop('127.0.0.1')
+        assert owner.mode=='STOPPED' and owner.status['stop_confirmed']
         await owner.close()
     asyncio.run(case())
 
