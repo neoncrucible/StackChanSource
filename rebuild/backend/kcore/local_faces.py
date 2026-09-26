@@ -73,6 +73,7 @@ class LocalFaces:
         import numpy  # noqa: F401
         report("import_cv2")
         import cv2  # noqa: F401
+        cv2.setNumThreads(1)  # Leave CPU headroom for the foreground voice provider.
 
     def load(self):
         self.progress("import_cv2")

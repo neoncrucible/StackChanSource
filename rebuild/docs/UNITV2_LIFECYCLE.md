@@ -1,9 +1,10 @@
-# UnitV2 start / stop — host 0.4.4
+# UnitV2 start / stop — hosts 0.4.4 and 0.4.5
 
 This release controls the actual `camera_stream` process on UnitV2. It keeps
 the accepted 0.4.3 voice path and firmware 0.21.6. No robot firmware flash.
-Automatic perception remains paused in 0.4.4; this is the lifecycle acceptance
-release before event perception.
+Automatic perception remains paused in 0.4.4. In 0.4.5 it is a separate opt-in;
+leave it unchecked until this lifecycle acceptance pass succeeds. No second
+camera-service installation is needed when updating from 0.4.4 to 0.4.5.
 
 ## One-time setup
 
@@ -42,6 +43,11 @@ HTTP; use your trusted local network.
 | Privacy | Immediately revokes host access and clears preview, then requests producer stop. Keep-ready start is blocked. |
 | REFRESH STATUS | Reads actual service/process status; does not start capture. |
 | TEST START / STOP | Runs two fresh-frame / confirmed-stop cycles, showing the last image. |
+
+The successful test saves a small local verification record tied to the pairing
+key and service version. A changed pairing requires another test before enabling
+automatic UnitV2 perception. This proves the API/process cycle, not electrical
+power-off or recognition accuracy.
 
 Capture state (IDLE/CAPTURING), automatic policy (OFF/EVENT_ONLY/AWARE), and
 UnitV2 producer status are separate. Closing a preview is not a producer stop.

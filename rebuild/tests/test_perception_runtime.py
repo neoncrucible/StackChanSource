@@ -124,7 +124,7 @@ def test_manual_preempts_automatic_and_third_request_is_rejected():
                 try: await asyncio.Event().wait()
                 except asyncio.CancelledError: await finish.wait();raise
             return b'\0'*(320*240*2)
-        manager=CameraManager(capture,config=CameraConfig(policy='EVENT_ONLY',source='robot-camera'))
+        manager=CameraManager(capture,config=CameraConfig(policy='EVENT_ONLY',source='robot-camera',perception_enabled=True))
         auto=asyncio.create_task(manager.acquire(purpose='automatic'));await started.wait()
         manual=asyncio.create_task(manager.acquire());await asyncio.sleep(.01)
         with pytest.raises(RuntimeError,match='busy'): await manager.acquire()
@@ -228,7 +228,8 @@ def test_two_frames_confirm_multiple_people_without_saving_images(tmp_path):
     async def case():
         paths=KadencePaths.for_root(tmp_path);ensure_schema(paths)
         async def unused():raise AssertionError()
-        camera=CameraManager(unused,config=CameraConfig(policy='EVENT_ONLY'))
+        camera=CameraManager(unused,config=CameraConfig(policy='EVENT_ONLY',perception_enabled=True))
+        camera.unitv2.verified=True
         async def acquire(**kwargs):return frame(camera.generation)
         camera.acquire=acquire
         class Faces:
@@ -239,7 +240,7 @@ def test_two_frames_confirm_multiple_people_without_saving_images(tmp_path):
         controller=PerceptionController(camera,paths,lambda *args:None,deliver,lambda:False,faces=Faces())
         await controller.start()
         person=await controller.db('enroll',name='Boss',vectors=[vector()]*3)
-        await controller._burst('test')
+        await controller._burst('gesture')
         with sqlite3.connect(paths.database) as db:
             rows=db.execute('SELECT person_id,identity_status FROM presence_sessions WHERE ended_at IS NULL').fetchall()
             assert (person,'confirmed') in rows and (None,'unresolved') in rows and len(rows)==2

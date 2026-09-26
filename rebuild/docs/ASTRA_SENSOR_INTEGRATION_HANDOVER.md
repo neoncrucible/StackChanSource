@@ -557,3 +557,31 @@ model loading, saved privacy, speech and clean shutdown. Owner acceptance of the
 new policy/enrollment/autonomy behaviour is pending. Previously accepted manual
 camera and voice behaviour remains covered; the onboard two-click quirk remains.
 UnitV2 producer-off/sensor standby is still unsupported, not claimed by privacy.
+# Current continuation — 26 September 2026
+
+Active work is on `kadence/functionality`, firmware **0.21.6**, schema **4**.
+The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
+pipeline and home alignment; latency tuning is parked until camera/perception
+and then tools are complete.
+
+- **0.4.4**: UnitV2 producer lifecycle checkpoint, commit
+  `70d896b4f4c72c349fb7dad9231e6b456c211edc`. Windows regression and real frozen
+  executable gates passed. Artifact:
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36241332115/artifacts/10905609924
+- **0.4.5**: explicit opt-in for event perception and sparse AWARE checks,
+  layered on the existing SensorSampler / ReflexController / CameraManager.
+  Local two-frame face recognition, once-per-visit optional greetings, bounded
+  deferred events, privacy, cancellation and diagnostic decision reporting.
+- UnitV2 needs the reversible service setup in `UNITV2_LIFECYCLE.md`. This uses
+  the unchanged factory camera binary and preserves the original service for
+  rollback. No robot or camera firmware flash. The installer refuses unknown
+  factory checksums. Actual producer exit is distinct from electrical standby.
+- Physical acceptance of these two new releases remains pending. Begin with
+  automatic perception unchecked, run TEST START / STOP, then follow
+  `CAMERA_PERCEPTION.md`. The saved check is tied to the paired service. Old
+  EVENT_ONLY/AWARE settings do not silently activate automatic captures.
+- Next after acceptance: bounded physical reflexes / richer cognition as needed,
+  then tools (possibly OpenClaw), then revisit voice latency. Do not silently
+  add automatic LLM calls, camera images in storage, or servo movement here.
+
+The earlier sensor bring-up history follows for provenance.

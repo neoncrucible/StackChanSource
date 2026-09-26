@@ -1,5 +1,11 @@
 # Reflex observation — host 0.4.2 / Gate 2
 
+Historical observation-only acceptance guide. Host 0.4.5 retains this behaviour
+while **Enable automatic perception** is unchecked. For the new lifecycle-first
+activation sequence use UNITV2-START-STOP.txt, then CAMERA-PERCEPTION.txt. The
+reflex component remains a proposal-only layer; downstream perception owns all
+approved capture and presence work.
+
 Host 0.4.2 retains the 0.4.1 observer and adds the Ollama reply correction.
 Resolve a thinking-service failure with TEST REPLY before the observation pass.
 

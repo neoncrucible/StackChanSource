@@ -165,6 +165,7 @@ class MainWindow(QMainWindow):
         self.started_at=None; self.reminders=[]; self.projects=[]; self.nav=[]; self.entries=[]
         self.diagnostic=deque(maxlen=400); self._settings={}; self.snapshot_pixmap=None
         self.reflex_snapshot={}; self.reflex_events=deque(maxlen=120)
+        self.perception_snapshot={}; self.perception_decisions=deque(maxlen=120)
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
         self.active_timezone="Europe/London"; self.timings={}
         self.setWindowTitle("Kadence • Signal Console")
@@ -314,12 +315,15 @@ class MainWindow(QMainWindow):
         self.camera_privacy=QCheckBox("PRIVACY · block all camera access")
         self.camera_privacy.clicked.connect(self.apply_camera_policy)
         layout.addWidget(row(self.camera_policy,self.camera_privacy,button("APPLY AND SAVE",self.apply_camera_policy)))
+        self.perception_enable=QCheckBox("Enable automatic perception · requires a passed camera lifecycle test")
+        layout.addWidget(self.perception_enable)
         self.camera_state=label("Camera IDLE · automatic capture OFF", "status")
         self.perception_state=label("Occupancy UNKNOWN · no visual identity evidence", "muted")
         layout.addWidget(self.camera_state); layout.addWidget(self.perception_state)
         layout.addWidget(label("Privacy blocks capture and requests a producer stop. Check the confirmed status below. UnitV2 board power remains on.","muted"))
-        reflex_group=QGroupBox("SENSOR OBSERVATIONS"); reflex_layout=QVBoxLayout(reflex_group)
-        reflex_layout.addWidget(label("OBSERVE ONLY · automatic vision and reflex movement are paused.","status"))
+        reflex_group=QGroupBox("SENSOR AND PERCEPTION ACTIVITY"); reflex_layout=QVBoxLayout(reflex_group)
+        self.perception_gate=label("Observing sensor proposals · automatic perception is not enabled.","status")
+        reflex_layout.addWidget(self.perception_gate)
         self.reflex_state=label("Waiting for sensor evidence.","muted")
         self.reflex_counts=label("Proposals 0 · background 0 · cooldowns 0", "muted")
         self.reflex_log=QPlainTextEdit(); self.reflex_log.setReadOnly(True)
@@ -369,7 +373,8 @@ class MainWindow(QMainWindow):
     def camera_policy_values(self):
         return {"policy":self.camera_policy.currentData(),"privacy":self.camera_privacy.isChecked(),
             "source":self.camera_source.currentData(),"address":self.unitv2_address.text().strip(),
-            "greetings":self.presence_greetings.isChecked(),"unknown_alerts":self.presence_unknown.isChecked()}
+            "greetings":self.presence_greetings.isChecked(),"unknown_alerts":self.presence_unknown.isChecked(),
+            "perception_enabled":self.perception_enable.isChecked()}
 
     def apply_camera_policy(self, *args):
         self.control.send("camera_settings",self.camera_policy_values())
@@ -709,8 +714,9 @@ class MainWindow(QMainWindow):
             self.unitv2_address.setText(data.get("address","192.168.40.175"))
             self.presence_greetings.setChecked(data.get("greetings") is True)
             self.presence_unknown.setChecked(data.get("unknown_alerts") is True)
+            self.perception_enable.setChecked(data.get("perception_enabled") is True)
         elif name=="camera_state":
-            self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')} · automatic capture paused")
+            self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')}")
         elif name=="unitv2_lifecycle":
             confirmed="stop confirmed" if data.get("stop_confirmed") else "stop not confirmed"
             self.unitv2_state.setText(f"Producer {data.get('state','UNKNOWN')} · {confirmed} · starts {data.get('starts',0)} / stops {data.get('stops',0)}")
@@ -720,6 +726,14 @@ class MainWindow(QMainWindow):
         elif name=="perception":
             distance=f" · {data['distance_mm']} mm" if data.get("distance_mm") is not None else ""
             self.perception_state.setText(f"Zone {data.get('occupancy','UNKNOWN')}{distance} · sensor {data.get('sensor_health','unavailable')}\nLocal vision {data.get('health','idle')} · models {data.get('model_health','not_loaded')} · recent subjects {data.get('subjects',0)} · confirmed {len(data.get('confirmed_persons',[]))}")
+            gate=data.get('gate','observation_only')
+            meanings={'ready':'Automatic perception enabled','observation_only':'Observing proposals · automatic perception not enabled',
+                      'policy_off':'Automatic policy OFF','privacy':'Privacy active','stopped':'Automatic capture paused',
+                      'lifecycle_check_required':'Run TEST START / STOP first','enrolling':'Enrollment in progress'}
+            pending=f" · pending {data['pending']}" if data.get('pending') else ''
+            self.perception_gate.setText(f"{meanings.get(gate,'Perception unavailable')} · bursts {data.get('completed_bursts',0)} completed / {data.get('bursts',0)} started{pending}")
+            from .perception import diagnostic_state
+            self.perception_snapshot=diagnostic_state(data)
         elif name=="presence_notice":
             self.message.setText(data.get("message","Local presence notice."))
             if hasattr(self,"tray") and self.tray.isVisible(): self.tray.showMessage("Kadence",data.get("message",""),QSystemTrayIcon.Information,6000)
@@ -852,6 +866,14 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
+        if name=="perception_decision":
+            from .perception import diagnostic_decision
+            safe=diagnostic_decision(data)
+            if safe is not None:
+                safe={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),**safe}
+                self.perception_decisions.append(safe)
+                self.reflex_log.appendPlainText(f"{safe['at'][11:19]}Z  VISION {safe['trigger'].upper()} · {safe['decision']} · {safe['reason']}")
+            return
         if name=="unitv2_lifecycle":
             from .unitv2_lifecycle import diagnostic_status
             safe=diagnostic_status(data)
@@ -910,11 +932,12 @@ class MainWindow(QMainWindow):
         filename,_=QFileDialog.getSaveFileName(self,"Export diagnostics","Kadence-diagnostics.json","JSON (*.json)")
         if filename:
             Path(filename).write_text(json.dumps({"format":"kadence-diagnostics-v1","build":build_info(),"events":list(self.diagnostic),
-                "reflex":{"status":self.reflex_snapshot,"events":list(self.reflex_events)}},indent=2)+"\n","utf-8")
+                "reflex":{"status":self.reflex_snapshot,"events":list(self.reflex_events)},
+                "perception":{"status":self.perception_snapshot,"decisions":list(self.perception_decisions)}},indent=2)+"\n","utf-8")
             self.message.setText("Sanitised diagnostic report exported.")
 
     def clear_diagnostics(self):
-        self.diagnostic.clear(); self.log.clear(); self.reflex_events.clear(); self.reflex_log.clear()
+        self.diagnostic.clear(); self.log.clear(); self.reflex_events.clear(); self.reflex_log.clear(); self.perception_decisions.clear()
 
     def _make_tray(self):
         pixmap=QPixmap(64,64); pixmap.fill(QColor("#000000")); painter=QPainter(pixmap)

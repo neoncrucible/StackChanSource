@@ -1,21 +1,29 @@
-# Camera states and local perception — host 0.4.2
+# Camera states and local perception — host 0.4.5
 
 Branch: `kadence/functionality`. Firmware stays at 0.21.6; **no flash**.
 The owner accepted the 0.4.0 physical baseline on 25 September 2026.
-Host 0.4.1 adds Gate 2 observation-only reflex diagnostics. Automatic perception
-is paused regardless of the saved policy until this gate is physically accepted.
-Host 0.4.2 retains this gate and corrects Ollama reply handling and diagnostics.
-Read REFLEX-OBSERVATION.txt for the current test pass. The accepted 0.4.0 desktop
-is the rollback; firmware and schema v4 are unchanged.
+The owner accepted 0.4.3 voice responsiveness; its voice pipeline is retained.
+Host 0.4.4 supplies UnitV2 producer lifecycle control. Host 0.4.5 connects the
+existing sensor salience layer to bounded local perception. Firmware and schema
+v4 are unchanged. Both releases still need their new physical acceptance checks.
+0.4.4 is the lifecycle-only checkpoint; 0.4.3 is the accepted voice rollback.
 
 ## Console and daily use
 
 Install this desktop update with its `Install-Kadence.cmd`, then open the normal
 Kadence shortcut. Start the server. Open **Vision**.
 
+Automatic perception defaults **disabled**, including when an older EVENT_ONLY
+or AWARE preference exists. First complete UNITV2-START-STOP.txt. The successful
+two-cycle test saves a proof tied to this camera pairing and service version.
+Then select EVENT ONLY, check **Enable automatic perception**, and Apply & Save.
+The console displays both the active gate and each accepted/deferred/suppressed
+decision. No PowerShell is needed for daily operation.
+
 - **OFF**: automatic capture disabled; deliberate Capture and voice “look” work.
-- **EVENT ONLY**: debounced ToF arrival and new gesture events can request a pair
-  of frames. Repeated/cached sensor packets do not repeat requests.
+- **EVENT ONLY**: a debounced arrival, deliberate gesture or abrupt close approach
+  can request a pair of frames. Established desk movement and cached sensor
+  packets do not repeatedly trigger recognition. There is no timer capture.
 - **AWARE**: Event Only plus one pair at most every 120 seconds while the zone is
   occupied. This is sparse evidence, not continuous video surveillance.
 - **PRIVACY**: blocks every Kadence camera consumer, cancels pending acquisition,
@@ -69,9 +77,11 @@ provider; embeddings and autonomous images never leave local recognition.
 
 ## Runtime contracts and limits
 
-The automatic perception capabilities below remain part of the foundation, but
-0.4.1 and 0.4.2 do not dispatch automatic capture or presence actions. Observe-only
-reflexes only record proposals; camera policies do not activate them.
+ReflexController still only proposes events and cannot access cameras, servos,
+speech or an LLM. PerceptionController independently enforces the explicit opt-in,
+camera policy, privacy, enrollment exclusion, lifecycle proof, voice priority
+and capture budget. CameraManager enforces those acquisition boundaries again.
+An unpaired UnitV2 can never be accessed automatically through the legacy API.
 
 One CameraManager owns acquisition for manual, voice, enrollment and automatic
 requests. Explicit requests preempt automatic work; one explicit waiter is
@@ -82,6 +92,14 @@ The in-turn StackChan callback is preserved to avoid taking its serial owner twi
 UnitV2 bootstrap and first-frame reads share bounded deadlines. Camera failures
 back off for 15 seconds. Automatic requests reserve two frames, with a 20-second
 minimum interval and at most six automatic frames per rolling minute.
+One UnitV2 lease covers each pair and is released before any optional greeting.
+Enrollment similarly holds one lease for its three explicit samples. OpenCV
+uses one CPU thread so background perception leaves headroom for voice.
+
+A busy voice turn may defer one arrival for at most 15 seconds, or a gesture /
+close approach for 5 seconds. Repeated input cannot extend that deadline. An
+arrival may wait briefly for the capture budget. Departure, privacy, settings
+changes and explicit interruption clear pending work. There is no event backlog.
 
 ToF enters the zone at <=900 mm with 2 seconds of distinct valid evidence, leaves
 at >=1200 mm with 4 seconds of evidence, and holds its prior decision between
@@ -99,9 +117,12 @@ AWARE provides occasional rechecks. Visual sessions are closed on zone clear,
 privacy/policy changes, device reconnect, stop, or expiry; end timestamps use last
 visual evidence. A long host scheduling gap reconciles sessions as a resume.
 
-Schema v4 is reused. Only meaningful occupancy, subject, identity and failure
-transitions produce history events; successful heartbeat frames are not an event
-log. Action intent and claim are transactional; each session/kind is unique.
+Schema v4 is reused. Meaningful occupancy, identity, capture decisions and one
+summary per completed two-frame analysis are recorded; raw sensor samples and
+image bytes are not logged. Action intent and claim are transactional; each
+session/kind is unique. Greetings already attempted in an ongoing occupancy
+visit are suppressed even if its visual evidence later expires. Ambiguous
+matches are never announced as unenrolled people.
 Eligibility and a 20-second expiry are checked before delivery. Recent greetings
 for the same profile / unknown notices are suppressed for five minutes across
 sessions and restarts. Interrupted delivery becomes uncertain and is not replayed.
@@ -124,11 +145,32 @@ still requires disconnecting UnitV2 power.
 
 ## Current acceptance pass
 
-The 0.4.0 camera/voice/home/privacy/host-restart baseline is owner-accepted.
-Follow REFLEX-OBSERVATION.txt for one Gate 2 observation pass. Keep Vision OFF,
-inspect arrival/desk-motion/gesture/close-approach/departure proposals, then
-export one diagnostics report. Face/visit semantics and live EVENT_ONLY/AWARE
-activation remain subsequent gates in the definitive handoff.
+1. With automatic perception unchecked and policy OFF, complete UnitV2 setup
+   and TEST START / STOP. Confirm the two images and STOPPED / stop confirmed.
+2. Check the live ToF / gesture proposals while moving normally at the desk.
+   Ordinary motion should increase Background without repeated arrival events.
+3. Enroll one face explicitly. Enable automatic perception with EVENT ONLY and
+   leave optional greetings/notices unchecked for the first pass.
+4. Leave the ToF zone until CLEAR, then return. Expect one accepted arrival,
+   two-frame analysis and a completed burst. The producer should stop afterward.
+   Move normally: no repeated capture. After 20 seconds, make a deliberate
+   gesture; expect another bounded burst. A sudden close approach also qualifies.
+5. Turn Privacy on during a request. No new image or identity may publish; the
+   producer must report stopped or honestly report stop unconfirmed. Disable
+   Privacy and verify an ordinary voice answer and unchanged head alignment.
+6. Enable the optional greeting, leave and return, and confirm one greeting for
+   the visit. Normal desk movement must not repeat it. Recognition thresholds
+   still need validation with the physical placement and lighting.
+7. Finally select AWARE while occupied. Expect at most one extra pair after
+   120 seconds without another accepted event. EVENT ONLY has no heartbeat.
+   Stop/quit/reopen and verify the saved policy, privacy and opt-in settings.
+
+Diagnostics export includes sanitized lifecycle status and up to 120 perception
+decisions, separate from the bounded sensor proposal log. It excludes names,
+embeddings, images, pairing keys and transcripts. The new physical pass is not
+signed off by automated tests. Bounded servo reflexes, semantic object novelty,
+automatic LLM cognition, tools/OpenClaw and further latency tuning are subsequent
+work; this release provides the local presence and identity layer.
 
 ## Model provenance
 

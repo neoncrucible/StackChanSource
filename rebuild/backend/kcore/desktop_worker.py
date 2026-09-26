@@ -146,7 +146,11 @@ class DesktopController:
                     if self.app and self.app.perception: await self.app.perception.reset("privacy")
                     if self.app:
                         with contextlib.suppress(Exception): await self.app.camera.settle_settings()
-                try: config = CameraConfig.parse(args)
+                try:
+                    config = CameraConfig.parse(args)
+                    if (config.perception_enabled and config.policy != "OFF" and config.source != "robot-camera"
+                            and (not self.app or not self.app.camera.unitv2.verified)):
+                        raise ValueError("Run TEST START / STOP successfully before enabling automatic UnitV2 perception.")
                 except ValueError:
                     self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
                     raise

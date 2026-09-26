@@ -1,10 +1,13 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.4, UnitV2 producer start/stop control, retaining the accepted
-0.4.3 voice responsiveness and observe-only sensor reflexes. Firmware remains
-0.21.6. Read UNITV2-START-STOP.txt for one-time setup and the acceptance run.
-Automatic perception is paused in this observation build, including when an
-older EVENT_ONLY or AWARE setting is saved. Explicit camera use remains available.
+Current update: 0.4.5, UnitV2 lifecycle plus bounded local perception. It retains
+the accepted 0.4.3 voice responsiveness. Firmware remains 0.21.6; no flash.
+Read UNITV2-START-STOP.txt for one-time setup, then CAMERA-PERCEPTION.txt.
+Automatic perception defaults unchecked even if an older EVENT_ONLY or AWARE
+policy was saved. Complete TEST START / STOP before explicitly enabling it.
+0.4.5 includes the entire 0.4.4 lifecycle release; you can install 0.4.5 directly
+and keep perception disabled while accepting the camera lifecycle. The separate
+0.4.4 artifact remains available as the lifecycle-only checkpoint.
 
 1. Quit Kadence completely, including its tray icon. Close any source host too.
 2. Extract the entire desktop ZIP to a new folder. Do not run inside the ZIP.

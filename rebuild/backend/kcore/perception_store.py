@@ -84,7 +84,7 @@ class PerceptionStore:
         if session:
             check_id(session)
             if not db.execute("SELECT 1 FROM presence_sessions WHERE id=? AND run_id=?", (session,run)).fetchone(): raise ValueError("Session belongs to another run.")
-        if kind not in {"occupancy", "subject_seen", "identity_confirmed", "subject_ended", "capture_failed", "recognition_unavailable", "reflex_proposed"}: raise ValueError("Unsupported perception event.")
+        if kind not in {"occupancy", "subject_seen", "identity_confirmed", "subject_ended", "capture_failed", "recognition_unavailable", "reflex_proposed", "perception_decision", "capture_result"}: raise ValueError("Unsupported perception event.")
         data = json.dumps(evidence or {}, allow_nan=False, separators=(",",":"))
         if len(data) > 8192: raise ValueError("Perception evidence exceeds limit.")
         now = time.time()

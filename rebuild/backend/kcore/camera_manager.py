@@ -21,6 +21,7 @@ class CameraConfig:
     address: str = "192.168.40.175"
     greetings: bool = False
     unknown_alerts: bool = False
+    perception_enabled: bool = False
 
     @classmethod
     def parse(cls, value):
@@ -29,7 +30,7 @@ class CameraConfig:
         result = cls(**value)
         if result.policy not in {"OFF", "EVENT_ONLY", "AWARE"} or result.source not in {"auto", "robot-camera", "unitv2-camera"}:
             raise ValueError("Choose a supported camera policy and source.")
-        if any(type(getattr(result, field)) is not bool for field in ("privacy", "greetings", "unknown_alerts")):
+        if any(type(getattr(result, field)) is not bool for field in ("privacy", "greetings", "unknown_alerts", "perception_enabled")):
             raise ValueError("Invalid camera switches.")
         try: address = ipaddress.IPv4Address(result.address)
         except (ValueError, TypeError): raise ValueError("Enter the UnitV2 IPv4 address.") from None
@@ -165,6 +166,10 @@ class CameraManager:
         if purpose == "automatic" and self.unitv2.mode == "STOPPED": raise RuntimeError("Autonomous camera access is paused.")
         source = source or self.config.source
         if source not in {"auto", "robot-camera", "unitv2-camera"}: raise ValueError("Choose a supported camera source.")
+        if purpose == "automatic":
+            if not self.config.perception_enabled: raise RuntimeError("Automatic perception is not enabled.")
+            if source != "robot-camera" and not self.unitv2.verified:
+                raise RuntimeError("Run the UnitV2 start / stop check before enabling automatic capture.")
         # One explicit waiter, no unbounded queue; explicit work preempts automatic work.
         if self._active:
             if purpose == "automatic" or self._purpose != "automatic" or self._waiter:
@@ -177,7 +182,7 @@ class CameraManager:
         self.check()
         generation = self.generation
         self._purpose = purpose
-        task = asyncio.create_task(self._capture(source, address or self.config.address, in_voice, timeout, generation))
+        task = asyncio.create_task(self._capture(source, address or self.config.address, in_voice, timeout, generation, allow_legacy=purpose!="automatic"))
         self._active = task
         try: return await task
         finally:
@@ -185,7 +190,7 @@ class CameraManager:
                 self._active = self._purpose = None
                 if self.state != "FAULT": self.publish("IDLE")
 
-    async def _capture(self, source, address, in_voice, timeout, generation):
+    async def _capture(self, source, address, in_voice, timeout, generation, *, allow_legacy=True):
         started = self.clock()
         deadline = started + timeout
         request_id = str(uuid.uuid4())
@@ -203,6 +208,7 @@ class CameraManager:
                     if managed is not None:
                         png, width, height, qr = managed
                     else:
+                        if not allow_legacy: raise RuntimeError("Automatic capture requires the UnitV2 lifecycle service.")
                         png, width, height, qr = await self._legacy_unitv2(address, remaining, source)
                 else:
                     async with asyncio.timeout(max(.1, deadline-self.clock())):

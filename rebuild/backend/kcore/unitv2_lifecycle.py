@@ -151,6 +151,7 @@ class UnitV2Owner:
             self.client = None
         key = self.key_loader()
         if not key:
+            self.verified = False
             self.publish({"state":"SETUP_REQUIRED", "stop_confirmed":False})
             return False
         self.client = self.client_factory(address, key)
@@ -286,10 +287,13 @@ class UnitV2Owner:
         self._holds.add(token)
         try: yield
         finally:
+            cancelled=isinstance(sys.exception(),asyncio.CancelledError)
             self._holds.discard(token)
             async with self.lock:
                 if self.client and self.mode != "KEEP_READY" and not self._holds and self.lease:
-                    await self._stop()
+                    try: await self._stop()
+                    except Exception:
+                        if not cancelled: raise
 
     async def stop(self, address=None):
         self.revoke()

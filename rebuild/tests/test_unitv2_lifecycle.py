@@ -239,6 +239,35 @@ def test_device_code_remains_python38_compatible():
     for path in (ROOT/'unitv2').glob('*.py'):ast.parse(path.read_text(),feature_version=(3,8))
 
 
+def test_sensor_to_perception_owns_one_real_producer_for_two_frames(service,tmp_path):
+    from kcore.perception import PerceptionController
+    from kcore.local_faces import Face
+    from kcore.schema import ensure_schema
+    from kcore.storage import KadencePaths
+    from types import SimpleNamespace
+    server,_=service
+    async def case():
+        paths=KadencePaths.for_root(tmp_path);ensure_schema(paths)
+        camera=CameraManager(None,config=CameraConfig(policy='EVENT_ONLY',source='unitv2-camera',address='127.0.0.1',perception_enabled=True))
+        camera.unitv2=UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda a,k:Client(a,k,port=server.server_port))
+        await camera.unitv2.refresh('127.0.0.1');camera.unitv2.verified=True
+        count=[]
+        def analyze(png):
+            count.append(png)
+            return (Face((0,0,.5,.5),tuple(float(i==0) for i in range(128)),1),)
+        pc=PerceptionController(camera,paths,lambda *a:None,None,lambda:False,faces=SimpleNamespace(health='ready',analyze=analyze))
+        await pc.start()
+        from kcore.sensors import GestureStatus
+        await pc.sample(pc.sampler.sample(None,GestureStatus('ready',1,0,0,0,0)))
+        await pc.sample(pc.sampler.sample(None,GestureStatus('ready',2,0,1,0,1)))
+        await pc.task
+        status=await camera.unitv2.refresh('127.0.0.1')
+        assert len(count)==2 and status['starts']==1 and status['stops']==1 and status['stop_confirmed']
+        assert pc.health=='ready' and pc._completed_bursts==1
+        await pc.close();await camera.close()
+    asyncio.run(case())
+
+
 def test_reversible_install_rejects_unknown_files_before_writing(tmp_path,monkeypatch):
     root=tmp_path/'device';source=tmp_path/'package';root.mkdir();source.mkdir();(root/'bin').mkdir()
     original=b'original factory entry\r\n';binary=b'factory-camera'
