@@ -11,8 +11,8 @@ and then tools are complete.
 
 The owner explicitly approved implementation after reporting that greetings were
 checked but they could not tell whether a camera look occurred. Requested useful
-voice controls and a full server update. Work is now implemented, pending the
-release gates and new physical acceptance (build evidence to be recorded below).
+voice controls and a full server update. Work is implemented and released; all
+release gates passed. New physical acceptance remains outstanding.
 
 - Vision has Camera, Perception, Profiles and Activity tabs. Automatic enable is
   prominent and selects EVENT ONLY from OFF. Switches save immediately. Source
@@ -44,6 +44,38 @@ No firmware, UnitV2 service protocol, database schema, face thresholds, accepted
 voice transport/output or servo alignment change. Tools/OpenClaw and latency
 optimization remain later phases. The owner still needs to physically verify
 recognition, automatic events/greetings and voice camera commands on the new build.
+
+### Verified 0.4.7 release evidence — 26 September 2026
+
+Runtime commit: `2535cdcb523665a2d029a8a76c83713e951066b5`.
+Windows run `36256384633`, job `108443850809`, completed successfully:
+**206 tests / 58 subtests**, runtime ownership/alignment gate, bundled face model
+inference and packaged executable checks. Frozen checks explicitly passed profile
+reads, SQLite backup, camera voice status, history, streaming decoder, local speech
+and clean shutdown. Online speech generation was not exercised by that frozen gate.
+Local full suite: **283 passed / 103 subtests**, four expected skips for Windows
+credentials, installer, installed Windows voice and packaged face-model inference.
+Qt layouts were inspected at 1160x800 and the minimum 980x690; all four tabs have
+independent scrollable content, and the enable/test controls are visible.
+
+Download (182507758 bytes):
+https://github.com/neoncrucible/StackChanSource/actions/runs/36256384633/artifacts/10910966620
+Uploaded artifact SHA256:
+`695ef12f97f306b27861cc14b5fb125faad8e04a654ec88ef51d760ec76f5f2d`.
+
+Install as a normal host update: quit Kadence including the tray, extract the full
+download, run `Install-Kadence.cmd`, reopen the usual shortcut and verify 0.4.7.
+Existing schema-v4 data and pairing are retained. A working paired UnitV2 service
+does not need reinstalling; firmware stays 0.21.6. In Vision select the camera,
+inspect Profiles, run Test Recognition, then enable Automatic Perception and use
+Test Automatic Event. A repeated greeting can be correctly suppressed by the visit
+or five-minute guard. Try voice "Camera status" and "What can you see?" (the latter
+requires the Gemini image-description key, even with Ollama reasoning).
+
+No new physical result has been claimed. Next acceptance is the owner's saved
+profiles/recognition, actual event/greeting and voice camera checks. Keep 0.4.3 as
+the accepted voice baseline and 0.4.6 as the previous host package. Future tools /
+OpenClaw and further latency tuning remain subsequent work.
 
 ### Owner hardware observations and requested usability work — 26 September, 17:08 BST
 
