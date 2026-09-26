@@ -21,7 +21,15 @@ service, recognition and accepted voice behavior are unchanged. The existing
 0.4.5 package can be unblocked with the single PowerShell command documented
 in UNITV2_LIFECYCLE.md, then SET UP UNITV2 can be retried. Physical acceptance
 remains pending. Six new installer regressions and the twenty local lifecycle
-tests passed; Windows packaging evidence will follow the release commit.
+tests passed locally. Windows run `36249427399`, job `108424556284`, passed
+193 tests / 58 subtests, runtime ownership, and the real packaged executable
+gates. Host 0.4.6 runtime commit: `d41c6872cf2779222d15084bb0f5ddc006b1acd0`.
+Verified download:
+https://github.com/neoncrucible/StackChanSource/actions/runs/36249427399/artifacts/10908029095
+Uploaded artifact SHA256: `d5b1f72de7e08172e49eaa47a98fb0c54deaa21ac7b907b2de2673adaeacf3a8`.
+Use 0.4.6 for setup with the automatic permission check, or repair the current
+0.4.5 camera permissions and retry its setup. No fresh hardware acceptance has
+been reported; resume TEST START / STOP after setup and the camera power cycle.
 
 - **0.4.4**: UnitV2 producer lifecycle checkpoint, commit
   `70d896b4f4c72c349fb7dad9231e6b456c211edc`. Windows regression and real frozen
