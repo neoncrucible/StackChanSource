@@ -1,0 +1,74 @@
+name: Kadence 0.21.6 crash symbols
+
+on:
+  push:
+    branches: [kadence/functionality]
+    paths: [".github/workflows/kadence-0216-symbols.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  symbols:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Exact source_commit recorded in the physically accepted firmware ZIP.
+          ref: 22fc2f5cf4c8d250c8dd11b3253993ba79ad6b97
+      - uses: actions/download-artifact@v4
+        with:
+          name: kadence-rc2-firmware
+          run-id: 34995140145
+          github-token: ${{ github.token }}
+          path: original
+      - name: Rebuild symbols only
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd rebuild/firmware
+          idf.py build
+      - name: Compare executable segment and decode captured addresses
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          python - <<'PY'
+          import hashlib, json, pathlib, struct, zipfile
+          archive=next(pathlib.Path("original").glob("*.zip"))
+          with zipfile.ZipFile(archive) as z:
+              old=z.read("kade-body-probe.bin")
+          new=pathlib.Path("rebuild/firmware/build/kade-body-probe.bin").read_bytes()
+          def code(data):
+              position=24
+              segments=[]
+              for _ in range(data[1]):
+                  address,length=struct.unpack_from("<II",data,position)
+                  position+=8
+                  if 0x42000000 <= address < 0x44000000:
+                      segments.append((address,data[position:position+length]))
+                  position+=length
+              return segments
+          matched=bool(code(old)) and code(old)==code(new)
+          report={"source":"22fc2f5cf4c8d250c8dd11b3253993ba79ad6b97","executable_segment_matches_original":matched,
+                  "original_sha256":hashlib.sha256(old).hexdigest(),
+                  "note":"Addresses are authoritative only when executable segments match."}
+          pathlib.Path("symbol-validation.json").write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          PY
+          xtensa-esp32s3-elf-addr2line -pfiaC -e rebuild/firmware/build/kade-body-probe.elf \
+            0x4037b29c 0x40376189 0x4037743d 0x4037b403 0x420b8879 0x4037fd3f | tee captured-backtrace.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kadence-0216-symbols-only
+          path: |
+            rebuild/firmware/build/*.elf
+            rebuild/firmware/build/*.map
+            symbol-validation.json
+            captured-backtrace.txt
+          if-no-files-found: error
