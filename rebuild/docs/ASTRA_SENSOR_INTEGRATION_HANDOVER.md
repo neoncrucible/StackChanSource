@@ -7,6 +7,44 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
+### Authorized full console / voice update — host 0.4.7
+
+The owner explicitly approved implementation after reporting that greetings were
+checked but they could not tell whether a camera look occurred. Requested useful
+voice controls and a full server update. Work is now implemented, pending the
+release gates and new physical acceptance (build evidence to be recorded below).
+
+- Vision has Camera, Perception, Profiles and Activity tabs. Automatic enable is
+  prominent and selects EVENT ONLY from OFF. Switches save immediately. Source
+  selection applies to voice, manual capture, enrollment and recognition tests.
+- Existing schema-v4 SQLite is retained. Profiles exposes compatible/total sample
+  counts, sample dates and per-person recognition/greeting switches. Rename and
+  delete are available; replacement keeps old samples until three new samples
+  validate/commit atomically. Enrollment progress and its result remain visible.
+  A SQLite backup API action gives a consistent snapshot and reports its filename.
+- Test Recognition uses two fresh local frames with automatic perception off,
+  never creates a visit/greeting, and honors privacy/cancellation. Test Automatic
+  Event submits a gesture through real gates, rate limits and greeting guards.
+  Activity shows capture decisions, source, local results, greeting delivery and
+  producer stop confirmation, with recent stored event/action metadata.
+- Existing desk_look already used the selected camera. Common look/status/control
+  phrases now bypass model planning. Camera status grounds hardware awareness;
+  explicit controls share DesktopController settings/lifecycle authority. Model
+  proposed writes require confirmation; voice never enrolls or deletes profiles.
+  No second serial owner. Missing Gemini keys and Privacy give clear explanations.
+- Identical settings saves no longer reset visits or cancel active media. Voice
+  interrupts explicit enrollment/tests as well as automatic perception. Names in
+  local UI/activity are excluded from diagnostic exports; no new photo retention.
+- Tests cover database reopen, atomic replacement, backup/delete, two-frame local
+  identity, ambiguity, cancellation, actual selected source, voice authorization,
+  lifecycle/privacy and Qt tab feedback. The frozen executable gate also checks
+  profile metadata, database backup, camera voice status and activity reads.
+
+No firmware, UnitV2 service protocol, database schema, face thresholds, accepted
+voice transport/output or servo alignment change. Tools/OpenClaw and latency
+optimization remain later phases. The owner still needs to physically verify
+recognition, automatic events/greetings and voice camera commands on the new build.
+
 ### Owner hardware observations and requested usability work — 26 September, 17:08 BST
 
 The owner reports camera start/stop and Privacy worked. Record those checks as

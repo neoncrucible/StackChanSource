@@ -151,7 +151,7 @@ def test_console_retains_bounded_proposals_separately_from_device_spam(tmp_path)
         assert "secret" not in output.read_text() and "private-name" not in output.read_text()
         window.on_event("camera_settings", asdict(CameraConfig(policy="AWARE", privacy=True)))
         assert window.camera_privacy.isChecked()
-        window.navigate(3); window.show(); qt.processEvents()
+        window.navigate(3); window.vision_tabs.setCurrentIndex(3); window.show(); qt.processEvents()
         assert window.reflex_counts.isVisible()
     finally:
         window.ticker.stop(); window.quitting = True; window.close()

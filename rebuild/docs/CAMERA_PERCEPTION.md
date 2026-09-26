@@ -1,79 +1,134 @@
-# Camera states and local perception — host 0.4.5
+# Vision console, profiles and voice — host 0.4.7
 
-Branch: `kadence/functionality`. Firmware stays at 0.21.6; **no flash**.
-The owner accepted the 0.4.0 physical baseline on 25 September 2026.
-The owner accepted 0.4.3 voice responsiveness; its voice pipeline is retained.
-Host 0.4.4 supplies UnitV2 producer lifecycle control. Host 0.4.5 connects the
-existing sensor salience layer to bounded local perception. Firmware and schema
-v4 are unchanged. Both releases still need their new physical acceptance checks.
-0.4.4 is the lifecycle-only checkpoint; 0.4.3 is the accepted voice rollback.
+Branch: `kadence/functionality`. Firmware stays at **0.21.6**; **no flash**.
+The accepted 0.4.3 voice transport/output pipeline and head alignment are retained.
+0.4.7 includes the 0.4.6 UnitV2 setup repair and the existing lifecycle service.
+The owner has reported start/stop and Privacy working. Recognition, greetings,
+voice camera commands and this new console still need physical acceptance.
 
-## Console and daily use
+## Start here
 
-Install this desktop update with its `Install-Kadence.cmd`, then open the normal
-Kadence shortcut. Start the server. Open **Vision**.
+Install using `Install-Kadence.cmd`, open the normal shortcut and check the console
+shows **0.4.7**. Start the server and select **Vision**. It now has four tabs:
 
-Automatic perception defaults **disabled**, including when an older EVENT_ONLY
-or AWARE preference exists. First complete UNITV2-START-STOP.txt. The successful
-two-cycle test saves a proof tied to this camera pairing and service version.
-Then select EVENT ONLY, check **Enable automatic perception**, and Apply & Save.
-The console displays both the active gate and each accepted/deferred/suppressed
-decision. No PowerShell is needed for daily operation.
+- **Camera**: choose UnitV2, StackChan or AUTO; Apply and Save. Capture checks the
+  actual view. Setup, start/stop test, mode and confirmed producer state are here.
+- **Perception**: a prominent **Enable Automatic Perception** switch, actual gate,
+  last completed look, recognition result and greeting outcome. Enabling from OFF
+  selects EVENT ONLY. The enable, greeting and notice switches save immediately.
+- **Profiles**: the real saved names, compatible/total sample counts, recognition
+  and greeting eligibility, and sample dates. Enrollment progress stays here.
+  Rename, disable recognition/greeting for one profile, replace samples or delete.
+- **Activity**: live sensor proposals, accepted/deferred/suppressed decisions,
+  recognition/greeting results and producer stop confirmation. Refresh History
+  reads recent saved event/action metadata, including previous sessions.
 
-- **OFF**: automatic capture disabled; deliberate Capture and voice “look” work.
-- **EVENT ONLY**: a debounced arrival, deliberate gesture or abrupt close approach
-  can request a pair of frames. Established desk movement and cached sensor
-  packets do not repeatedly trigger recognition. There is no timer capture.
-- **AWARE**: Event Only plus one pair at most every 120 seconds while the zone is
-  occupied. This is sparse evidence, not continuous video surveillance.
-- **PRIVACY**: blocks every Kadence camera consumer, cancels pending acquisition,
-  clears the manual preview and prevents description/save of that preview.
-  Already-started external requests cannot be unsent. An explicit save whose
-  file/database transaction has started is allowed to settle consistently.
+Camera source/address apply to manual capture, voice looks, enrollment and local
+perception. After editing source/address, use **Apply and Save**. Capture, enrollment
+and test buttons also apply the displayed camera settings before starting.
 
-Select a policy, source and optional actions, then **Apply & Save**. Privacy applies
-immediately when clicked. Policies persist across server/application restarts.
-The first installation defaults to OFF. A damaged policy file fails closed into
-privacy. Settings are in `camera-settings.json` in the normal Kadence data folder.
+A previously installed working UnitV2 service does not need reinstalling for this
+host update. If the console requests a lifecycle test, use **Test Start / Stop**
+with automatic perception off. A successful two-cycle test saves proof tied to the
+pairing and service version. No daily PowerShell commands are needed.
 
-**AUTO** tries UnitV2 first and the available StackChan camera second. Frame
-provenance always records the camera actually used. An explicit source does not
-silently switch. The UnitV2 address defaults to the owner's last verified address,
-192.168.40.175; it remains editable because DHCP may change it.
+## Enroll, inspect and test a profile
 
-Camera status shows IDLE, STARTING, CAPTURING, FAULT or PRIVACY. Local analysis
-shows separately as processing/ready/unavailable. ToF zone state and sensor health
-are separate from face evidence. The console never calls a ToF target a person.
-Successful automatic frames are not displayed, uploaded or saved. Manual capture
-continues to show its preview; Gemini receives only explicitly requested object
-questions and images, never autonomous identity work.
+1. In Camera, select UnitV2 and Capture to check framing and lighting.
+2. In Profiles, inspect the saved list first: an earlier successful enrollment
+   appears with **3 / 3 compatible** samples. Enter a new name only for a new person.
+3. Face the selected camera alone and click **Enroll 3 Samples**. Each accepted
+   sample advances the progress bar. Success says **Saved: name** and refreshes
+   the list. A failure remains beside the enrollment controls.
+4. Click **Test Recognition**. It takes two fresh frames for local matching,
+   works with automatic perception off, and never creates a visit or greeting.
+   Privacy still blocks it. It names someone only when both frames agree.
+5. Restart Kadence and reopen Profiles to verify persistence. Saved rows are read
+   from the same database, not an in-memory list.
 
-## Local enrollment and recognition
+Select a saved row to rename it or change its Recognise/Greet switches, then
+**Save Profile**. **Replace Samples** keeps the same person ID and eligibility;
+old samples stay saved until all three replacements validate and commit together.
+**Delete** removes current biometric samples and anonymizes the name/history.
+Existing database backups retain their copies.
 
-The complete executable includes pinned OpenCV YuNet/SFace models. No model or
-face-image download occurs at runtime. Enrollment is explicit:
+Enrollment stores a name and three normalized 128-dimensional embeddings, not
+photographs. The packaged YuNet/SFace models perform recognition on this PC.
+Factory UnitV2 face-tracking identities are separate and are not automatically
+imported. This is local presence recognition, not an authentication mechanism.
 
-1. Set the intended source/address and stand alone, facing it in good light.
-2. Enter a name, then **Enroll 3 Samples**. Keep your face clearly visible.
-3. The operation checks three independent frames for one usable, consistent face.
-   Only normalized 128-dimensional local embeddings are persisted. No enrollment
-   photographs are retained. This is not an authentication mechanism.
-4. Refresh lists local profiles. Remove Profile deletes its embeddings and
-   anonymizes its name while retaining anonymous session/action history.
+The existing **SQLite schema v4** is reused; no SQL server setup or migration is
+needed. The default database is `%LOCALAPPDATA%\Kadence\database\kadence.sqlite3`
+(`KADENCE_DATA_DIR` can override the root). The exact path is shown in Profiles.
+**Back Up Database** creates an integrity-checked SQLite snapshot in the adjacent
+`backups` folder and reports its full filename. It includes committed WAL data,
+profiles, reminders and projects; it is a database backup, not a media/settings
+archive. No automatic photos are added to the database.
 
-Local recognition uses cosine >=0.55 and a >=0.08 lead over other people, then
-requires agreement across two frames with >=0.65 inter-frame similarity.
-Ambiguous matches stay unconfirmed. These conservative defaults require physical
-validation with this camera placement; they are not a measured accuracy claim.
-Small (<40 px) or severely blurred faces are excluded. Up to eight faces are
-processed per frame; enrollment is capped at 32 people with three samples each.
+## Test automatic perception and greetings
 
-**Greet confirmed people once per visit** is optional and initially off. It uses
-an explicit fixed greeting and the selected speech output; it does not move the
-head or invoke model tools. **Local notice for an unenrolled face** is also off
-by default and displays a Windows console/tray notice, not an identity claim.
-Names used in an enabled spoken greeting may pass through the existing speech
-provider; embeddings and autonomous images never leave local recognition.
+1. In Perception, enable Automatic Perception. The gate must report enabled;
+   otherwise it explains Privacy, stopped mode or a missing lifecycle test.
+2. Choose EVENT ONLY for arrivals/gestures/close approaches, or AWARE to add
+   occasional occupied-space checks. The mode selection saves immediately.
+3. Enable greetings if wanted. The profile's individual **Greet** switch must
+   also be on. Enabling greetings alone never enables automatic capture.
+4. Click **Test Automatic Event**. This submits one deliberate gesture proposal
+   through the real gates, frame budget, two-frame matcher and greeting dispatch.
+   It can greet if eligible; it never bypasses Privacy or the once-per-visit and
+   five-minute greeting guards. Wait at least 20 seconds between burst tests.
+5. Read Last Look, the greeting result and Activity. A completed recognition test
+   is separate from a delivered greeting. Failed/unavailable speech is not claimed
+   delivered. Then verify a real arrival by leaving until CLEAR and returning.
+
+Ordinary desk movement is suppressed. EVENT ONLY has no timer. AWARE adds at most
+one two-frame check every 120 seconds while occupied. No automatic frames go to
+Gemini or disk. Names in optional spoken greetings may pass to the existing speech
+provider. Normal voice work interrupts background perception and enrollment.
+
+## Voice commands
+
+These common phrases run directly without waiting for a reasoning-model tool choice:
+
+| Say | Actual action |
+| --- | --- |
+| What can you see? / What am I holding? / Read this | Take a fresh selected-camera snapshot and describe it with Gemini. |
+| Camera status / Which camera are you using? / Are you looking? | Report saved source, privacy, producer state, automatic gate and last local result. This is not a fresh image. |
+| Use the extra camera / Use the Unit V2 camera | Save explicit UnitV2 selection. |
+| Use the robot camera | Save built-in StackChan selection. |
+| Enable / disable automatic perception | Save opt-in; enabling from OFF chooses EVENT ONLY. Lifecycle checks still apply. |
+| Enable / disable greetings | Save greeting preference; tell you if automatic perception is still off. |
+| Turn privacy on / off | Save the same privacy control used by the console. |
+| Stop the camera / Start the camera | Select UnitV2 STOPPED / ON DEMAND mode. Start means ready for a requested capture. |
+| Keep the camera ready | Select UnitV2 KEEP READY with its renewable lease. |
+| Use aware mode / Use event only mode | Enable perception in that mode, subject to lifecycle checks. |
+
+A Gemini key is required for picture descriptions even when Ollama supplies ordinary
+conversation. Missing keys and Privacy produce explicit spoken explanations.
+Object descriptions do not identify people; profile enrollment/management remains
+in the console. Model-proposed setting changes still require a concrete spoken
+confirmation; the model cannot grant itself authorization. All paths share the same
+CameraManager and the existing in-turn robot capture channel, with no second serial
+owner. Failed operations are not silently retried.
+
+## Privacy and recognition limits
+
+OFF disables automatic capture while retaining deliberate capture/look/tests.
+Privacy blocks every Kadence camera consumer, invalidates pending frames, clears
+preview and requests a producer stop. Check **stop confirmed**; software privacy
+is not electrical power-off. An already-started external request cannot be unsent.
+An explicit database/file transaction already started settles consistently.
+
+AUTO tries UnitV2 then the available StackChan camera. Explicit camera selection
+never silently switches. Status/results show the actual source when known.
+An invalid saved settings file fails closed into Privacy. Settings persist in
+`camera-settings.json` in the normal Kadence data folder.
+
+Recognition requires cosine >=0.55, a >=0.08 lead over other people and agreement
+across two frames with >=0.65 inter-frame similarity. Ambiguous matches remain
+unconfirmed. Small (<40 px) or severely blurred faces are rejected. Up to eight
+faces are processed per frame; enrollment is capped at 32 people with three samples.
+These thresholds still require testing with the actual camera placement and light.
 
 ## Runtime contracts and limits
 

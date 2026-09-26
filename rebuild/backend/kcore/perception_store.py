@@ -20,7 +20,7 @@ class PerceptionStore:
     def __init__(self, database): self.database = database
 
     def call(self, operation, **args):
-        allowed = {"begin", "end", "enroll", "persons", "profiles", "forget", "observe", "expire", "event", "claim", "complete"}
+        allowed = {"begin", "end", "enroll", "persons", "profiles", "update_person", "activity", "forget", "observe", "expire", "event", "claim", "complete"}
         if operation not in allowed: raise ValueError("Unknown perception operation.")
         with closing(connect_database(self.database, timeout=2)) as db:
             db.row_factory = sqlite3.Row
@@ -45,7 +45,42 @@ class PerceptionStore:
         db.execute("UPDATE perception_runs SET ended_at=checkpoint_at,end_reason=? WHERE id=? AND ended_at IS NULL", (reason,run))
 
     def _persons(self, db):
-        return [dict(r) for r in db.execute("SELECT id,display_name FROM persons WHERE active=1 ORDER BY display_name LIMIT 32")]
+        rows = db.execute("""SELECT p.id,p.display_name,p.recognition_enabled,p.greeting_enabled,
+            p.enrolled_at,p.updated_at,count(f.id) AS samples,
+            coalesce(sum(f.model_fingerprint=? AND f.preprocessing=? AND f.metric='cosine'
+            AND f.encoding='float32-le' AND f.embedding_dimension=128),0) AS compatible_samples
+            FROM persons p LEFT JOIN face_profiles f ON f.person_id=p.id AND f.active=1
+            WHERE p.active=1 GROUP BY p.id ORDER BY p.display_name LIMIT 32""", (FINGERPRINT,PREPROCESSING))
+        return [dict(r) for r in rows]
+
+    def _update_person(self, db, person, name, recognition_enabled, greeting_enabled):
+        check_id(person)
+        self._check_name(db,name,person)
+        if type(recognition_enabled) is not bool or type(greeting_enabled) is not bool:
+            raise ValueError("Invalid profile switches.")
+        if not db.execute("SELECT 1 FROM persons WHERE id=? AND active=1",(person,)).fetchone():
+            raise ValueError("That profile is no longer saved.")
+        db.execute("UPDATE persons SET display_name=?,greeting_name=?,recognition_enabled=?,greeting_enabled=?,updated_at=? WHERE id=?",
+                   (name.strip(),name.strip(),recognition_enabled,greeting_enabled,time.time(),person))
+        db.execute("UPDATE perception_actions SET state='suppressed',outcome='profile_changed',completed_at=? WHERE person_id=? AND state='pending'",(time.time(),person))
+
+    def _activity(self, db):
+        # Fixed metadata only: no images, embeddings or free-form saved text.
+        events = [dict(r) for r in db.execute("""SELECT occurred_at AS time,event_type AS kind,trigger_type AS trigger,
+            camera_source AS source,evidence_json FROM perception_events ORDER BY occurred_at DESC LIMIT 60""")]
+        for event in events:
+            evidence=json.loads(event.pop("evidence_json"))
+            event["detail"]={k:evidence[k] for k in ("decision","reason","frames","subjects","confirmed","health","state","identity") if k in evidence}
+        actions = [dict(r) for r in db.execute("""SELECT created_at AS time,kind,state,outcome FROM perception_actions
+            ORDER BY created_at DESC LIMIT 30""")]
+        return sorted(events+actions,key=lambda item:item["time"],reverse=True)[:80]
+
+    @staticmethod
+    def _check_name(db, name, person=None):
+        if not isinstance(name,str) or not 1 <= len(name.strip()) <= 80 or any(ord(c)<32 for c in name):
+            raise ValueError("Enter a name of 1–80 characters.")
+        if db.execute("SELECT 1 FROM persons WHERE active=1 AND lower(display_name)=lower(?) AND id!=?",(name.strip(),person or "")).fetchone():
+            raise ValueError("That name is already saved. Select its profile and use REPLACE SAMPLES.")
 
     def _profiles(self, db):
         result = []
@@ -57,14 +92,21 @@ class PerceptionStore:
             except ValueError: continue
         return result
 
-    def _enroll(self, db, name, vectors):
-        if not isinstance(name,str) or not 1 <= len(name.strip()) <= 80 or any(ord(c)<32 for c in name): raise ValueError("Enter a name of 1–80 characters.")
+    def _enroll(self, db, name, vectors, person=None):
+        self._check_name(db,name,person)
         if len(vectors) != 3: raise ValueError("Enrollment requires three face samples.")
         blobs = [encode(v) for v in vectors]
-        if db.execute("SELECT count(*) FROM persons WHERE active=1").fetchone()[0] >= 32: raise ValueError("Remove an unused profile before enrolling another person.")
-        if db.execute("SELECT 1 FROM persons WHERE active=1 AND lower(display_name)=lower(?)", (name.strip(),)).fetchone(): raise ValueError("That name is already enrolled. Remove it before replacing its samples.")
-        person, now = ident(), time.time()
-        db.execute("INSERT INTO persons(id,display_name,greeting_name,recognition_enabled,enrolled_at,created_at,updated_at) VALUES(?,?,?,1,?,?,?)", (person,name.strip(),name.strip(),now,now,now))
+        now = time.time()
+        if person:
+            check_id(person)
+            if not db.execute("SELECT 1 FROM persons WHERE id=? AND active=1",(person,)).fetchone(): raise ValueError("That profile is no longer saved.")
+            # Old samples remain intact until all new samples validate in this transaction.
+            db.execute("DELETE FROM face_profiles WHERE person_id=?",(person,))
+            db.execute("UPDATE persons SET enrolled_at=?,updated_at=? WHERE id=?",(now,now,person))
+        else:
+            if db.execute("SELECT count(*) FROM persons WHERE active=1").fetchone()[0] >= 32: raise ValueError("Remove an unused profile before enrolling another person.")
+            person = ident()
+            db.execute("INSERT INTO persons(id,display_name,greeting_name,recognition_enabled,enrolled_at,created_at,updated_at) VALUES(?,?,?,1,?,?,?)", (person,name.strip(),name.strip(),now,now,now))
         for blob in blobs:
             db.execute("""INSERT INTO face_profiles(id,person_id,model_fingerprint,preprocessing,metric,embedding_dimension,embedding,created_at)
                 VALUES(?,?,?,?,'cosine',128,?,?)""", (ident(),person,FINGERPRINT,PREPROCESSING,blob,now))

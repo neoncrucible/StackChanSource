@@ -55,6 +55,10 @@ class DesktopTests(unittest.TestCase):
                 from unittest.mock import patch
                 with patch.object(window.control, 'send') as send:
                     window.capture_camera()
+                    self.assertEqual(send.call_args.args[0],'camera_settings')
+                    callback=send.call_args.args[2]
+                    send.reset_mock()
+                    callback({'ok':True})
                     send.assert_called_once_with('camera_capture', {'source':'unitv2-camera', 'address':'192.168.40.175'})
                 window.save_preferences()
                 preferences=json.loads(window.settings_path.read_text())

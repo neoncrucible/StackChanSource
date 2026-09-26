@@ -56,6 +56,14 @@ def check(executable, expected_commit, *, offline=False):
             assert models['ok'] and models['result']['model_health']=='ready' and models['result']['faces']==0,models
             send(8,'camera_settings',{'privacy':True}); assert until('result',8)['ok']
             assert json.loads((Path(tmp)/'camera-settings.json').read_text())['privacy'] is True
+            send(9,'face_profiles',{}); profiles=until('result',9)
+            assert profiles['ok'] and profiles['result']['persons']==[] and profiles['result']['database'].endswith('kadence.sqlite3'),profiles
+            send(10,'database_backup',{}); backup=until('result',10)
+            assert backup['ok'] and Path(backup['result']['path']).is_file(),backup
+            send(11,'local_tool',{'name':'camera_status'}); camera=until('result',11)
+            assert camera['ok'] and camera['result']['ok'] and 'Privacy is on' in camera['result']['data']['spoken'],camera
+            send(12,'vision_activity',{}); history=until('result',12)
+            assert history['ok'] and history['result']['items']==[],history
             send(6,'quit',{})
             assert until('closed')['clean'] is True
             assert process.wait(timeout=15)==0
@@ -63,7 +71,7 @@ def check(executable, expected_commit, *, offline=False):
             assert not process.stderr.read().strip()
         finally:
             if process.poll() is None: process.kill(); process.wait(timeout=5)
-    print(f'DESKTOP_FROZEN PASS private_worker=1 timezone=1 persistence=1 utilities=1 online_speech_tested={int(not offline)} local_speech_pcm=1 clean_shutdown=1')
+    print(f'DESKTOP_FROZEN PASS private_worker=1 timezone=1 persistence=1 utilities=1 profiles=1 backup=1 camera_voice_status=1 vision_history=1 online_speech_tested={int(not offline)} local_speech_pcm=1 clean_shutdown=1')
 
 
 if __name__=='__main__': check(Path(sys.argv[1]),sys.argv[2],offline='--offline' in sys.argv[3:])

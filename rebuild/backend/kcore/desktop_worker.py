@@ -61,6 +61,55 @@ class DesktopController:
         self._media = None
         self._network_media = False
         self._camera_settings_lock = asyncio.Lock()
+        self.services.camera_handler = self.camera_voice
+
+    async def camera_voice(self, command):
+        from dataclasses import asdict
+        from .camera_manager import CameraConfig
+        from .camera_voice import CAMERA_CHANGES
+        config = self.app.camera.config if self.app else CameraConfig.load(self.services.paths.root)
+        if command == "status":
+            source = {"unitv2-camera":"UnitV2 extra camera","robot-camera":"built-in StackChan camera","auto":"AUTO, preferring the UnitV2 extra camera"}[config.source]
+            perception = getattr(self.app,"perception",None)
+            gate = perception.gate() if perception else "stopped"
+            gate = {"ready":"enabled","observation_only":"off","policy_off":"off by policy","privacy":"blocked by privacy","stopped":"stopped","lifecycle_check_required":"waiting for a passed camera start and stop test","enrolling":"paused for a local face operation"}.get(gate,"unavailable")
+            camera = getattr(self.app,"camera",None)
+            producer = camera.unitv2.status.get("state","UNKNOWN") if camera else "UNKNOWN"
+            spoken = f"My selected source is {source}. Privacy is {'on' if config.privacy else 'off'}. UnitV2 producer: {producer}. Automatic perception: {gate.replace('_',' ')}. Greetings are {'on' if config.greetings else 'off'}."
+            if perception:
+                age = f" {int(max(0,perception.clock()-perception._last_capture))} seconds ago" if perception._last_capture is not None else ""
+                spoken += " Last local look" + age + ": " + perception.last_result + " " + perception.last_greeting
+            return {"spoken":spoken,"settings":asdict(config)}
+        if command not in CAMERA_CHANGES: raise ValueError("Unsupported camera command.")
+        patches = {
+            "privacy_on":{"privacy":True},"privacy_off":{"privacy":False},
+            "perception_on":{"perception_enabled":True,"policy":config.policy if config.policy!="OFF" else "EVENT_ONLY"},
+            "perception_off":{"perception_enabled":False},
+            "greetings_on":{"greetings":True},"greetings_off":{"greetings":False},
+            "unitv2":{"source":"unitv2-camera"},"robot":{"source":"robot-camera"},"auto":{"source":"auto"},
+            "aware":{"policy":"AWARE","perception_enabled":True},"event_only":{"policy":"EVENT_ONLY","perception_enabled":True},
+        }
+        try:
+            if command in patches:
+                await self.command("camera_patch",patches[command])
+                message = "Saved: " + CAMERA_CHANGES[command] + "."
+                saved = self.app.camera.config if self.app else CameraConfig.load(self.services.paths.root)
+                if command == "greetings_on" and (not saved.perception_enabled or saved.policy=="OFF"):
+                    message += " Automatic perception is still off; enable it when you want me to look for arrivals."
+                if command in {"perception_on","aware","event_only"} and saved.privacy:
+                    message += " Privacy is still on, so camera access remains blocked."
+                if command == "privacy_on" and self.app and not self.app.camera.unitv2.status.get("stop_confirmed"):
+                    message += " Access is blocked, but the UnitV2 producer stop is not confirmed."
+            else:
+                mode={"stop":"STOPPED","on_demand":"ON_DEMAND","keep_ready":"KEEP_READY"}[command]
+                await self.command("unitv2_mode",{"mode":mode})
+                status=self.app.camera.unitv2.status
+                message = f"UnitV2 mode is {mode.replace('_',' ').lower()}. Producer state: {status.get('state','UNKNOWN')}."
+                if mode!="KEEP_READY": message += " Stop confirmed." if status.get("stop_confirmed") else " Stop is not confirmed."
+            self.emit("vision_activity",{"kind":"voice_control","message":message})
+            return {"spoken":message}
+        except (RuntimeError,ValueError) as exc:
+            return {"spoken":str(exc) if type(exc) in {RuntimeError,ValueError} else "The camera change was not confirmed. Check Vision on the PC."}
 
     async def start(self):
         await self.services.start()
@@ -129,10 +178,13 @@ class DesktopController:
             faces.preload(progress=lambda stage:self.emit("model_check", {"stage":stage}))
             result=await settled_thread(faces.analyze,image.getvalue())
             return {"model_health":faces.health,"faces":len(result)}
-        if action == "camera_settings":
+        if action in {"camera_settings","camera_patch"}:
             from .camera_manager import CameraConfig
             from dataclasses import asdict
             async with self._camera_settings_lock:
+                if action == "camera_patch":
+                    previous = self.app.camera.config if self.app else CameraConfig.load(self.services.paths.root)
+                    args = {**asdict(previous),**args}
                 # Privacy must remain reachable even while an address edit is invalid.
                 if args.get("privacy") is True:
                     from dataclasses import replace
@@ -148,12 +200,16 @@ class DesktopController:
                         with contextlib.suppress(Exception): await self.app.camera.settle_settings()
                 try:
                     config = CameraConfig.parse(args)
-                    if (config.perception_enabled and config.policy != "OFF" and config.source != "robot-camera"
+                    if (not config.privacy and config.perception_enabled and config.policy != "OFF" and config.source != "robot-camera"
                             and (not self.app or not self.app.camera.unitv2.verified)):
                         raise ValueError("Run TEST START / STOP successfully before enabling automatic UnitV2 perception.")
                 except ValueError:
                     self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
                     raise
+                if self.app and config == self.app.camera.config:
+                    config.save(self.services.paths.root)
+                    self.emit("camera_settings",asdict(config))
+                    return {"message":"Camera settings saved."}
                 # Apply privacy immediately before any asynchronous work or disk I/O.
                 if self.app:
                     self.app.camera.configure(config)
@@ -185,24 +241,48 @@ class DesktopController:
                 self.emit("unitv2_check", {"cycle":cycle+1,"state":"passed"})
             camera.unitv2.record_verified(self.services.paths.root)
             return {"message":"UnitV2 lifecycle PASS: two fresh captures, two confirmed stops. Producer is stopped."}
-        if action in {"face_profiles", "face_forget", "face_enroll"}:
+        if action in {"face_profiles", "face_forget", "face_enroll", "face_update", "vision_activity", "database_backup", "recognition_test", "perception_test"}:
             from .perception_store import PerceptionStore
             from .camera_manager import settled_thread
             store = PerceptionStore(self.services.paths.database)
-            if action == "face_forget":
+            if action == "database_backup":
+                from .storage import backup_sqlite
+                import uuid
+                destination=self.services.paths.backups_dir / f"kadence-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.sqlite3"
+                await settled_thread(backup_sqlite,self.services.paths.database,destination)
+                return {"message":f"Database backup saved: {destination}","path":str(destination)}
+            if action == "vision_activity":
+                return {"items":await settled_thread(lambda:store.call("activity"))}
+            if action in {"face_forget","face_update"}:
                 if self.app and self.app.perception:
                     self.app.camera.configure(self.app.camera.config)
                     if self._media: self._media.cancel()
                     await self.app.perception.reset("profile_removed")
-                await settled_thread(lambda: store.call("forget", person=args.get("person_id")))
-            if action == "face_enroll":
-                if not self.app or not self.app.perception: raise RuntimeError("Start the server before enrollment.")
+                if action == "face_forget": await settled_thread(lambda: store.call("forget", person=args.get("person_id")))
+                else: await settled_thread(lambda:store.call("update_person",person=args.get("person_id"),name=args.get("name"),recognition_enabled=args.get("recognition_enabled"),greeting_enabled=args.get("greeting_enabled")))
+            if action in {"face_enroll","recognition_test","perception_test"}:
+                if not self.app or not self.app.perception: raise RuntimeError("Start the server before using local recognition.")
                 if self._media and not self._media.done(): raise RuntimeError("Camera is busy.")
+                pc = self.app.perception
+                if pc.busy(): raise RuntimeError("Voice is busy. Wait for the reply to finish.")
+                if action == "perception_test":
+                    completed = pc._completed_bursts
+                    if not pc.request("gesture",defer=False):
+                        reason={"observation_only":"enable Automatic Perception first","policy_off":"choose EVENT ONLY or AWARE","privacy":"turn Privacy off first","stopped":"start the server and select ON DEMAND","lifecycle_check_required":"pass TEST START / STOP first","enrolling":"wait for the face operation to finish"}.get(pc.gate(),"camera busy or burst cooldown; wait 20 seconds")
+                        raise RuntimeError("Test event blocked: " + reason + ".")
+                    async def event_test():
+                        await pc.task
+                        if pc._completed_bursts == completed:
+                            raise RuntimeError("Automatic test did not complete: " + pc.health.replace('_',' ') + ". Check Activity and camera status.")
+                        return {"message":"Automatic event finished. " + pc.last_result + " " + pc.last_greeting}
+                    operation=event_test()
+                elif action == "recognition_test": operation=pc.test_recognition()
+                else: operation=pc.enroll(args.get("name"),args.get("person_id"))
                 self._network_media = True
-                self._media = asyncio.create_task(self.app.perception.enroll(args.get("name")))
+                self._media = asyncio.create_task(operation)
                 try: return await self._media
                 finally: self._media = None; self._network_media = False
-            return {"persons":await settled_thread(lambda: store.call("persons")),"message":"Local face profiles updated."}
+            return {"persons":await settled_thread(lambda: store.call("persons")),"database":str(self.services.paths.database),"message":"Local face profiles loaded." if action=="face_profiles" else "Profile changes saved."}
         if action == "ollama_models":
             if args: raise ValueError("Model discovery takes no arguments.")
             return {"models": await installed_models()}

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox,
     QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QPlainTextEdit, QSlider, QGroupBox, QFileDialog, QMessageBox, QSystemTrayIcon,
-    QMenu, QScrollArea,
+    QMenu, QScrollArea, QTabWidget, QProgressBar,
 )
 
 from .context_store import default_data_dir
@@ -58,6 +58,11 @@ QSlider::handle:horizontal { background: #64ff88; width: 13px; margin: -6px 0; }
 QScrollBar:vertical { background: #0b110d; width: 10px; }
 QScrollBar::handle:vertical { background: #39523f; min-height: 25px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QTabWidget::pane { border: 1px solid #293c2f; }
+QTabBar::tab { padding: 12px 20px; border-bottom: 2px solid #293c2f; color: #9aafa0; }
+QTabBar::tab:selected { color: #64ff88; border-bottom-color: #64ff88; background: #111c15; }
+QProgressBar { border: 1px solid #39523f; text-align: center; min-height: 20px; }
+QProgressBar::chunk { background: #23402c; }
 QToolTip { background: #19281e; color: #e0f2e5; border: 1px solid #64ff88; }
 """
 
@@ -308,66 +313,99 @@ class MainWindow(QMainWindow):
         return page
 
     def vision_page(self):
-        page,layout=self.page("Vision & presence", "Local perception. Object descriptions go to Gemini only when you ask.")
+        page,layout=self.page("Vision & presence", "Camera controls, local profiles and recognition · host " + build_info()['host_version'])
+        layout.setSpacing(8); layout.setContentsMargins(0,0,0,0)
         self.camera_policy=QComboBox()
-        for text,value in (("OFF · manual capture only","OFF"),("EVENT ONLY · arrival / gesture","EVENT_ONLY"),("AWARE · events + occasional checks","AWARE")):
+        for text,value in (("OFF · manual only","OFF"),("EVENT ONLY · arrival / gesture","EVENT_ONLY"),("AWARE · events + sparse checks","AWARE")):
             self.camera_policy.addItem(text,value)
-        self.camera_privacy=QCheckBox("PRIVACY · block all camera access")
-        self.camera_privacy.clicked.connect(self.apply_camera_policy)
+        self.camera_privacy=QCheckBox("PRIVACY · block camera access")
+        self.camera_privacy.clicked.connect(lambda checked:self.control.send("camera_patch",{"privacy":checked}))
+        self.camera_policy.activated.connect(self.apply_camera_policy)
         layout.addWidget(row(self.camera_policy,self.camera_privacy,button("APPLY AND SAVE",self.apply_camera_policy)))
-        self.perception_enable=QCheckBox("Enable automatic perception · requires a passed camera lifecycle test")
-        layout.addWidget(self.perception_enable)
-        self.camera_state=label("Camera IDLE · automatic capture OFF", "status")
-        self.perception_state=label("Occupancy UNKNOWN · no visual identity evidence", "muted")
-        layout.addWidget(self.camera_state); layout.addWidget(self.perception_state)
-        layout.addWidget(label("Privacy blocks capture and requests a producer stop. Check the confirmed status below. UnitV2 board power remains on.","muted"))
-        reflex_group=QGroupBox("SENSOR AND PERCEPTION ACTIVITY"); reflex_layout=QVBoxLayout(reflex_group)
-        self.perception_gate=label("Observing sensor proposals · automatic perception is not enabled.","status")
-        reflex_layout.addWidget(self.perception_gate)
-        self.reflex_state=label("Waiting for sensor evidence.","muted")
-        self.reflex_counts=label("Proposals 0 · background 0 · cooldowns 0", "muted")
-        self.reflex_log=QPlainTextEdit(); self.reflex_log.setReadOnly(True)
-        self.reflex_log.setMaximumHeight(88); self.reflex_log.document().setMaximumBlockCount(120)
-        self.reflex_log.setPlaceholderText("Arrival, departure, gesture and close-approach proposals appear here.")
-        reflex_layout.addWidget(self.reflex_state); reflex_layout.addWidget(self.reflex_counts); reflex_layout.addWidget(self.reflex_log)
-        layout.addWidget(reflex_group)
+        self.camera_state=label("Camera IDLE · start the server for live status.","status")
+        layout.addWidget(self.camera_state)
+        self.vision_tabs=QTabWidget(); self.vision_tabs.setMinimumHeight(300)
+        layout.addWidget(self.vision_tabs,1)
+        def tab(title):
+            content=QWidget(); box=QVBoxLayout(content); box.setContentsMargins(14,14,14,14); box.setSpacing(10)
+            scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setWidget(content)
+            self.vision_tabs.addTab(scroll,title)
+            return box
+        camera=tab("Camera")
         self.camera_source=QComboBox()
-        self.camera_source.addItem("StackChan camera", "robot-camera")
-        self.camera_source.addItem("UnitV2 over Wi-Fi", "unitv2-camera")
-        self.camera_source.addItem("AUTO · prefer UnitV2", "auto")
+        for text,value in (("StackChan · built-in camera","robot-camera"),("UnitV2 · extra camera","unitv2-camera"),("AUTO · prefer UnitV2","auto")):
+            self.camera_source.addItem(text,value)
         self.unitv2_address=line("UnitV2 Wi-Fi IPv4 address",45)
-        self.unitv2_address.setEnabled(False)
-        self.camera_source.currentIndexChanged.connect(lambda: self.unitv2_address.setEnabled(self.camera_source.currentData()!="robot-camera"))
-        layout.addWidget(row(self.camera_source,self.unitv2_address))
-        lifecycle=QGroupBox("UNITV2 CAMERA CONTROL"); lifecycle_layout=QVBoxLayout(lifecycle)
+        self.camera_source.currentIndexChanged.connect(lambda:self.unitv2_address.setEnabled(self.camera_source.currentData()!="robot-camera"))
+        camera.addWidget(row(self.camera_source,self.unitv2_address))
+        camera.addWidget(label("Apply & Save sets the camera for voice, enrollment and automatic looks.","muted"))
+        lifecycle=QGroupBox("UNITV2 START / STOP"); box=QVBoxLayout(lifecycle)
         self.unitv2_mode=QComboBox()
-        for text,value in (("ON DEMAND · stop after capture","ON_DEMAND"),("KEEP READY · until stopped","KEEP_READY"),("STOPPED · pause automatic capture","STOPPED")):
+        for text,value in (("ON DEMAND · stop after capture","ON_DEMAND"),("KEEP READY · renewable lease","KEEP_READY"),("STOPPED · pause automatic looks","STOPPED")):
             self.unitv2_mode.addItem(text,value)
-        lifecycle_layout.addWidget(row(self.unitv2_mode,button("APPLY MODE",self.apply_unitv2_mode),button("STOP NOW",lambda:self.control.send("unitv2_mode",{"mode":"STOPPED"}))))
-        self.unitv2_state=label("Producer UNKNOWN · run setup once, then test start / stop.","status")
-        lifecycle_layout.addWidget(self.unitv2_state)
-        lifecycle_layout.addWidget(row(button("SET UP UNITV2",self.setup_unitv2),button("TEST START / STOP",self.check_unitv2),button("REFRESH STATUS",lambda:self.control.send("unitv2_status"))))
-        lifecycle_layout.addWidget(label("On demand is the normal setting. Keep ready uses a renewable 30-second lease; lost connections expire on the camera.","muted"))
-        layout.addWidget(lifecycle)
-        profiles=QGroupBox("LOCAL FACE PROFILES"); profile_layout=QVBoxLayout(profiles)
-        self.face_name=line("Name for explicit enrollment — one person in view",80)
-        self.face_profiles=QComboBox()
-        profile_layout.addWidget(row(self.face_name,button("ENROLL 3 SAMPLES",self.enroll_face)))
-        profile_layout.addWidget(row(self.face_profiles,button("REFRESH",self.refresh_faces),button("REMOVE PROFILE",self.forget_face)))
-        self.presence_greetings=QCheckBox("Greet confirmed people once per visit")
+        box.addWidget(row(self.unitv2_mode,button("APPLY MODE",self.apply_unitv2_mode),button("STOP NOW",lambda:self.control.send("unitv2_mode",{"mode":"STOPPED"}))))
+        self.unitv2_state=label("Producer UNKNOWN · run setup once, then test start / stop.","status"); box.addWidget(self.unitv2_state)
+        box.addWidget(row(button("SET UP UNITV2",self.setup_unitv2),button("TEST START / STOP",self.check_unitv2),button("REFRESH STATUS",lambda:self.control.send("unitv2_status"))))
+        camera.addWidget(lifecycle)
+        self.preview=label("NO SNAPSHOT\n\nCapture to check the selected camera's view.","muted")
+        self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(320,180); self.preview.setMaximumHeight(280)
+        self.preview.setStyleSheet("border: 1px solid #293c2f;")
+        self.vision_question=line("What can you see? Read the large label.",500); camera.addWidget(self.vision_question)
+        camera.addWidget(row(button("CAPTURE",self.capture_camera,primary=True),button("DESCRIBE",lambda:self.control.send("camera_describe",{"question":self.vision_question.text() or "Describe the visible desk objects."})),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR",lambda:self.control.send("camera_clear"))))
+        camera.addWidget(self.preview)
+        self.vision_result=QPlainTextEdit(); self.vision_result.setReadOnly(True); self.vision_result.setMaximumHeight(100)
+        self.vision_result.setPlaceholderText("Gemini describes only an explicitly requested image. QR text is never executed."); camera.addWidget(self.vision_result)
+        self.vision_project=QComboBox(); camera.addWidget(row(self.vision_project,button("SAVE OBSERVATION",lambda:self.control.send("camera_save",{"project_id":self.vision_project.currentData()}))))
+        camera.addWidget(label("Snapshots are temporary until saved. Privacy blocks access and requests a producer stop; board power remains on.","muted"))
+        perception=tab("Perception")
+        self.perception_enable=QCheckBox("ENABLE AUTOMATIC PERCEPTION")
+        self.perception_enable.clicked.connect(self.toggle_perception)
+        perception.addWidget(self.perception_enable)
+        self.perception_gate=label("Automatic perception is off. Start the server for live readiness.","status"); perception.addWidget(self.perception_gate)
+        self.perception_state=label("No sensor or visual evidence yet.","muted"); perception.addWidget(self.perception_state)
+        self.last_look=label("Last look: none this session.","status"); perception.addWidget(self.last_look)
+        self.greeting_result=label("No greeting attempted this session.","muted"); perception.addWidget(self.greeting_result)
+        self.presence_greetings=QCheckBox("Greet recognised people once per visit")
         self.presence_unknown=QCheckBox("Show a local notice for an unenrolled face")
-        profile_layout.addWidget(row(self.presence_greetings,self.presence_unknown))
-        profile_layout.addWidget(label("Embeddings stay on this PC. Enrollment saves no photographs. Apply & Save also saves these switches.","muted"))
-        layout.addWidget(profiles)
-        self.preview=label("NO SNAPSHOT\n\nCapture a snapshot to begin.","muted"); self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(480,240)
-        self.preview.setStyleSheet("border: 1px solid #293c2f;"); layout.addWidget(self.preview,1)
-        self.vision_question=line("What am I holding? Read the large label. What objects can you see?",500)
-        layout.addWidget(self.vision_question)
-        layout.addWidget(row(button("CAPTURE",self.capture_camera,primary=True),button("DESCRIBE WITH GEMINI",lambda:self.control.send("camera_describe",{"question":self.vision_question.text() or "Describe the visible desk objects."})),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR",lambda:self.control.send("camera_clear"))))
-        self.vision_result=QPlainTextEdit(); self.vision_result.setReadOnly(True); self.vision_result.setMaximumHeight(140); self.vision_result.setPlaceholderText("Description and decoded QR text appear here. QR text is never opened or executed."); layout.addWidget(self.vision_result)
-        self.vision_project=QComboBox()
-        layout.addWidget(row(self.vision_project,button("SAVE OBSERVATION",lambda:self.control.send("camera_save",{"project_id":self.vision_project.currentData()}))))
-        layout.addWidget(label("Automatic images are discarded after local analysis. SAVE OBSERVATION keeps only your manual snapshot.","muted"))
+        self.presence_greetings.clicked.connect(self.apply_camera_policy); self.presence_unknown.clicked.connect(self.apply_camera_policy)
+        perception.addWidget(self.presence_greetings); perception.addWidget(self.presence_unknown)
+        perception.addWidget(label("EVENT ONLY looks on arrivals, gestures and close approaches. AWARE also checks occupied space about every two minutes. Greetings need an enabled profile, two matching frames and automatic perception. Ordinary movement does not trigger a look.","muted"))
+        perception.addWidget(row(button("TEST AUTOMATIC EVENT",lambda:self.run_vision_test("perception_test"),primary=True),button("TEST RECOGNITION",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel"))))
+        self.perception_test_result=label("Test event follows the real automatic gates and may greet. Recognition test works with automatic perception off and never greets.","muted"); perception.addWidget(self.perception_test_result)
+        commands=QGroupBox("SAY IT TO KADENCE"); box=QVBoxLayout(commands)
+        box.addWidget(label('“What can you see?”  ·  “Camera status”\n“Use the extra camera”  ·  “Use the robot camera”\n“Enable automatic perception”  ·  “Enable greetings”\n“Turn privacy on”  ·  “Turn privacy off”\n“Stop the camera”  ·  “Start the camera”',"muted"))
+        box.addWidget(label("Voice looks take a fresh image and use Gemini to describe it. Local face recognition stays on this PC.","muted")); perception.addWidget(commands); perception.addStretch()
+        profiles=tab("Profiles")
+        self.profile_summary=label("Loading saved profiles…","status"); profiles.addWidget(self.profile_summary)
+        self.profiles_table=table(["Name","Samples","Recognition","Greeting","Samples saved"])
+        self.profiles_table.setFixedHeight(132)
+        self.profiles_table.itemSelectionChanged.connect(self.select_profile); profiles.addWidget(self.profiles_table)
+        self.face_profiles=QComboBox(); self.face_profiles.hide()  # Stable selected-ID adapter.
+        self.profile_rows=[]
+        self.profile_name=line("Selected profile name",80)
+        self.profile_recognition=QCheckBox("Recognise"); self.profile_greeting=QCheckBox("Greet")
+        profiles.addWidget(row(self.profile_name,self.profile_recognition,self.profile_greeting))
+        profiles.addWidget(row(button("SAVE PROFILE",self.update_profile),button("REPLACE SAMPLES",self.replace_face),button("DELETE",self.forget_face),button("REFRESH",self.refresh_faces)))
+        self.face_name=line("New profile name · one person in view",80)
+        self.enroll_button=button("ENROLL 3 SAMPLES",self.enroll_face,primary=True)
+        profiles.addWidget(row(self.face_name,self.enroll_button))
+        self.enrollment_progress=QProgressBar(); self.enrollment_progress.setRange(0,3); self.enrollment_progress.setValue(0); self.enrollment_progress.setFormat("%v / 3 samples accepted")
+        profiles.addWidget(self.enrollment_progress)
+        self.enrollment_result=label("Face the selected camera in good light. Enrollment saves local face samples, not photographs.","muted"); profiles.addWidget(self.enrollment_result)
+        self.enrollment_result.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        profiles.addWidget(row(button("TEST RECOGNITION",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel")),button("BACK UP DATABASE",self.backup_database)))
+        self.profile_test_result=label("Recognition has not been tested.","status"); profiles.addWidget(self.profile_test_result)
+        self.database_location=label("Database: loading…","muted"); self.database_location.setTextInteractionFlags(Qt.TextSelectableByMouse); profiles.addWidget(self.database_location)
+        profiles.addWidget(label("These are Kadence's local profiles. Factory UnitV2 face-tracking profiles are separate. Deleting here removes current samples and names; existing backups retain their copies.","muted")); profiles.addStretch()
+        activity=tab("Activity")
+        self.reflex_state=label("Waiting for sensor evidence.","muted"); self.reflex_counts=label("Proposals 0 · background 0 · cooldowns 0","muted")
+        activity.addWidget(self.reflex_state); activity.addWidget(self.reflex_counts)
+        self.reflex_log=QPlainTextEdit(); self.reflex_log.setReadOnly(True); self.reflex_log.document().setMaximumBlockCount(120); self.reflex_log.setMinimumHeight(150)
+        self.reflex_log.setPlaceholderText("Live triggers, capture decisions, recognition and greeting results appear here."); activity.addWidget(self.reflex_log,1)
+        activity.addWidget(row(label("RECENT SAVED ACTIVITY","status"),button("REFRESH HISTORY",self.refresh_vision_activity)))
+        self.vision_history=QPlainTextEdit(); self.vision_history.setReadOnly(True); self.vision_history.setMinimumHeight(130); self.vision_history.document().setMaximumBlockCount(90); activity.addWidget(self.vision_history,1)
+        activity.addWidget(label("Recent history shows status metadata. Automatic images are discarded after local analysis.","muted"))
+        self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
 
     def camera_policy_values(self):
@@ -402,27 +440,107 @@ class MainWindow(QMainWindow):
         self.control.send("face_profiles",{},self.faces_result)
 
     def faces_result(self,response):
-        if not response.get("ok"): return
-        self.face_profiles.clear()
-        for person in response.get("result",{}).get("persons",[]):
+        if not response.get("ok"):
+            self.enrollment_result.setText(response.get("message","Profile operation failed.")); return
+        result=response.get("result",{})
+        previous=result.get("person_id") or self.face_profiles.currentData()
+        self.profile_rows=result.get("persons",[])
+        self.face_profiles.clear(); self.profiles_table.blockSignals(True)
+        self.profiles_table.setRowCount(len(self.profile_rows))
+        selected=0
+        for index,person in enumerate(self.profile_rows):
             self.face_profiles.addItem(person["display_name"],person["id"])
+            if person["id"]==previous: selected=index
+            stamp=datetime.fromtimestamp(person.get("enrolled_at") or 0).strftime("%d %b %Y %H:%M") if person.get("enrolled_at") else "Unknown"
+            values=(person["display_name"],f"{person.get('compatible_samples',0)} / {person.get('samples',0)} compatible","On" if person.get("recognition_enabled") else "Off","On" if person.get("greeting_enabled") else "Off",stamp)
+            for col,value in enumerate(values): self.profiles_table.setItem(index,col,QTableWidgetItem(value))
+        self.profiles_table.blockSignals(False)
+        if self.profile_rows: self.profiles_table.selectRow(selected); self.select_profile()
+        else: self.profile_name.clear(); self.face_profiles.setCurrentIndex(-1)
+        self.profile_summary.setText(f"{len(self.profile_rows)} saved profile(s) · {sum(p.get('compatible_samples',0) for p in self.profile_rows)} compatible face samples")
+        if result.get("database"): self.database_location.setText("SQLite database: " + result["database"])
+        if result.get("message") and result["message"]!="Local face profiles loaded.": self.enrollment_result.setText(result["message"])
+
+    def select_profile(self):
+        index=self.profiles_table.currentRow()
+        if not 0<=index<len(self.profile_rows): return
+        person=self.profile_rows[index]; self.face_profiles.setCurrentIndex(index)
+        self.profile_name.setText(person["display_name"])
+        self.profile_recognition.setChecked(bool(person.get("recognition_enabled")))
+        self.profile_greeting.setChecked(bool(person.get("greeting_enabled")))
+
+    def update_profile(self):
+        person=self.face_profiles.currentData()
+        if not person: self.enrollment_result.setText("Select a saved profile first."); return
+        self.control.send("face_update",{"person_id":person,"name":self.profile_name.text().strip(),"recognition_enabled":self.profile_recognition.isChecked(),"greeting_enabled":self.profile_greeting.isChecked()},self.faces_result)
 
     def enroll_face(self):
-        name=self.face_name.text().strip()
-        if not name: self.message.setText("Enter the name of the person facing the camera."); return
+        self.start_enrollment(self.face_name.text().strip())
+
+    def replace_face(self):
+        index=self.face_profiles.currentIndex()
+        if index<0: self.enrollment_result.setText("Select a saved profile first."); return
+        person=self.profile_rows[index]
+        self.start_enrollment(person["display_name"],person["id"])
+
+    def start_enrollment(self,name,person=None):
+        if not name: self.enrollment_result.setText("Enter the name of the person facing the camera."); return
+        self.enrollment_progress.setValue(0); self.enrollment_result.setText("Preparing enrollment…"); self.enroll_button.setEnabled(False)
+        def finished(response):
+            self.enroll_button.setEnabled(True); self.faces_result(response)
+            if response.get("ok"): self.enrollment_progress.setValue(3)
         def configured(response):
-            if response.get("ok"): self.control.send("face_enroll",{"name":name},self.faces_result)
+            if not response.get("ok"): finished(response); return
+            args={"name":name}
+            if person: args["person_id"]=person
+            self.control.send("face_enroll",args,finished)
         self.control.send("camera_settings",self.camera_policy_values(),configured)
 
     def forget_face(self):
         person=self.face_profiles.currentData()
-        if person and QMessageBox.question(self,"Remove local face profile", "Remove this person's local face samples and name?") == QMessageBox.Yes:
+        if person and QMessageBox.question(self,"Delete local face profile", "Delete this person's current local face samples and name? Existing database backups retain their copies.") == QMessageBox.Yes:
             self.control.send("face_forget",{"person_id":person},self.faces_result)
+
+    def toggle_perception(self,checked):
+        if checked and self.camera_policy.currentData()=="OFF": self.camera_policy.setCurrentIndex(self.camera_policy.findData("EVENT_ONLY"))
+        self.apply_camera_policy()
+
+    def run_vision_test(self,action):
+        def finished(response):
+            message=response.get("result",{}).get("message","Test finished.") if response.get("ok") else response.get("message","Test failed.")
+            self.perception_test_result.setText(message); self.profile_test_result.setText(message)
+            self.refresh_vision_activity()
+        self.perception_test_result.setText("Test running…"); self.profile_test_result.setText("Test running…")
+        def configured(response):
+            if response.get("ok"): self.control.send(action,{},finished)
+            else: finished(response)
+        self.control.send("camera_settings",self.camera_policy_values(),configured)
+
+    def backup_database(self):
+        def finished(response):
+            self.enrollment_result.setText(response.get("result",{}).get("message","") if response.get("ok") else response.get("message","Backup failed."))
+        self.control.send("database_backup",{},finished)
+
+    def refresh_vision_activity(self):
+        def finished(response):
+            if not response.get("ok"): self.vision_history.setPlainText(response.get("message","History unavailable.")); return
+            lines=[]
+            for item in response.get("result",{}).get("items",[]):
+                stamp=datetime.fromtimestamp(item["time"]).strftime("%d %b %H:%M:%S")
+                detail=" · ".join(f"{k}={v}" for k,v in item.get("detail",{}).items())
+                lines.append(f"{stamp}  {item['kind']}  {item.get('trigger') or item.get('state') or ''}  {detail or item.get('outcome') or ''}")
+            self.vision_history.setPlainText("\n".join(lines) or "No saved perception activity yet.")
+        self.control.send("vision_activity",{},finished)
+
+    def vision_tab_changed(self,index):
+        if index==2: self.refresh_faces()
+        if index==3: self.refresh_vision_activity()
 
     def capture_camera(self):
         self.save_preferences()
-        self.control.send("camera_capture", {"source":self.camera_source.currentData(),
-            "address":self.unitv2_address.text().strip()})
+        def configured(response):
+            if response.get("ok"): self.control.send("camera_capture",{"source":self.camera_source.currentData(),"address":self.unitv2_address.text().strip()})
+        self.control.send("camera_settings",self.camera_policy_values(),configured)
 
     def device_page(self):
         page,layout=self.page("Device controls","Front-screen touch still starts or cancels a voice turn.")
@@ -456,6 +574,7 @@ class MainWindow(QMainWindow):
 
     def navigate(self,index):
         self.pages.setCurrentIndex(index)
+        if index==3: self.refresh_faces()
         for i,b in enumerate(self.nav): b.setChecked(i==index)
 
     def _load_settings(self,load_credentials):
@@ -719,9 +838,15 @@ class MainWindow(QMainWindow):
             self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')}")
         elif name=="unitv2_lifecycle":
             confirmed="stop confirmed" if data.get("stop_confirmed") else "stop not confirmed"
-            self.unitv2_state.setText(f"Producer {data.get('state','UNKNOWN')} · {confirmed} · starts {data.get('starts',0)} / stops {data.get('stops',0)}")
+            proof="lifecycle passed" if data.get("verified") else "lifecycle test needed"
+            self.unitv2_state.setText(f"Producer {data.get('state','UNKNOWN')} · {confirmed} · {proof}")
+            current=(data.get('state','UNKNOWN'),confirmed)
+            if current!=getattr(self,'_last_producer',None):
+                self._last_producer=current
+                self.reflex_log.appendPlainText(datetime.now().strftime("%H:%M:%S") + f"  UNITV2 {current[0]} · {confirmed}")
             self.unitv2_mode.setCurrentIndex(max(0,self.unitv2_mode.findData(data.get("mode"))))
         elif name=="unitv2_check":
+            self.unitv2_state.setText(f"Lifecycle check {data.get('cycle',0)}/2 passed · capture and producer stop confirmed.")
             self.message.setText(f"UnitV2 start / capture / stop check {data.get('cycle',0)} of 2 passed.")
         elif name=="perception":
             distance=f" · {data['distance_mm']} mm" if data.get("distance_mm") is not None else ""
@@ -734,11 +859,21 @@ class MainWindow(QMainWindow):
             self.perception_gate.setText(f"{meanings.get(gate,'Perception unavailable')} · bursts {data.get('completed_bursts',0)} completed / {data.get('bursts',0)} started{pending}")
             from .perception import diagnostic_state
             self.perception_snapshot=diagnostic_state(data)
+            age=data.get("last_capture_age_s")
+            self.last_look.setText((f"Last look {age}s ago: " if age is not None else "Last look: ") + data.get("last_result","No completed look in this session."))
+            self.greeting_result.setText(data.get("last_greeting","No greeting attempted in this session."))
         elif name=="presence_notice":
             self.message.setText(data.get("message","Local presence notice."))
             if hasattr(self,"tray") and self.tray.isVisible(): self.tray.showMessage("Kadence",data.get("message",""),QSystemTrayIcon.Information,6000)
         elif name=="enrollment":
-            self.message.setText(f"Enrollment: sample {data.get('sample',0)} of 3. Keep one face in view.")
+            state=data.get("state","capturing"); sample=data.get("sample",0)
+            if state in {"accepted","saved"}: self.enrollment_progress.setValue(sample)
+            text=data.get("message") or f"Sample {sample}/3 · {'accepted' if state=='accepted' else 'capturing'}. Keep one face in view."
+            self.enrollment_result.setText(text)
+            if state in {"saved","failed"}: self.enroll_button.setEnabled(True); self.refresh_faces()
+        elif name=="vision_activity":
+            self.reflex_log.appendPlainText(datetime.now().strftime("%H:%M:%S") + "  " + data.get("kind","vision").upper() + "  " + data.get("message","") + (" · " + data["source"] if data.get("source") else ""))
+            if data.get("kind")=="recognition_test": self.profile_test_result.setText(data.get("message",""))
         elif name=="ready":
             self.message.setText("Local utilities ready. Connect Kadence when you're ready.")
             self.apply_timezone()
@@ -748,7 +883,10 @@ class MainWindow(QMainWindow):
             self.server_state=data.get("state","stopped")
             self.server_label.setText("SERVER  "+self.server_state.upper())
             if self.server_state=="running": self.started_at=time.monotonic()
-            if self.server_state=="stopped": self.started_at=None; self.robot_connected=False; self.robot_label.setText("ROBOT  DISCONNECTED")
+            if self.server_state=="stopped":
+                self.started_at=None; self.robot_connected=False; self.robot_label.setText("ROBOT  DISCONNECTED")
+                self.perception_gate.setText("Server stopped · automatic perception is not running.")
+                self.camera_state.setText("Server stopped · camera access unavailable.")
             self.update_controls()
         elif name=="robot":
             self.robot_connected=data.get("connected") is True

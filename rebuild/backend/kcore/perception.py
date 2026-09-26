@@ -82,6 +82,9 @@ class PerceptionController:
         self._decisions = deque(maxlen=32)
         self._reset_lock = asyncio.Lock()
         self._resetting = False
+        self._explicit_task = None
+        self.last_result = "No camera look has completed in this session."
+        self.last_greeting = "No greeting attempted in this session."
 
     @property
     def occupancy(self):
@@ -97,6 +100,10 @@ class PerceptionController:
 
     async def interrupt(self):
         self.pending = None
+        explicit = self._explicit_task
+        if explicit and explicit is not asyncio.current_task() and not explicit.done():
+            explicit.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception): await explicit
         if self.task and not self.task.done():
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception): await self.task
@@ -110,6 +117,7 @@ class PerceptionController:
                 self.publish()
 
     async def _reset(self, reason):
+        await self.interrupt()
         self.pending = None
         self._next_aware = self.clock()+120
         self._visit_greeted.clear()
@@ -130,6 +138,7 @@ class PerceptionController:
     async def close(self):
         if self._closing: return
         self._closing = True
+        await self.interrupt()
         self.pending = None
         if self._ticker:
             self._ticker.cancel()
@@ -224,7 +233,7 @@ class PerceptionController:
         if self.camera.config.policy == "OFF": return "policy_off"
         if self.camera.unitv2.mode == "STOPPED": return "stopped"
         if self.camera.config.source != "robot-camera" and not self.camera.unitv2.verified: return "lifecycle_check_required"
-        if self._enrolling: return "enrolling"
+        if self._enrolling or (self._explicit_task and not self._explicit_task.done()): return "enrolling"
         return "ready"
 
     def _decision(self, trigger, decision, reason):
@@ -334,6 +343,11 @@ class PerceptionController:
                 self._tracks = present + [{**t,"observed":False} for t in self._tracks if t["session"] not in sessions and self.clock()-t["seen"] < 180]
                 self.subjects = len(present)
             self._last_capture = self.clock()
+            names = {p["id"]:p["display_name"] for p in await self.db("persons")}
+            self.camera.check(generation)
+            confirmed_names = [names[t["person"]] for t in self._tracks if t["observed"] and t["person"] in names]
+            self.last_result = ("Recognised: " + ", ".join(confirmed_names) + ".") if confirmed_names else f"{self.subjects} stable face(s); no enrolled identity confirmed."
+            self.emit("vision_activity", {"kind":"automatic_look","message":self.last_result,"source":frame.source})
             await self.db("event",run=self.run,kind="capture_result",trigger=trigger,frame=frame,
                           evidence={"frames":2,"subjects":self.subjects,"confirmed":sum(t["person"] is not None and t["observed"] for t in self._tracks)})
             del frame
@@ -345,6 +359,8 @@ class PerceptionController:
             raise
         except Exception:
             self.health = self.faces.health if self.faces.health in {"models_missing","models_invalid"} else "unavailable"
+            self.last_result = "Camera look failed: " + self.health.replace('_',' ') + "."
+            self.emit("vision_activity",{"kind":"automatic_look","message":self.last_result})
             if trigger in TRIGGERS: self._decision(trigger,"failed",self.health)
             if self._last_failure != self.health:
                 self._last_failure = self.health
@@ -358,7 +374,14 @@ class PerceptionController:
         self.camera.check(generation)
         if self.camera.config.policy == "OFF": return
         action = await self.db("claim",run=self.run,greetings=self.camera.config.greetings,unknown_alerts=self.camera.config.unknown_alerts)
-        if not action: return
+        if not action:
+            present={t["person"] for t in self._tracks if t["person"] and t.get("observed")}
+            if not self.camera.config.greetings: self.last_greeting = "Greetings are off."
+            elif not present: self.last_greeting = "No greeting: no enrolled identity confirmed in this look."
+            elif present <= self._visit_greeted: self.last_greeting = "No repeat greeting: already attempted during this visit."
+            else: self.last_greeting = "No eligible greeting: check the profile's Greet switch, five-minute guard and recent evidence."
+            self.emit("vision_activity",{"kind":"greeting","message":self.last_greeting})
+            return
         if action["kind"] == "greeting": self._visit_greeted.add(action["person_id"])
         else: self._unknown_notified = True
         outcome = "uncertain"
@@ -371,13 +394,28 @@ class PerceptionController:
                 outcome = "delivered"
         except asyncio.CancelledError: raise
         except Exception: outcome = "uncertain"
-        finally: await self.db("complete",action=action["id"],state=outcome)
+        finally:
+            await self.db("complete",action=action["id"],state=outcome)
+            self.last_greeting = f"{action['kind'].replace('_',' ').capitalize()}: {outcome}."
+            self.emit("vision_activity",{"kind":"greeting","message":self.last_greeting})
 
-    async def enroll(self, name):
-        async with self.camera.unitv2.burst():
-            return await self._enroll(name)
+    async def enroll(self, name, person=None):
+        await self.interrupt()
+        self._explicit_task = asyncio.current_task()
+        try:
+            async with self.camera.unitv2.burst():
+                result = await self._enroll(name, person)
+            self.emit("enrollment",{"state":"saved","message":result["message"],"sample":3,"total":3})
+            return result
+        except BaseException as exc:
+            message = "Enrollment interrupted. Refresh Profiles to check the saved state." if isinstance(exc,asyncio.CancelledError) else str(exc) if type(exc) in {RuntimeError,ValueError} else "Enrollment failed. Check the camera and local face models."
+            self.emit("enrollment",{"state":"failed","message":message})
+            raise
+        finally:
+            self._explicit_task = None
+            self.publish()
 
-    async def _enroll(self, name):
+    async def _enroll(self, name, person=None):
         if self._enrolling: raise RuntimeError("Enrollment is already running.")
         self.camera.check()
         self._enrolling = True
@@ -388,8 +426,9 @@ class PerceptionController:
                 self.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError): await self.task
             for index in range(3):
-                self.emit("enrollment", {"sample":index+1,"total":3})
+                self.emit("enrollment", {"state":"capturing","sample":index+1,"total":3})
                 if index: await asyncio.sleep(1)
+                if self.busy(): raise RuntimeError("Voice is busy. Try enrollment after the reply finishes.")
                 frame = await self.camera.acquire(purpose="enrollment")
                 faces = await settled_thread(self.faces.analyze,frame.png)
                 self.camera.check(generation)
@@ -397,12 +436,60 @@ class PerceptionController:
                 vector = faces[0].embedding
                 if vectors and similarity(vectors[0],vector) < .65: raise RuntimeError("Face samples did not agree. Keep one person in view and retry.")
                 vectors.append(vector)
+                self.emit("enrollment", {"state":"accepted","sample":index+1,"total":3})
             self.camera.check(generation)
-            await self.db("enroll",name=name,vectors=vectors)
-            return {"message":"Three local face samples enrolled. No images were saved.","persons":await self.db("persons")}
+            person = await self.db("enroll",name=name,vectors=vectors,person=person)
+            return {"message":f"Saved: {name}. Three local face samples; no photographs saved.","person_id":person,"persons":await self.db("persons")}
         finally:
             self._enrolling = False
             vectors.clear()
+            self.publish()
+
+    async def test_recognition(self):
+        """Explicit, local two-frame check; never manufactures a visit or greeting."""
+        await self.interrupt()
+        self.camera.check()
+        self._explicit_task = asyncio.current_task()
+        self._enrolling = True
+        generation = self.camera.generation
+        try:
+            profiles = await self.db("profiles")
+            candidates = []
+            confirmed = set()
+            async with self.camera.unitv2.burst():
+                for index in range(2):
+                    if index: await asyncio.sleep(.8)
+                    if self.busy(): raise RuntimeError("Voice is busy. Test recognition after the reply finishes.")
+                    self.camera.check(generation)
+                    self.emit("vision_activity",{"kind":"recognition_test","message":f"Checking frame {index+1}/2 locally…"})
+                    frame = await self.camera.acquire(purpose="manual")
+                    faces = await settled_thread(self.faces.analyze,frame.png)
+                    self.camera.check(generation)
+                    if not index:
+                        candidates = [(face,match(face.embedding,profiles)) for face in faces]
+                        source = frame.source
+                    else:
+                        if frame.source != source: raise RuntimeError("Camera source changed between frames. Choose a specific camera and retry.")
+                        used = set()
+                        for face in faces:
+                            person,status = match(face.embedding,profiles)
+                            matches = sorted(((similarity(face.embedding,old.embedding),i,prior) for i,(old,prior) in enumerate(candidates) if i not in used),reverse=True)
+                            if not matches or matches[0][0] < .65: continue
+                            _,i,prior = matches[0]; used.add(i)
+                            if person and prior[0] == person: confirmed.add(person)
+            self.camera.check(generation)
+            names = [p["display_name"] for p in await self.db("persons") if p["id"] in confirmed]
+            self.camera.check(generation)
+            message = "Recognised: " + ", ".join(names) + "." if names else "No enrolled identity confirmed. Check saved samples, lighting and camera framing."
+            if not faces: message = "No usable face found. Face the selected camera in good light and move closer."
+            elif not profiles: message = "A face was seen, but there are no enabled compatible profiles. Enrol a profile first."
+            self.last_result = message
+            self._last_capture = self.clock()
+            self.emit("vision_activity",{"kind":"recognition_test","message":message,"source":source})
+            return {"message":message,"source":source,"names":names,"faces":len(faces),"frames":2}
+        finally:
+            self._enrolling = False
+            self._explicit_task = None
             self.publish()
 
     def publish(self):
@@ -413,6 +500,7 @@ class PerceptionController:
             "ambiguous":sum(t.get("identity")=="ambiguous" and t.get("observed",False) for t in self._tracks),
             "observed":sum(t.get("observed",False) for t in self._tracks),
             "temporarily_lost":sum(not t.get("observed",False) for t in self._tracks),
+            "last_result":self.last_result,"last_greeting":self.last_greeting,
             "last_capture_age_s":int(max(0,self.clock()-self._last_capture)) if self._last_capture is not None else None}
         if data != self._last_status:
             self._last_status = data

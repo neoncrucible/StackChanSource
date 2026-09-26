@@ -1,16 +1,22 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.6, UnitV2 setup repair plus bounded local perception. It retains
-the accepted 0.4.3 voice responsiveness. Firmware remains 0.21.6; no flash.
-0.4.6 checks and repairs the factory /dev/null permissions before SCP, fixing
-the owner's reported Permission denied setup failure. Camera service, voice
-and perception behavior are otherwise unchanged from 0.4.5.
-Read UNITV2-START-STOP.txt for one-time setup, then CAMERA-PERCEPTION.txt.
-Automatic perception defaults unchecked even if an older EVENT_ONLY or AWARE
-policy was saved. Complete TEST START / STOP before explicitly enabling it.
-0.4.5 includes the entire 0.4.4 lifecycle release; you can install 0.4.5 directly
-and keep perception disabled while accepting the camera lifecycle. The separate
-0.4.4 artifact remains available as the lifecycle-only checkpoint.
+Current update: 0.4.7 — Vision console, saved profiles and camera voice controls.
+Firmware remains 0.21.6; no flash. The accepted 0.4.3 voice transport and output
+pipeline are retained. This update includes the 0.4.6 UnitV2 setup permission repair.
+An already working paired UnitV2 service does not need reinstalling.
+
+Vision now has Camera, Perception, Profiles and Activity tabs. Profiles reads your
+existing SQLite database, shows saved sample counts/dates and offers rename,
+replacement, delete, recognition tests and a database backup button. Enrollment
+shows accepted samples and an explicit Saved or failure message beside the controls.
+The Perception tab shows whether automatic looks are enabled, why they are blocked,
+what the last look found and whether a greeting was delivered.
+
+Say "What can you see?", "Camera status", "Use the extra camera", "Enable automatic
+perception", "Enable greetings" or "Turn privacy on". These phrases are direct
+commands. Image descriptions require the Gemini key, including with Ollama reasoning.
+Local recognition needs no cloud image request. Enabling greetings alone does not
+enable automatic perception. Read CAMERA-PERCEPTION.txt for the short test sequence.
 
 1. Quit Kadence completely, including its tray icon. Close any source host too.
 2. Extract the entire desktop ZIP to a new folder. Do not run inside the ZIP.

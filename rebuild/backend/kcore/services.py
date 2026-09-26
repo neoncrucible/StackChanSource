@@ -33,6 +33,7 @@ class LocalServices:
         self._draft = None
         self._draft_expires = 0.0
         self.look_handler = None
+        self.camera_handler = None
 
     async def start(self):
         await asyncio.to_thread(self.paths.prepare)
@@ -41,10 +42,18 @@ class LocalServices:
         self.tools = make_local_tools(self.context, timezone_name=self.reminders.timezone_name)
         register_workbench(self.tools, self.store)
         async def look(args):
-            if self.look_handler is None: raise RuntimeError("Camera is disconnected")
-            return await self.look_handler(args["question"])
-        self.tools.register(KadenceToolSpec("desk_look", "Take one deliberate camera snapshot and describe visible objects or large labels. Only use when the current user asks to look, read this, or asks what they are holding. No person identification.",
+            if self.look_handler is None: return {"spoken":"Start the server and connect the robot before asking me to look."}
+            try: return await self.look_handler(args["question"])
+            except (RuntimeError,ValueError) as exc:
+                return {"spoken":str(exc) if type(exc) in {RuntimeError,ValueError} else "The camera look failed. Check Vision on the PC."}
+        self.tools.register(KadenceToolSpec("desk_look", "Take a fresh snapshot using the saved camera selection: UnitV2 extra camera, built-in StackChan camera, or AUTO. Describe visible objects or large labels. Only when the current user asks what you can see, to look or read. Requires Gemini for image description even with Ollama reasoning. No person identification.",
             schema({"question": string(500)}, "question"), look, timeout=28))
+        from .camera_voice import CAMERA_CHANGES
+        async def camera(args):
+            if self.camera_handler is None: return {"spoken":"Camera controls are available in the desktop server."}
+            return await self.camera_handler(args.get("command","status"))
+        self.tools.register(KadenceToolSpec("camera_status","Read actual camera selection, privacy, automatic perception and latest recognition/greeting status. Both UnitV2 and StackChan are supported; status is not a fresh image.",schema({}),camera))
+        self.tools.register(KadenceToolSpec("camera_control","Change a camera setting only at the owner's explicit request. Privacy and lifecycle checks always apply. Enabling greetings alone does not enable automatic perception.",schema({"command":{"type":"string","enum":list(CAMERA_CHANGES)}},"command"),camera,timeout=12,writes=True))
         try:
             register_integrations(self.tools)
         except ValueError:
@@ -123,7 +132,7 @@ class LocalServices:
         elif action == "resistor": return resistor_value(args["bands"])
         elif action == "local_tool":
             name = args["name"]
-            if name not in {"clock", "calculate", "recall", "task_list", "weather", "home_status"}:
+            if name not in {"clock", "calculate", "recall", "task_list", "weather", "home_status", "camera_status"}:
                 raise ValueError("Unsupported desktop tool")
             arguments = dict(args.get("arguments", {}))
             if name == "clock": arguments.setdefault("timezone", self.reminders.timezone_name)

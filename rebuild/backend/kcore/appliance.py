@@ -371,12 +371,17 @@ class KadenceAppliance:
         return await self._voice_task
 
     async def _look_during_voice(self, question):
+        self.camera.check()
+        if not self.settings.providers.gemini_api_key:
+            raise RuntimeError("I need a Gemini key to describe a picture. Local face recognition still works without it.")
         if self._capture_in_voice is None: raise RuntimeError("No active camera request channel")
         if self.perception: await self.perception.interrupt()
         frame = await self.camera.acquire(purpose="voice", in_voice=self._capture_in_voice)
         self.camera.check(frame.generation)
         self.vision.accept_frame(frame)
-        return await self.vision.describe(question, self.settings.providers)
+        result = await self.vision.describe(question, self.settings.providers)
+        self.emit("vision_activity",{"kind":"voice_look","message":"Fresh voice description completed.","source":frame.source})
+        return result
 
     async def _deliver_presence(self, action, check):
         check()
