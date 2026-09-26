@@ -120,3 +120,14 @@ Diagnostics shows FIRST AUDIO and numeric Ollama stage timings. Read
 VOICE-LATENCY.txt for the measured bottleneck, output-mode scope, comparison
 steps and optional qwen3.5:2b model. Firmware remains 0.21.6; no flash is needed.
 The 2–3-second target and audible quality require physical acceptance.
+
+Desktop 0.4.3 responsiveness sign-off — 2026-09-26
+Accepted build: 5798b75415122c8e7823019e5199a146651a926e.
+The owner confirmed that the longstanding response-delay issue was solved and
+was happy with the result. Kadence-diagnostics(10).json confirms this build and
+three completed turns returning to idle, with no runtime_issue or fatal events.
+First Windows audio was measured at 6.816, 3.204 and 5.081 seconds after recording
+reception. The improved experience is accepted; a consistent 2–3-second maximum
+remains an unmet performance target. This supersedes the pending responsiveness
+acceptance above without claiming separate cancellation, Bluetooth acoustic or
+camera/perception sign-off. Keep this executable as the accepted voice baseline.

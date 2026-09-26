@@ -1,4 +1,4 @@
-# Voice latency — host 0.4.3 candidate
+# Voice latency — host 0.4.3 accepted baseline
 
 The target is 2–3 seconds from the end of a recording to the first spoken
 answer. This is a target for warm, ordinary conversational turns, not a measured
@@ -127,8 +127,38 @@ plus the established native OpenCV/worker/storage/local-speech checks.
 The tone fixture first produces PCM after **576 of 24,381 encoded bytes**;
 arbitrary chunk boundaries yield the same decoded audio. This verifies removal
 of full-file buffering; it is not a real Edge or Bluetooth latency benchmark.
-Physical voice quality, Bluetooth timing and the 2–3-second target remain to
-be accepted by the owner. Camera/perception/reflex acceptance is not changed.
+The owner accepted the improved responsiveness on 2026-09-26, as recorded below.
+The strict 2–3-second target has not been demonstrated consistently.
+Camera/perception/reflex acceptance is not changed.
+
+## Owner acceptance — 2026-09-26
+
+Accepted executable: **0.4.3**, source commit
+`5798b75415122c8e7823019e5199a146651a926e`.
+The owner reported that the longstanding response-delay issue was solved and
+expressed satisfaction with the result. Preserve this build as the accepted
+voice baseline. No model replacement or further runtime change accompanies
+this sign-off.
+
+`Kadence-diagnostics(10).json` identifies that exact build and records three
+completed voice turns, each returning to idle, with no `runtime_issue` or
+`fatal` events in the supplied export:
+
+| Completed turn | First Windows audio | Transcription | Reasoning |
+| --- | ---: | ---: | ---: |
+| 1 | 6.816 s | 1.781 s | 1.189 s |
+| 2 | 3.204 s | 1.029 s | 0.013 s (local tool path) |
+| 3 | 5.081 s | 0.718 s | 1.378 s |
+
+First-audio median: **5.081 s**. These are host playback-start measurements
+after recording reception, not acoustic Bluetooth measurements. User acceptance
+of responsiveness is established; a consistent 2–3-second maximum is not.
+
+The initial stopped-server TEST REPLY took 8.203 s, including 6.611 s of model
+loading. The two model-backed voice turns subsequently reported only 3 ms of
+model loading each. That cold reply check must not be counted as a voice turn.
+The export does not independently establish touch-cancellation, audio routing
+variants or camera/perception acceptance; those gates retain their own evidence.
 
 Primary implementation references:
 
