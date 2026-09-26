@@ -64,7 +64,7 @@ def main(address="192.168.40.175"):
         subprocess.run(["ssh", "-t", *options, remote, command], check=True)
         if operation == "R": vault.forget()
         print("\nSETUP COMPLETE. Unplug UnitV2 power, reconnect it, then start Kadence.")
-        print("In Vision select ON DEMAND and click CHECK CAMERA. No robot firmware flash is needed.")
+        print("In Vision select ON DEMAND and click TEST START / STOP. No robot firmware flash is needed.")
         return 0
     finally:
         # Fixed generated path only. Never remove the factory backup.
