@@ -199,7 +199,8 @@ def test_burst_shares_lease_then_releases(service):
     asyncio.run(case())
 
 
-def test_cancel_interrupts_blocked_real_http_frame_without_waiting_for_timeout(service,producer):
+@pytest.mark.parametrize('socket_shutdown',[True,False])
+def test_cancel_interrupts_blocked_real_http_frame_without_waiting_for_timeout(service,producer,socket_shutdown):
     server,_=service
     producer.command=[sys.executable,'-c','import time;time.sleep(60)']
     async def case():
@@ -209,6 +210,7 @@ def test_cancel_interrupts_blocked_real_http_frame_without_waiting_for_timeout(s
             if producer.process is not None:break
             await asyncio.sleep(.01)
         await asyncio.sleep(.1)
+        if not socket_shutdown: owner.client.interrupt=lambda:None
         started=time.monotonic();task.cancel()
         with pytest.raises(asyncio.CancelledError):await task
         assert time.monotonic()-started<2

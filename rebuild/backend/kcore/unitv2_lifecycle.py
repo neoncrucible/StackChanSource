@@ -5,10 +5,12 @@ import contextlib
 import hashlib
 import hmac
 import http.client
+import io
 import ipaddress
 import json
 from pathlib import Path
 import re
+import select
 import socket
 import sys
 import threading
@@ -47,6 +49,27 @@ def load_key():
 class LifecycleError(RuntimeError): pass
 
 
+class _ResponseReader(io.RawIOBase):
+    """Poll cancellation during headers and body; Windows shutdown cannot wake every read."""
+    def __init__(self, connection, deadline, cancel):
+        self.connection, self.deadline, self.cancel = connection, deadline, cancel
+        connection.setblocking(False)
+
+    def readable(self): return True
+
+    def makefile(self, mode): return io.BufferedReader(self)
+
+    def readinto(self, buffer):
+        while True:
+            if self.cancel and self.cancel.is_set(): raise LifecycleError("UnitV2 request cancelled")
+            left = self.deadline-time.monotonic()
+            if left <= 0: raise TimeoutError("UnitV2 deadline expired")
+            ready, _, _ = select.select([self.connection], [], [], min(.1, left))
+            if ready:
+                try: return self.connection.recv_into(buffer)
+                except BlockingIOError: continue
+
+
 class Client:
     def __init__(self, address, key, *, port=80):
         self.address = str(ipaddress.IPv4Address(address))
@@ -64,6 +87,7 @@ class Client:
         remaining = deadline-time.monotonic()
         if remaining <= 0: raise TimeoutError("UnitV2 deadline expired")
         connection = http.client.HTTPConnection(self.address, self.port, timeout=min(2,remaining))
+        response = None
         headers = {"Connection": "close"}
         if signature: headers.update({"Content-Type":"application/json", "X-Kadence-Signature":signature})
         try:
@@ -74,7 +98,10 @@ class Client:
             self._socket.settimeout(remaining)
             if cancel and cancel.is_set(): raise LifecycleError("UnitV2 request cancelled")
             connection.request(method, path, body=body, headers=headers)
-            response = connection.getresponse()
+            # Retain the stdlib HTTP parser, but use interruptible reads rather
+            # than its blocking socket.makefile. Each connection serves one request.
+            response = http.client.HTTPResponse(_ResponseReader(self._socket, deadline, cancel), method=method)
+            response.begin()
             length = response.getheader("Content-Length", "")
             jpeg = response.getheader("Content-Type", "").split(";")[0].strip() == "image/jpeg"
             if not length.isdigit() or not 0 < int(length) <= (MAX_JPEG if jpeg else 8192):
@@ -84,7 +111,6 @@ class Client:
                 if cancel and cancel.is_set(): raise LifecycleError("UnitV2 request cancelled")
                 left = deadline-time.monotonic()
                 if left <= 0: raise TimeoutError("UnitV2 deadline expired")
-                if self._socket is not None: self._socket.settimeout(left)
                 chunk = response.read(min(65536, int(length)-len(data)))
                 if not chunk: raise LifecycleError("Truncated UnitV2 response")
                 data.extend(chunk)
@@ -101,6 +127,7 @@ class Client:
             return value
         finally:
             self._socket = None
+            if response is not None: response.close()
             connection.close()
 
     def call(self, operation, lease=None, *, timeout=5, cancel=None):
