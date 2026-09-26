@@ -15,6 +15,7 @@ on:
       - 'rebuild/tools/phase_a4_gate.py'
       - 'rebuild/tools/package_desktop.py'
       - 'rebuild/tools/prepare_face_models.py'
+      - 'rebuild/tools/prepare_face_fixtures.py'
       - 'rebuild/tools/desktop_frozen_check.py'
       - 'rebuild/tools/install_desktop.ps1'
       - 'rebuild/tools/Install-Kadence.cmd'
@@ -38,10 +39,13 @@ jobs:
         run: python -m pip install -e "./rebuild[voice,desktop,package,dev]"
       - name: Prepare verified local face models
         run: python rebuild/tools/prepare_face_models.py rebuild/dist/face_models
+      - name: Prepare pinned face evaluation media
+        run: python rebuild/tools/prepare_face_fixtures.py rebuild/dist/face_fixtures
       - name: Camera, privacy and perception regression
         env:
           KADENCE_TEST_MODELS: rebuild/dist/face_models
-        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_vision_console.py rebuild/tests/test_vision_description.py rebuild/tests/test_face_review.py rebuild/tests/test_camera_diagnostics.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py -q
+          KADENCE_TEST_FACE_FIXTURES: rebuild/dist/face_fixtures
+        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_vision_console.py rebuild/tests/test_vision_description.py rebuild/tests/test_face_review.py rebuild/tests/test_live_faces.py rebuild/tests/test_camera_diagnostics.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py -q
       - name: Observe-only reflex and desktop regression
         run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py -q
       - name: Autonomous perception, rate limits and visit semantics

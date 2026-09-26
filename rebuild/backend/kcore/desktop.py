@@ -31,6 +31,13 @@ def main():
         text = description_text(json.loads(raw))
         print(json.dumps({"parsed":True,"chars":len(text)}))
         return 0
+    if "--face-replay-check" in sys.argv:
+        from .face_validation import replay_check
+        import json
+        index = sys.argv.index("--face-replay-check")
+        if index + 1 >= len(sys.argv): return 2
+        print(json.dumps(replay_check(sys.argv[index+1])))
+        return 0
     if "--speech-child" in sys.argv:
         from .speech_child import main as speech_child
         return speech_child()

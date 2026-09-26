@@ -65,12 +65,16 @@ class ProfilePhotos:
             raise ValueError("Invalid profile photo location.")
         return target
 
-    def add(self, db, items, staged):
-        if items is None: return [None]*3
-        if len(items) != 3: raise ValueError("Three review photos are required.")
+    def add(self, db, items, staged, *, count=3):
+        if items is None: return [None]*count
+        if len(items) != count or sum(item is not None for item in items) != 3:
+            raise ValueError("Three representative review photos are required.")
         self.directory.mkdir(parents=True,exist_ok=True)
         ids = []
         for item in items:
+            if item is None:
+                ids.append(None)
+                continue
             png = item["png"]
             if not isinstance(png,bytes) or not 1 <= len(png) <= MAX_PHOTO_BYTES: raise ValueError("Invalid profile photo size.")
             image = Image.open(io.BytesIO(png))

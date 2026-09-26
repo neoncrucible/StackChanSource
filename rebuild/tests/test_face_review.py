@@ -17,6 +17,7 @@ from kcore.perception_store import PerceptionStore
 from kcore.schema import ensure_schema
 from kcore.storage import KadencePaths
 from test_autonomous_perception import controller, vector
+from test_live_faces import fast_face_clock, install_training
 
 
 def photo():
@@ -79,19 +80,20 @@ def test_photo_reader_and_deletion_reject_unowned_paths(tmp_path):
         with pytest.raises(ValueError):ProfilePhotos(paths.database).path(value)
 
 
-def test_explicit_enrollment_preview_and_opt_in_photos_use_same_camera_frames(tmp_path):
+def test_explicit_enrollment_preview_and_opt_in_photos_use_same_camera_frames(tmp_path,fast_face_clock):
     async def case():
         e=await controller(tmp_path,enabled=False,source='unitv2-camera')
         capture=e.camera.acquire.side_effect
         async def real_frame(**kwargs):return replace(await capture(**kwargs),png=photo()['png'],width=160,height=120)
         e.camera.acquire.side_effect=real_frame
+        install_training(e)
         result=await e.pc.enroll('Test profile',keep_photos=True)
         assert '3 local review photos saved' in result['message']
         person=result['person_id'];saved=await e.pc.db('photos',person=person)
         assert len(saved)==3 and all(p['source']=='unitv2-camera' for p in saved)
         assert all(Image.open(io.BytesIO(base64.b64decode(p['png_base64']))).width<=256 for p in saved)
         previews=[d for n,d in e.events if n=='face_preview' and d.get('png_base64')]
-        assert len(previews)==3
+        assert len(previews)==20
         result=await e.pc.test_recognition()
         assert result['names']==['Test profile']
         assert result['quality'][0]['usable']==1
@@ -100,7 +102,7 @@ def test_explicit_enrollment_preview_and_opt_in_photos_use_same_camera_frames(tm
         await e.pc.reset('privacy')
         assert [d for n,d in e.events if n=='face_preview'][-1]=={}
         with pytest.raises(RuntimeError,match='privacy'):await e.pc.enroll('Blocked',keep_photos=True)
-        assert e.camera.acquire.await_count==5
+        assert e.camera.acquire.await_count==22
         await e.pc.close()
     asyncio.run(case())
 
@@ -111,7 +113,8 @@ def test_quality_report_distinguishes_no_detection_small_and_blurred(tmp_path):
     faces=LocalFaces(tmp_path)
     rows=np.array([[0,0,20,20,*([0]*10),.99],[0,0,80,80,*([0]*10),.99],[0,0,90,90,*([0]*10),.99]],dtype=np.float32)
     faces._detector=SimpleNamespace(setInputSize=lambda _:None,detect=lambda _:(None,rows))
-    faces._recognizer=SimpleNamespace(alignCrop=lambda *_:np.zeros((112,112,3),np.uint8),feature=lambda _:np.array(vector()))
+    gradient=np.repeat(np.tile(np.arange(112,dtype=np.uint8),(112,1))[:,:,None],3,axis=2)
+    faces._recognizer=SimpleNamespace(alignCrop=lambda *_:gradient,feature=lambda _:np.array(vector()))
     with patch('cv2.Laplacian',side_effect=[SimpleNamespace(var=lambda:2),SimpleNamespace(var=lambda:50)]):
         usable,report=faces.analyze_details(photo()['png'])
     assert len(usable)==1 and report['detected']==3 and report['small']==1 and report['blurred']==1

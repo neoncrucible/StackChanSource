@@ -111,7 +111,8 @@ class PerceptionStore:
         result = []
         rows = db.execute("""SELECT f.person_id,f.embedding FROM face_profiles f JOIN persons p ON p.id=f.person_id
             WHERE f.active=1 AND p.active=1 AND p.recognition_enabled=1 AND f.model_fingerprint=?
-            AND f.preprocessing=? AND f.metric='cosine' AND f.encoding='float32-le' AND f.embedding_dimension=128 LIMIT 96""", (FINGERPRINT,PREPROCESSING))
+            AND f.preprocessing=? AND f.metric='cosine' AND f.encoding='float32-le' AND f.embedding_dimension=128
+            ORDER BY f.person_id,f.created_at,f.id LIMIT 768""", (FINGERPRINT,PREPROCESSING))
         for row in rows:
             try: result.append((row[0],decode(row[1])))
             except ValueError: continue
@@ -119,9 +120,9 @@ class PerceptionStore:
 
     def _enroll(self, db, name, vectors, person=None, references=None, staged=None):
         self._check_name(db,name,person)
-        if len(vectors) != 3: raise ValueError("Enrollment requires three face samples.")
+        if not 3 <= len(vectors) <= 24: raise ValueError("Enrollment requires 3–24 face samples.")
         blobs = [encode(v) for v in vectors]
-        media = self.photos.add(db,references,staged)
+        media = self.photos.add(db,references,staged,count=len(blobs))
         now = time.time()
         if person:
             check_id(person)

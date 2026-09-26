@@ -380,8 +380,8 @@ class MainWindow(QMainWindow):
         self.presence_unknown=QCheckBox("Show a local notice for an unenrolled face")
         self.presence_greetings.clicked.connect(self.apply_camera_policy); self.presence_unknown.clicked.connect(self.apply_camera_policy)
         perception.addWidget(self.presence_greetings); perception.addWidget(self.presence_unknown)
-        perception.addWidget(label("EVENT ONLY looks on arrivals, gestures and close approaches. AWARE also checks occupied space about every two minutes. Greetings need an enabled profile, two matching frames and automatic perception. Ordinary movement does not trigger a look.","muted"))
-        perception.addWidget(row(button("TEST AUTOMATIC EVENT",lambda:self.run_vision_test("perception_test"),primary=True),button("TEST RECOGNITION",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel"))))
+        perception.addWidget(label("EVENT ONLY looks on arrivals, gestures and close approaches. AWARE also checks occupied space about every two minutes. Greetings need an enabled profile, repeated matches during a short live burst and automatic perception. Ordinary movement does not trigger a look.","muted"))
+        perception.addWidget(row(button("TEST AUTOMATIC EVENT",lambda:self.run_vision_test("perception_test"),primary=True),button("LIVE RECOGNITION CHECK",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel"))))
         self.perception_test_result=label("Test event follows the real automatic gates and may greet. Recognition test works with automatic perception off and never greets.","muted"); perception.addWidget(self.perception_test_result)
         commands=QGroupBox("SAY IT TO KADENCE"); box=QVBoxLayout(commands)
         box.addWidget(label('“What can you see?”  ·  “Camera status”\n“Use the extra camera”  ·  “Use the robot camera”\n“Enable automatic perception”  ·  “Enable greetings”\n“Turn privacy on”  ·  “Turn privacy off”\n“Stop the camera”  ·  “Start the camera”',"muted"))
@@ -408,15 +408,15 @@ class MainWindow(QMainWindow):
             gallery_row.addWidget(card,1); self.profile_photo_labels.append(photo); self.profile_photo_captions.append(caption)
         self.profile_gallery=gallery; gallery.hide(); profiles.addWidget(gallery)
         self.face_name=line("New profile name · one person in view",80)
-        self.enroll_button=button("ENROLL 3 SAMPLES",self.enroll_face,primary=True)
+        self.enroll_button=button("START LIVE TRAINING",self.enroll_face,primary=True)
         profiles.addWidget(row(self.face_name,self.enroll_button))
         self.keep_face_photos=QCheckBox("Keep 3 local review photos with these new samples")
         profiles.insertWidget(3,self.keep_face_photos)
-        self.enrollment_progress=QProgressBar(); self.enrollment_progress.setRange(0,3); self.enrollment_progress.setValue(0); self.enrollment_progress.setFormat("%v / 3 samples accepted")
+        self.enrollment_progress=QProgressBar(); self.enrollment_progress.setRange(0,20); self.enrollment_progress.setValue(0); self.enrollment_progress.setFormat("%v / %m samples accepted")
         profiles.addWidget(self.enrollment_progress)
-        self.enrollment_result=label("Face the selected camera. Review photos are optional; existing samples cannot be converted back into photographs.","muted"); profiles.addWidget(self.enrollment_result)
+        self.enrollment_result=label("Live training guides 20 samples across five views. Three-sample profiles still work; Replace Samples improves their angle coverage. Review photos are optional.","muted"); profiles.addWidget(self.enrollment_result)
         self.enrollment_result.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        profiles.addWidget(row(button("TEST & PREVIEW",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel")),button("BACK UP DATABASE",self.backup_database)))
+        profiles.addWidget(row(button("LIVE RECOGNITION CHECK",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel")),button("BACK UP DATABASE",self.backup_database)))
         self.profile_test_result=label("Recognition has not been tested.","status"); profiles.addWidget(self.profile_test_result)
         self.database_location=label("Database: loading…","muted"); self.database_location.setTextInteractionFlags(Qt.TextSelectableByMouse); profiles.addWidget(self.database_location)
         profiles.addWidget(label("Kadence compares numerical face embeddings, not percentages of facial dimensions. Factory UnitV2 profiles are separate. Delete removes current samples, review photos and names. Existing backups retain their copies.","muted")); profiles.addStretch()
@@ -429,12 +429,25 @@ class MainWindow(QMainWindow):
         self.vision_history=QPlainTextEdit(); self.vision_history.setReadOnly(True); self.vision_history.setMinimumHeight(130); self.vision_history.document().setMaximumBlockCount(90); activity.addWidget(self.vision_history,1)
         activity.addWidget(label("Recent history shows status metadata. Automatic images are discarded after local analysis.","muted"))
         face_check=tab("Face check")
-        face_check.addWidget(row(button("TEST RECOGNITION",lambda:self.run_vision_test("recognition_test"),primary=True),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR PREVIEW",lambda:self.control.send("face_preview_clear"))))
+        face_check.addWidget(row(button("LIVE RECOGNITION CHECK",lambda:self.run_vision_test("recognition_test"),primary=True),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR PREVIEW",lambda:self.control.send("face_preview_clear"))))
         self.face_check_status=label("Run a test to see the actual camera frame and detection result.","status"); face_check.addWidget(self.face_check_status)
         self.face_check_result=label("Recognition has not been tested.","status"); self.face_check_result.setTextInteractionFlags(Qt.TextSelectableByMouse); face_check.addWidget(self.face_check_result)
         self.face_check_preview=label("NO FACE CHECK IMAGE","muted"); self.face_check_preview.setAlignment(Qt.AlignCenter); self.face_check_preview.setFixedHeight(220)
         self.face_check_preview.setStyleSheet("border: 1px solid #293c2f;"); face_check.addWidget(self.face_check_preview)
-        face_check.addWidget(label("This is the last explicit enrollment/test frame, not a live stream. Green boxes mark usable faces. Small or blurred faces are reported separately. Similarity is a score, not a percentage probability. Test images are temporary; only the enrollment checkbox saves review photos.","muted")); face_check.addStretch()
+        face_check.addWidget(label("The preview updates throughout the live check. Turn your head and try your normal seated distance. Green boxes mark usable faces. Similarity is a score, not a percentage probability. Test images are temporary; the camera is released when the check ends.","muted")); face_check.addStretch()
+        training=tab("Live training")
+        training.addWidget(label("FIVE VIEWS · 20 DISTINCT SAMPLES","status"))
+        training.addWidget(label("Use Profiles to start or replace training. Keep one person in view and follow each prompt. The camera stays running during the session; all analysis is local.","muted"))
+        self.training_prompt=label("Select a profile and choose REPLACE SAMPLES, or enter a new name and START LIVE TRAINING.","status")
+        training_body=QWidget(); training_row=QHBoxLayout(training_body); training_row.setContentsMargins(0,0,0,0)
+        training_guidance=QWidget(); guidance=QVBoxLayout(training_guidance); guidance.setContentsMargins(0,0,0,0); guidance.addWidget(self.training_prompt)
+        self.training_preview=label("LIVE PREVIEW APPEARS HERE","muted"); self.training_preview.setAlignment(Qt.AlignCenter); self.training_preview.setFixedHeight(180); self.training_preview.setMinimumWidth(260)
+        self.training_preview.setStyleSheet("border: 1px solid #293c2f;"); training_row.addWidget(self.training_preview,1); training_row.addWidget(training_guidance,1); training.addWidget(training_body)
+        self.training_progress=QProgressBar(); self.training_progress.setRange(0,20); self.training_progress.setFormat("%v / %m accepted · five views"); guidance.addWidget(self.training_progress)
+        self.training_coverage=label("Front → one side → other side → chin tilt → distance","muted"); guidance.addWidget(self.training_coverage); guidance.addStretch()
+        training.addWidget(row(button("CANCEL TRAINING",lambda:self.control.send("media_cancel")),button("REVIEW PROFILES",lambda:self.vision_tabs.setCurrentIndex(2)),button("LIVE RECOGNITION CHECK",lambda:self.run_vision_test("recognition_test"))))
+        training.addWidget(label("Training saves only after all five views pass. Cancel or failure keeps your previous samples. The optional photo setting saves three representative views; the other samples are numerical face features.","muted")); training.addStretch()
+        self._training_active=False
         self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
 
@@ -549,15 +562,20 @@ class MainWindow(QMainWindow):
 
     def start_enrollment(self,name,person=None):
         if not name: self.enrollment_result.setText("Enter the name of the person facing the camera."); return
-        self.enrollment_progress.setValue(0); self.enrollment_result.setText("Preparing enrollment…"); self.enroll_button.setEnabled(False)
+        self.enrollment_progress.setValue(0); self.training_progress.setValue(0); self.enrollment_result.setText("Preparing live training…"); self.enroll_button.setEnabled(False)
+        self._training_active=True; self.training_prompt.setText("Preparing camera…"); self.vision_tabs.setCurrentIndex(5)
         def finished(response):
-            self.enroll_button.setEnabled(True); self.faces_result(response)
-            if response.get("ok"): self.enrollment_progress.setValue(3)
+            self._training_active=False; self.enroll_button.setEnabled(True); self.faces_result(response)
+            if response.get("ok"):
+                count=response.get("result",{}).get("samples",20)
+                self.enrollment_progress.setValue(count); self.training_progress.setValue(count)
+                self.training_prompt.setText(response.get("result",{}).get("message","Training saved."))
+            else: self.training_prompt.setText(response.get("message","Training failed. Previous samples were kept."))
         def configured(response):
             if not response.get("ok"): finished(response); return
             args={"name":name,"keep_photos":self.keep_face_photos.isChecked()}
             if person: args["person_id"]=person
-            self.control.send("face_enroll",args,finished)
+            self.control.send("face_enroll",args,finished,timeout=140)
         self.control.send("camera_settings",self.camera_policy_values(),configured)
 
     def forget_face(self):
@@ -577,7 +595,7 @@ class MainWindow(QMainWindow):
             self.refresh_vision_activity()
         self.perception_test_result.setText("Test running…"); self.profile_test_result.setText("Test running…")
         if action=="recognition_test":
-            self.face_check_result.setText("Checking two fresh frames locally…"); self.vision_tabs.setCurrentIndex(4)
+            self.face_check_result.setText("Live recognition check running. Try turning and moving naturally…"); self.vision_tabs.setCurrentIndex(4)
         def configured(response):
             if response.get("ok"): self.control.send(action,{},finished)
             else: finished(response)
@@ -910,10 +928,12 @@ class MainWindow(QMainWindow):
     def on_event(self,name,data):
         if name=="face_preview":
             self.face_check_preview.clear()
+            if not data: self.training_preview.clear(); self.training_preview.setText("TEMPORARY PREVIEW CLEARED")
             encoded=data.get("png_base64")
             if encoded:
                 pixmap=QPixmap(); pixmap.loadFromData(base64.b64decode(encoded,validate=True),"PNG")
                 self.face_check_preview.setPixmap(pixmap.scaled(400,216,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+                if self._training_active: self.training_preview.setPixmap(pixmap.scaled(300,176,Qt.KeepAspectRatio,Qt.SmoothTransformation))
                 stamp=datetime.fromtimestamp(data["captured_at"]).strftime("%H:%M:%S")
                 self.face_check_status.setText(f"{data['source']} · captured {stamp} · {data.get('message','')}")
             else:
@@ -960,14 +980,19 @@ class MainWindow(QMainWindow):
             if hasattr(self,"tray") and self.tray.isVisible(): self.tray.showMessage("Kadence",data.get("message",""),QSystemTrayIcon.Information,6000)
         elif name=="enrollment":
             state=data.get("state","capturing"); sample=data.get("sample",0)
-            if state in {"accepted","saved"}: self.enrollment_progress.setValue(sample)
-            text=data.get("message") or f"Sample {sample}/3 · {'accepted' if state=='accepted' else 'capturing'}. Keep one face in view."
+            total=data.get("total",20)
+            self.enrollment_progress.setMaximum(total); self.training_progress.setMaximum(total)
+            if state in {"accepted","saved"}: self.enrollment_progress.setValue(sample); self.training_progress.setValue(sample)
+            text=data.get("message") or f"Sample {sample}/{total} · {'accepted' if state=='accepted' else 'capturing'}. Keep one face in view."
+            self.training_prompt.setText(text)
+            if data.get("view"): self.training_coverage.setText(f"Current view: {data['view'].replace('_',' ')} · {sample}/{total} accepted")
             self.enrollment_result.setText(text)
             if data.get("source"): self.enrollment_result.setText(text + " Camera: " + data["source"])
-            if state in {"saved","failed"}: self.enroll_button.setEnabled(True); self.refresh_faces()
+            if state in {"saved","failed"}: self._training_active=False; self.enroll_button.setEnabled(True); self.refresh_faces()
         elif name=="vision_activity":
             self.reflex_log.appendPlainText(datetime.now().strftime("%H:%M:%S") + "  " + data.get("kind","vision").upper() + "  " + data.get("message","") + (" · " + data["source"] if data.get("source") else ""))
-            if data.get("kind")=="recognition_test": self.profile_test_result.setText(data.get("message",""))
+            if data.get("kind")=="recognition_test":
+                self.profile_test_result.setText(data.get("message","")); self.face_check_result.setText(data.get("message",""))
         elif name=="ready":
             self.message.setText("Local utilities ready. Connect Kadence when you're ready.")
             self.apply_timezone()
@@ -1141,6 +1166,11 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
+        if name=="recognition_evidence":
+            from .face_sequence import recognition_diagnostic
+            safe=recognition_diagnostic(data)
+            self._append_diagnostic({"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe})
+            return
         if name=="perception_decision":
             from .perception import diagnostic_decision
             safe=diagnostic_decision(data)

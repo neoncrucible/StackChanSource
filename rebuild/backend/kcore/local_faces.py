@@ -37,6 +37,9 @@ class Face:
     box: tuple[float, float, float, float]
     embedding: tuple[float, ...]
     quality: float
+    # Landmark ratios, not claimed head angles. Used only for training coverage.
+    yaw: float = 0.0
+    pitch: float = 0.5
 
 
 def match_details(embedding, profiles, *, threshold=.55, margin=.08):
@@ -66,7 +69,7 @@ def quality_message(report):
     if not detected: return "No face detected. Check the preview: face the selected camera and check framing."
     reasons = []
     if report.get("small"): reasons.append(f"{report['small']} face(s) smaller than 40 pixels; move closer")
-    if report.get("blurred"): reasons.append(f"{report['blurred']} face(s) blurred; hold still and check focus")
+    if report.get("blurred"): reasons.append(f"{report['blurred']} face(s) blurred or lacking detail; check focus and framing")
     return "No usable face: " + "; ".join(reasons) + "."
 
 
@@ -107,7 +110,7 @@ class LocalFaces:
                 self.health = "models_invalid"
                 raise RuntimeError("Local face model verification failed.")
         self.progress("load_detector")
-        self._detector = cv2.FaceDetectorYN.create(str(self.directory / next(iter(MODELS))), "", (320, 240), .9, .3, 100)
+        self._detector = cv2.FaceDetectorYN.create(str(self.directory / next(iter(MODELS))), "", (320, 240), .8, .3, 100)
         self.progress("load_recognizer")
         self._recognizer = cv2.FaceRecognizerSF.create(str(self.directory / "face_recognition_sface_2021dec.onnx"), "")
         self.health = "ready"
@@ -136,11 +139,26 @@ class LocalFaces:
                     report["small"] += 1
                     continue
                 crop = self._recognizer.alignCrop(image, detection)
-                # Reject severe blur rather than producing misleading identity evidence.
-                if cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var() < 20:
+                # Absolute Laplacian variance conflated contrast with blur: a
+                # sharp dim face was rejected after alignment enlarged it.
+                # Normalise by crop contrast; flat or heavily smoothed crops
+                # still fail. Identity matching retains its separate threshold.
+                gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var()) / (float(gray.var())+1)
+                if float(gray.std()) < 2 or sharpness < .006:
                     report["blurred"] += 1
                     continue
                 vector = normalize(self._recognizer.feature(crop).reshape(-1))
-                faces.append(Face((x/image.shape[1], y/image.shape[0], w/image.shape[1], h/image.shape[0]), vector, float(detection[-1])))
+                eyes = (detection[4:6] + detection[6:8]) / 2
+                mouth = (detection[10:12] + detection[12:14]) / 2
+                eye_span = max(float(np.linalg.norm(detection[4:6]-detection[6:8])), 1)
+                vertical = max(float(np.linalg.norm(mouth-eyes)), 1)
+                # Project onto the eye/mouth axes so head roll doesn't masquerade as yaw.
+                axis = (mouth-eyes) / vertical
+                side = np.array([axis[1], -axis[0]])
+                nose = detection[8:10]-eyes
+                yaw = float(np.dot(nose,side)/eye_span)
+                pitch = float(np.dot(nose,axis)/vertical)
+                faces.append(Face((x/image.shape[1], y/image.shape[0], w/image.shape[1], h/image.shape[0]), vector, float(detection[-1]), yaw, pitch))
             report["usable"] = len(faces)
             return tuple(faces), report

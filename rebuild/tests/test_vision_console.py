@@ -1,3 +1,4 @@
+from test_live_faces import fast_face_clock, install_training
 """Saved profiles, explicit tests and voice controls share the real camera authority."""
 import asyncio
 from dataclasses import asdict, replace
@@ -76,12 +77,13 @@ def test_ambiguous_manual_match_does_not_name_anyone(tmp_path):
     asyncio.run(case())
 
 
-def test_enrollment_feedback_and_voice_interrupt_keep_old_samples(tmp_path):
+def test_enrollment_feedback_and_voice_interrupt_keep_old_samples(tmp_path,fast_face_clock):
     async def case():
         e=await controller(tmp_path,enabled=False)
+        install_training(e)
         await e.pc.enroll('Boss')
         person=(await e.pc.db('persons'))[0]['id']
-        assert [d['sample'] for n,d in e.events if n=='enrollment' and d['state']=='accepted']==[1,2,3]
+        assert [d['sample'] for n,d in e.events if n=='enrollment' and d['state']=='accepted']==list(range(1,21))
         assert any(n=='enrollment' and d['state']=='saved' for n,d in e.events)
         entered=asyncio.Event()
         async def slow(**kwargs):entered.set();await asyncio.Event().wait()
@@ -90,7 +92,7 @@ def test_enrollment_feedback_and_voice_interrupt_keep_old_samples(tmp_path):
         await entered.wait()
         await e.pc.interrupt()
         with pytest.raises(asyncio.CancelledError):await task
-        assert len(await e.pc.db('profiles'))==3
+        assert len(await e.pc.db('profiles'))==20
         assert e.pc._explicit_task is None and not e.pc._enrolling
         await e.pc.close()
     asyncio.run(case())

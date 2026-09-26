@@ -282,7 +282,7 @@ class DesktopController:
                             raise RuntimeError("Automatic test did not complete: " + pc.health.replace('_',' ') + ". Check Activity and camera status.")
                         return {"message":"Automatic event finished. " + pc.last_result + " " + pc.last_greeting}
                     operation=event_test()
-                elif action == "recognition_test": operation=pc.test_recognition()
+                elif action == "recognition_test": operation=pc.test_recognition(live=True)
                 else: operation=pc.enroll(args.get("name"),args.get("person_id"),keep_photos=args.get("keep_photos",False))
                 self._network_media = True
                 self._media = asyncio.create_task(operation)

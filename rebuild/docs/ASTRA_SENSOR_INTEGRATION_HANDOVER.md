@@ -7,6 +7,52 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
+### Current release work — live recognition, host 0.4.10
+
+The owner now confirms “what can you see, with description works flawlessly.”
+Record scene descriptions as physically accepted. The owner's live recognition
+and greetings remain unaccepted, despite earlier static successes. Do not equate
+factory UnitV2's displayed 90% with SFace cosine scores or dismiss that the factory
+live enrollment handles the owner's movement better than three Kadence stills.
+
+Diagnostics from 26 September 19:45 UTC (runtime 9628a9b) show eight accepted
+looks, four completed, two explicit cancellations and two missing terminal results;
+health stayed processing with the last capture 267 seconds old. Five voice turns
+completed and all three scene descriptions returned text. No new firmware/audio
+fault was recorded. The old analysis returned silently if voice became busy
+between frames, leaving processing/accepted state stale.
+
+0.4.10 implements 20-sample, five-view guided live training with a same-page
+preview, measured coverage, distinct-sample filtering, a fixed identity anchor,
+120-second bound and atomic replacement. Three opt-in review photos remain
+representative front/side images; old samples and photos survive failed training.
+The camera stays leased, renews through captures and is source-pinned. No service
+reinstall or firmware/schema change. SQLite's old 96-row read limit expands to
+32 × 24 samples so later profiles do not silently disappear.
+
+Matching keeps cosine 0.55 / margin 0.08, uses up to six fresh frames and requires
+two of the last three associated observations, including a current match. Short
+misses and differing trained views can recover without the old pairwise 0.65
+veto. Conflicts/duplicate candidates remain ambiguous. A 20-frame explicit live
+check never sends greetings. One budgeted follow-up can revisit an unrecognised
+arrival during the same occupied visit. Every started automatic look terminates
+with completion, cancellation or failure; voice and privacy retain priority.
+
+Real-model checks exposed contrast-dependent false blur rejection: normalized
+sharpness replaces the absolute 20 cutoff, with flat/soft crop rejection retained.
+Detector confidence is 0.8, enrollment starting view requires 0.9 and >=64px width,
+recognition requires >=40px. Identity thresholds are unchanged. Diagnostics add
+only numeric/enumerated recognition evidence; no names/images/embeddings.
+
+Pinned OpenCV replay uses disjoint frames: broader training matched 16/16 held-out
+usable views locally versus 14/16 with three frontal prototypes; two other-person
+controls stayed unrecognized. This is a small regression fixture, not a deployment
+accuracy claim. The actual Windows executable must pass the same replay.
+See LIVE_FACE_TRAINING_0_4_10.md for controls, limits, sources and acceptance.
+Local verification: 321 tests passed, 119 subtests passed, three expected Windows-only skips.
+The runtime ownership/alignment gate passed. Windows release evidence and download
+are pending the build below.
+
 ### Released — descriptions and recovery, host 0.4.9
 
 The owner asked for production quality after 0.4.8 improved recognition but still

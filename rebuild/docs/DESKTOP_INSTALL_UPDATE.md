@@ -1,11 +1,18 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.9 — working description parsing and bounded voice recovery.
+Current update: 0.4.10 — guided live face training and movement-tolerant recognition.
 Firmware remains 0.21.6; no flash. The accepted 0.4.3 voice transport and output
 pipeline are retained. This update includes the 0.4.6 UnitV2 setup permission repair.
 An already working paired UnitV2 service does not need reinstalling.
 
-Vision → Camera now starts with LOOK & DESCRIBE: one fresh image, with the actual
+Scene descriptions in 0.4.9 are physically accepted by the owner.
+For this update, select Vision → Profiles → your profile → REPLACE SAMPLES.
+Follow the live preview through five views until all 20 samples save, then use
+LIVE RECOGNITION CHECK while turning and at your normal seated distance.
+Enable Automatic Perception and Greetings for automatic spoken greetings.
+Read LIVE-FACE-TRAINING.txt for the changes, evidence and limits.
+
+Vision → Camera starts with LOOK & DESCRIBE: one fresh image, with the actual
 view and description side by side. The outdated Gemini response parser is fixed.
 Errors distinguish credentials, quota, timeout and missing/invalid descriptions.
 Voice failures release the old turn, recover a stalled robot connection with a
@@ -14,7 +21,7 @@ Ambient presence no longer claims to be preparing audio. Overview shows the
 active audio endpoint, cancellation and the last voice/recovery result.
 Read PRODUCTION-HARDENING.txt for the evidence, limits and short acceptance check.
 
-Vision has Camera, Perception, Profiles, Activity and Face check tabs. Profiles reads your
+Vision has Camera, Perception, Profiles, Activity, Face check and Live training tabs. Profiles reads your
 existing SQLite database, shows saved sample counts/dates and offers rename,
 replacement, delete, recognition tests and a database backup button. Enrollment
 shows accepted samples and an explicit Saved or failure message beside the controls.

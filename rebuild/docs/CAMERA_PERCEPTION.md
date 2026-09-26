@@ -1,16 +1,16 @@
-# Vision console, descriptions and voice recovery — host 0.4.9
+# Live face training and recognition — host 0.4.10
 
 Branch: `kadence/functionality`. Firmware stays at **0.21.6**; **no flash**.
-The accepted 0.4.3 voice transport/output pipeline and head alignment are retained.
-0.4.9 includes the 0.4.8 face/photo review and 0.4.6 UnitV2 setup repair.
-The owner has reported start/stop and Privacy working. The latest 0.4.8 screenshots
-also show successful recognition and a delivered greeting. Fresh scene descriptions
-and voice recovery are the remaining checks for this update.
+The owner confirms 0.4.9 fresh scene descriptions work flawlessly. Start/stop and
+Privacy were already reported working. Live recognition and greetings were not
+accepted: three frontal stills did not cover normal movement or viewing angles.
+This release improves local enrollment, quality filtering and temporal matching.
+The voice/description path and paired UnitV2 service are retained.
 
 ## Start here
 
 Install using `Install-Kadence.cmd`, open the normal shortcut and check the console
-shows **0.4.9**. Start the server and select **Vision**. It has five tabs:
+shows **0.4.10**. Start the server and select **Vision**. It has six tabs:
 
 - **Camera**: **Look & Describe** captures and describes a fresh view, with the
   image and text side by side. Capture Only and Describe Snapshot are separate
@@ -21,7 +21,7 @@ shows **0.4.9**. Start the server and select **Vision**. It has five tabs:
   last completed look, recognition result and greeting outcome. Enabling from OFF
   selects EVENT ONLY. The enable, greeting and notice switches save immediately.
 - **Profiles**: the real saved names, compatible/total sample counts, recognition
-  and greeting eligibility, and sample dates. Enrollment progress stays here.
+  and greeting eligibility, and sample dates. Start live training or replace a selected profile here.
   Rename, disable recognition/greeting for one profile, replace samples or delete.
   Optional review photos appear when you select a profile that retained them.
 - **Activity**: live sensor proposals, accepted/deferred/suppressed decisions,
@@ -29,7 +29,12 @@ shows **0.4.9**. Start the server and select **Vision**. It has five tabs:
   reads recent saved event/action metadata, including previous sessions.
 - **Face check**: the most recent explicit test/enrollment frame, actual source,
   capture time and green boxes for usable faces. Tests report detection, quality,
-  similarity and two-frame agreement separately. The preview is not a live stream.
+  similarity and repeated identity evidence separately. LIVE RECOGNITION CHECK
+  updates up to 20 frames while you turn or move, and reports current and previously
+  confirmed identities separately. It never sends a greeting.
+- **Live training**: an updating preview, measured view guidance, accepted sample
+  count and cancellation. Twenty distinct samples cover front, each side, chin
+  tilt and distance. See LIVE-FACE-TRAINING.txt for the short upgrade sequence.
 
 Camera source/address apply to manual capture, voice looks, enrollment and local
 perception. After editing source/address, use **Apply and Save**. Capture, enrollment
@@ -42,27 +47,27 @@ pairing and service version. No daily PowerShell commands are needed.
 
 ## Enroll, inspect and test a profile
 
-1. In Camera, select UnitV2 and Capture to check framing and lighting.
-2. In Profiles, inspect the saved list first: an earlier successful enrollment
-   appears with **3 / 3 compatible** samples. Enter a new name only for a new person.
-3. Optionally check **Keep 3 local review photos with these new samples**. Face
-   the selected camera alone and click **Enroll 3 Samples**. Each accepted
-   sample advances the progress bar. Success says **Saved: name** and refreshes
-   the list. A failure remains beside the enrollment controls.
-4. Click **Test & Preview** (or Test Recognition). Face check shows the actual
-   image and result. It takes two fresh frames for local matching,
-   works with automatic perception off, and never creates a visit or greeting.
-   Privacy still blocks it. It names someone only when both frames agree.
-5. Restart Kadence and reopen Profiles to verify persistence. Saved rows are read
-   from the same database, not an in-memory list.
+1. In Camera, select UnitV2 and Capture to check the view.
+2. In Profiles, select an existing person and **Replace Samples**, or enter a new
+   name and choose **Start Live Training**. Optional review photos must be enabled
+   before starting. Old 3-sample profiles stay usable until replacement completes.
+3. Follow the Live training prompts through front, both sides, chin tilt and
+   distance. The preview, current view and 0–20 counter update throughout. Keep
+   one person in view; move slightly for distinct samples. Wait for **Saved**.
+4. Use **Live Recognition Check** while turning and at your normal seated distance.
+   Face check updates up to 20 fresh frames, with current and earlier confirmed
+   identities separated. It works with automatic perception off and does not
+   create a visit or greeting. Privacy still blocks it.
+5. Review the saved profile: **20 / 20 compatible** samples, plus three optional
+   representative photos. Restarting preserves the same SQLite records.
 
 Select a saved row to rename it or change its Recognise/Greet switches, then
 **Save Profile**. **Replace Samples** keeps the same person ID and eligibility;
-old samples stay saved until all three replacements validate and commit together.
+old samples stay saved until all twenty replacements validate and commit together.
 **Delete** removes current biometric samples and local review photos and anonymizes the name/history.
 Existing database backups retain their copies.
 
-Enrollment stores a name and three normalized 128-dimensional embeddings. These
+Live enrollment stores a name and twenty normalized 128-dimensional embeddings. These
 cannot reconstruct the original pictures, so old profiles have no review photos.
 To add photos, select the profile, check the photo option and **Replace Samples**.
 The packaged YuNet/SFace models perform recognition on this PC.
@@ -102,7 +107,7 @@ archive. No automatic photos are added to the database.
 3. Enable greetings if wanted. The profile's individual **Greet** switch must
    also be on. Enabling greetings alone never enables automatic capture.
 4. Click **Test Automatic Event**. This submits one deliberate gesture proposal
-   through the real gates, frame budget, two-frame matcher and greeting dispatch.
+   through the real gates, frame budget, temporal matcher and greeting dispatch.
    It can greet if eligible; it never bypasses Privacy or the once-per-visit and
    five-minute greeting guards. Wait at least 20 seconds between burst tests.
 5. Read Last Look, the greeting result and Activity. A completed recognition test
@@ -110,7 +115,7 @@ archive. No automatic photos are added to the database.
    delivered. Then verify a real arrival by leaving until CLEAR and returning.
 
 Ordinary desk movement is suppressed. EVENT ONLY has no timer. AWARE adds at most
-one two-frame check every 120 seconds while occupied. No automatic frames go to
+one bounded recognition burst every 120 seconds while occupied. No automatic frames go to
 Gemini or disk. Names in optional spoken greetings may pass to the existing speech
 provider. Normal voice work interrupts background perception and enrollment.
 
@@ -153,9 +158,13 @@ An invalid saved settings file fails closed into Privacy. Settings persist in
 `camera-settings.json` in the normal Kadence data folder.
 
 Recognition requires cosine >=0.55, a >=0.08 lead over other people and agreement
-across two frames with >=0.65 inter-frame similarity. Ambiguous matches remain
+on two of the last three associated observations. The profile must match in the
+current frame; competing profile votes block confirmation. The old >=0.65
+inter-frame gate is removed so different saved views can confirm the same person. Ambiguous matches remain
 unconfirmed. Small (<40 px) or severely blurred faces are rejected. Up to eight
-faces are processed per frame; enrollment is capped at 32 people with three samples.
+faces are processed per frame; enrollment is capped at 32 people, with twenty
+samples per guided session (storage supports 3–24 for compatibility). Three-sample
+legacy profiles remain readable; replace them to gain measured view coverage.
 These thresholds still require testing with the actual camera placement and light.
 
 ## Runtime contracts and limits
@@ -181,10 +190,13 @@ Privacy/configuration changes invalidate generations. Bounded blocking network
 workers retain ownership until they settle; cancelled frames never publish.
 The in-turn StackChan callback is preserved to avoid taking its serial owner twice.
 UnitV2 bootstrap and first-frame reads share bounded deadlines. Camera failures
-back off for 15 seconds. Automatic requests reserve two frames, with a 20-second
-minimum interval and at most six automatic frames per rolling minute.
-One UnitV2 lease covers each pair and is released before any optional greeting.
-Enrollment similarly holds one lease for its three explicit samples. OpenCV
+back off for 15 seconds. Automatic requests reserve up to six frames, with a 20-second
+minimum interval and at most eighteen automatic frames per rolling minute.
+A confident match can finish after two frames. An unrecognised arrival with
+greetings enabled gets at most one follow-up within the same occupied visit,
+subject to the same budget; cancellation, departure and privacy discard it.
+One UnitV2 lease covers each burst and is released before any optional greeting.
+Enrollment holds one lease for its guided live session, bounded to 120 seconds. OpenCV
 uses one CPU thread so background perception leaves headroom for voice.
 
 A busy voice turn may defer one arrival for at most 15 seconds, or a gesture /
@@ -209,7 +221,7 @@ privacy/policy changes, device reconnect, stop, or expiry; end timestamps use la
 visual evidence. A long host scheduling gap reconciles sessions as a resume.
 
 Schema v4 is reused. Meaningful occupancy, identity, capture decisions and one
-summary per completed two-frame analysis are recorded; raw sensor samples and
+summary per completed recognition burst are recorded; raw sensor samples and
 image bytes are not logged. Action intent and claim are transactional; each
 session/kind is unique. Greetings already attempted in an ongoing occupancy
 visit are suppressed even if its visual evidence later expires. Ambiguous
@@ -243,7 +255,7 @@ still requires disconnecting UnitV2 power.
 3. Enroll one face explicitly. Enable automatic perception with EVENT ONLY and
    leave optional greetings/notices unchecked for the first pass.
 4. Leave the ToF zone until CLEAR, then return. Expect one accepted arrival,
-   two-frame analysis and a completed burst. The producer should stop afterward.
+   bounded multi-frame analysis and a completed burst. The producer should stop afterward.
    Move normally: no repeated capture. After 20 seconds, make a deliberate
    gesture; expect another bounded burst. A sudden close approach also qualifies.
 5. Turn Privacy on during a request. No new image or identity may publish; the

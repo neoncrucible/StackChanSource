@@ -8,7 +8,8 @@ import hashlib
 import json
 import time
 from .camera_manager import settled_thread
-from .local_faces import LocalFaces, match, match_details, quality_message, similarity
+from .local_faces import LocalFaces, quality_message, similarity
+from .face_sequence import FaceSequence, LiveEnrollment, recognition_diagnostic
 from .face_media import preview, reference
 from .perception_store import PerceptionStore
 
@@ -19,7 +20,7 @@ from .sensor_sampler import SensorSampler, SensorObservation
 TRIGGERS = frozenset({"arrival", "gesture", "close_approach", "heartbeat"})
 REASONS = frozenset({"ready", "observation_only", "privacy", "policy_off", "stopped", "lifecycle_check_required",
     "voice_busy", "camera_busy", "enrolling", "zone_clear", "sensor_unknown", "cooldown", "expired", "session_changed",
-    "captured", "cancelled", "unavailable", "storage_unavailable", "models_missing", "models_invalid", "low_salience"})
+    "captured", "cancelled", "unavailable", "storage_unavailable", "models_missing", "models_invalid", "low_salience", "timeout"})
 
 
 def diagnostic_decision(value):
@@ -42,14 +43,20 @@ def diagnostic_state(value):
     return safe
 
 
+class LookInterrupted(RuntimeError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason.replace("_", " "))
+
+
 class CaptureBudget:
     def __init__(self): self.requests, self.last = deque(), -1e9
     def delay(self, now):
         while self.requests and self.requests[0] <= now-60: self.requests.popleft()
-        return max(0,self.last+20-now,self.requests[0]+60-now if len(self.requests)+2>6 else 0)
+        return max(0,self.last+20-now,self.requests[0]+60-now if len(self.requests)+6>18 else 0)
     def reserve(self, now):
         if self.delay(now)>0: return False
-        self.requests.extend((now,now)); self.last = now
+        self.requests.extend([now]*6); self.last = now
         return True
 
 
@@ -74,6 +81,8 @@ class PerceptionController:
         self.health = "idle"
         self._closing = False
         self.pending = None
+        self._arrival_retry = None
+        self._arrival_retried = False
         self._next_aware = self.clock()+120
         self._visit_greeted = set()
         self._unknown_notified = False
@@ -102,6 +111,7 @@ class PerceptionController:
     async def interrupt(self):
         self.emit("face_preview",{})
         self.pending = None
+        self._arrival_retry = None
         explicit = self._explicit_task
         if explicit and explicit is not asyncio.current_task() and not explicit.done():
             explicit.cancel()
@@ -123,6 +133,7 @@ class PerceptionController:
         self.pending = None
         self._next_aware = self.clock()+120
         self._visit_greeted.clear()
+        self._arrival_retried = False
         self._unknown_notified = False
         if self.task and not self.task.done():
             self.task.cancel()
@@ -186,6 +197,14 @@ class PerceptionController:
             elif not self.busy() and not (self.task and not self.task.done()) and self.budget.delay(now)==0:
                 self.pending = None
                 self.request(pending["trigger"], defer=False)
+        if self._arrival_retry:
+            retry = self._arrival_retry
+            if (now > retry['expires'] or retry['generation'] != self.camera.generation or retry['session'] != self.sampler.reflex.session_id
+                    or self.occupancy.state != 'OCCUPIED' or any(t['person'] and t.get('observed') for t in self._tracks)):
+                self._arrival_retry = None
+            elif now >= retry['after'] and not self.busy() and not (self.task and not self.task.done()) and self.budget.delay(now)==0:
+                self._arrival_retry = None
+                self.request('arrival',defer=False)
         if self.camera.config.policy == "AWARE" and self.occupancy.state == "OCCUPIED" and now >= self._next_aware:
             self._next_aware = now+120
             self.request("heartbeat", defer=False)
@@ -214,6 +233,8 @@ class PerceptionController:
             await self.db("event",run=self.run,kind="occupancy",trigger="tof",evidence={"state":observation.occupancy})
         if observation.changed and observation.occupancy == "CLEAR":
             self.pending = None
+            self._arrival_retry = None
+            self._arrival_retried = False
             self._visit_greeted.clear()
             self._unknown_notified = False
             if self.task and not self.task.done():
@@ -275,100 +296,146 @@ class PerceptionController:
             return False
         self._decision(trigger,"accepted","ready")
         self._next_aware=self.clock()+120
-        self.task = asyncio.create_task(self._burst(trigger), name="kadence-perception")
+        started = False
+        async def run():
+            nonlocal started
+            started = True
+            await self._burst(trigger)
+        self.task = asyncio.create_task(run(), name="kadence-perception")
+        def retired(task):
+            if task.cancelled() and not started: self._decision(trigger,'cancelled','cancelled')
+        self.task.add_done_callback(retired)
         return True
 
     async def _burst(self, trigger):
         if trigger not in TRIGGERS: return
-        generation=self.camera.generation
+        generation = self.camera.generation
+        terminal = False
+        self._burst_number += 1
+        self.health = "processing"
+        self.publish()
         try:
-            async with self.camera.unitv2.burst():
-                completed=await self._analyze_burst(trigger)
-            if completed:
-                self.camera.check(generation)
-                self.health="ready"
-                self._completed_bursts += 1
-                self._decision(trigger,"completed","captured")
-                # Release the camera before optional speech or notification.
-                await self.dispatch(generation)
-        except asyncio.CancelledError: raise
-        except Exception:
-            self.health="unavailable"
-            self._decision(trigger,"failed","unavailable")
-        finally: self.publish()
+            async with asyncio.timeout(18):
+                async with self.camera.unitv2.burst():
+                    await self._analyze_burst(trigger)
+            self.camera.check(generation)
+            self.health = "ready"
+            self._completed_bursts += 1
+            self._decision(trigger,"completed","captured")
+            terminal = True
+            # Release the camera before optional speech or notification.
+            await self.dispatch(generation)
+            # The arrival look can happen while someone is still turning/sitting.
+            # One later attempt respects the same budget and occupancy session.
+            if (trigger == 'arrival' and self.camera.config.greetings and self.occupancy.state == 'OCCUPIED'
+                    and not self._arrival_retried and not any(t['person'] and t.get('observed') for t in self._tracks)
+                    and await self.db('profiles')):
+                self._arrival_retried = True
+                now = self.clock()
+                self._arrival_retry = {'after':now+max(3,self.budget.delay(now)), 'expires':now+35,
+                    'generation':generation, 'session':self.sampler.reflex.session_id}
+                self.last_greeting = 'No identity confirmed yet. One follow-up look is queued while this visit remains occupied.'
+        except asyncio.CancelledError:
+            self.health = "idle"
+            if not terminal: self._decision(trigger,"cancelled","cancelled")
+            raise
+        except LookInterrupted as exc:
+            self.health = "idle"
+            self.last_result = "Look interrupted: " + exc.reason.replace('_',' ') + "."
+            if not terminal: self._decision(trigger,"cancelled",exc.reason)
+        except Exception as exc:
+            self.health = self.faces.health if self.faces.health in {"models_missing","models_invalid"} else "unavailable"
+            reason = "timeout" if isinstance(exc,TimeoutError) else self.health
+            self.last_result = "Camera look failed: " + reason.replace('_',' ') + "."
+            self.emit("vision_activity",{"kind":"automatic_look","message":self.last_result})
+            if not terminal: self._decision(trigger,"failed",reason)
+        finally:
+            if self.health == "processing": self.health = "idle"
+            self.publish()
+
+    def _recognition_event(self, kind, sequence, report, frame, frames, *, reason=None):
+        matches = [t['match'] for t in sequence.current]
+        best = max(matches, key=lambda m:m['score'] if m['score'] is not None else -2, default={})
+        reason = reason or ('confirmed' if sequence.confirmed else
+            'no_face' if not report.get('detected') else 'no_usable_face' if not report.get('usable') else
+            best.get('reason') if best.get('reason') != 'candidate' else 'insufficient_evidence')
+        data = recognition_diagnostic({**report, **best, 'kind':kind, 'reason':reason,
+            'frames':frames,'confirmed':len(sequence.confirmed),'source':frame.source,
+            'stable':sum(t['seen']>=2 for t in sequence.current),
+            'hits':max((t['hits'] for t in sequence.current),default=0), 'samples':len(sequence.profiles)})
+        self.emit('recognition_evidence',data)
+        return data
+
+    async def _recognize(self, *, kind, trigger=None, live=False):
+        generation = self.camera.generation
+        profiles = await self.db("profiles")
+        sequence = FaceSequence(profiles)
+        reports, match_reports, source = [], [], None
+        names_seen = set()
+        # Automatic work gets up to six frames. Explicit live testing keeps going
+        # after a match, so the owner can actually try movement and different views.
+        limit = 20 if live else 6
+        for index in range(limit):
+            if index: await asyncio.sleep(.5)
+            self.camera.check(generation)
+            if self.busy(): raise LookInterrupted("voice_busy")
+            if kind == 'automatic':
+                if self.gate() != 'ready': raise LookInterrupted('cancelled')
+                if trigger != 'gesture' and self.occupancy.state == 'CLEAR': raise LookInterrupted('zone_clear')
+            frame = await self.camera.acquire(purpose='automatic' if kind=='automatic' else 'manual', source=source, timeout=8)
+            if source is not None and frame.source != source:
+                raise RuntimeError('Camera source changed during recognition. Choose a specific camera and retry.')
+            source = frame.source
+            faces, report = await self._face_evidence(frame,show=kind=='test')
+            self.camera.check(generation)
+            tracks = sequence.update(faces)
+            reports.append(report)
+            match_reports.append([{k:v for k,v in t['match'].items() if k != 'person'} for t in tracks])
+            names_seen.update(sequence.confirmed)
+            evidence = self._recognition_event(kind,sequence,report,frame,index+1)
+            self._last_capture = self.clock()
+            if kind == 'test':
+                text = f"Live check {index+1}/{limit}: {report['usable']} usable face(s); {len(sequence.confirmed)} confirmed now."
+                if evidence.get('score') is not None: text += f" Similarity {evidence['score']:.3f}; required 0.55."
+                self.emit('vision_activity',{'kind':'recognition_test','message':text,'source':source})
+            if not live and index >= 1:
+                if faces and len(sequence.confirmed)==len(faces): break
+                if not profiles and tracks and all(t['seen']>=2 for t in tracks): break
+        return sequence,frame,reports,match_reports,names_seen
 
     async def _analyze_burst(self, trigger):
         generation = self.camera.generation
-        try:
-            if self.gate() != "ready": return
-            self._burst_number += 1
-            profiles = await self.db("profiles")
-            candidates = []
-            for index in range(2):
-                if index: await asyncio.sleep(.8)
-                self.camera.check(generation)
-                if self.busy() or (self.occupancy.state == "CLEAR" and trigger != "gesture"): return
-                frame = await self.camera.acquire(purpose="automatic")
-                self.health = "processing"; self.publish()
-                faces, report = await self._face_evidence(frame)
-                self.camera.check(generation)
-                if index == 0:
-                    candidates = [(face,match(face.embedding,profiles)) for face in faces]
-                    continue
-                used = set()
-                present = []
-                for face in faces:
-                    person, status = match(face.embedding,profiles)
-                    # Confirm across independent frames by embedding, not face count or position.
-                    matches = [(similarity(face.embedding,old.embedding),i,old_result) for i,(old,old_result) in enumerate(candidates) if i not in used]
-                    matches.sort(reverse=True)
-                    if not matches or matches[0][0] < .65: continue
-                    _, candidate, prior = matches[0]
-                    used.add(candidate)
-                    confirmed = person if person and prior[0] == person else None
-                    identity = "ambiguous" if status=="ambiguous" or prior[1]=="ambiguous" or (not confirmed and (person or prior[0])) else "unresolved"
-                    if confirmed and any(t["person"] == confirmed for t in present): continue
-                    existing = next((t for t in self._tracks if confirmed and t["person"] == confirmed),None)
-                    if not confirmed:
-                        # Unknown continuity is short and visual; never reuse a global unknown token.
-                        used_sessions = {t["session"] for t in present}
-                        possible = sorted(((similarity(t["embedding"],face.embedding),t) for t in self._tracks
-                            if t["person"] is None and self.clock()-t["seen"] < 10 and t["session"] not in used_sessions), key=lambda item:item[0], reverse=True)
-                        existing = possible[0][1] if possible and possible[0][0] >= .7 and (len(possible)==1 or possible[0][0]-possible[1][0]>=.08) else None
-                    action = "greeting" if confirmed and self.camera.config.greetings and confirmed not in self._visit_greeted else "unknown_alert" if not confirmed and identity=="unresolved" and self.camera.config.unknown_alerts and not self._unknown_notified else None
-                    session = await self.db("observe",run=self.run,person=confirmed,frame=frame,trigger=trigger,
-                        session=existing["session"] if existing else None,identity=identity,action=action)
-                    self.camera.check(generation)
-                    present.append({"session":session,"person":confirmed,"identity":"confirmed" if confirmed else identity,"embedding":face.embedding,"seen":self.clock(),"observed":True})
-                # Old evidence may survive briefly as 'temporarily lost', but is never refreshed by ToF.
-                sessions = {t["session"] for t in present}
-                self._tracks = present + [{**t,"observed":False} for t in self._tracks if t["session"] not in sessions and self.clock()-t["seen"] < 180]
-                self.subjects = len(present)
-            self._last_capture = self.clock()
-            names = {p["id"]:p["display_name"] for p in await self.db("persons")}
+        sequence,frame,reports,_,_ = await self._recognize(kind='automatic',trigger=trigger)
+        present = []
+        for track in sequence.current:
+            if track['seen'] < 2: continue
+            face, confirmed, identity = track['face'],track['person'],track['identity']
+            # A single candidate is not evidence that this is an unknown person.
+            if not confirmed and track['match']['person']: identity = 'ambiguous'
+            existing = next((t for t in self._tracks if confirmed and t['person']==confirmed),None)
+            if not confirmed:
+                used_sessions = {t['session'] for t in present}
+                possible = sorted(((similarity(t['embedding'],face.embedding),t) for t in self._tracks
+                    if t['person'] is None and self.clock()-t['seen'] < 10 and t['session'] not in used_sessions), key=lambda item:item[0], reverse=True)
+                existing = possible[0][1] if possible and possible[0][0]>=.7 and (len(possible)==1 or possible[0][0]-possible[1][0]>=.08) else None
+            action = 'greeting' if confirmed and self.camera.config.greetings and confirmed not in self._visit_greeted else 'unknown_alert' if not confirmed and identity=='unresolved' and self.camera.config.unknown_alerts and not self._unknown_notified else None
+            session = await self.db('observe',run=self.run,person=confirmed,frame=frame,trigger=trigger,
+                session=existing['session'] if existing else None,identity=identity,action=action)
             self.camera.check(generation)
-            confirmed_names = [names[t["person"]] for t in self._tracks if t["observed"] and t["person"] in names]
-            self.last_result = ("Recognised: " + ", ".join(confirmed_names) + ".") if confirmed_names else (quality_message(report) if not faces else f"{len(faces)} usable face(s), {self.subjects} stable across both frames; no enrolled identity confirmed.")
-            self.emit("vision_activity", {"kind":"automatic_look","message":self.last_result,"source":frame.source})
-            await self.db("event",run=self.run,kind="capture_result",trigger=trigger,frame=frame,
-                          evidence={"frames":2,"subjects":self.subjects,"confirmed":sum(t["person"] is not None and t["observed"] for t in self._tracks)})
-            del frame
-            self._last_failure = None
-            return True
-        except asyncio.CancelledError:
-            self.health = "idle"
-            if trigger in TRIGGERS: self._decision(trigger,"cancelled","cancelled")
-            raise
-        except Exception:
-            self.health = self.faces.health if self.faces.health in {"models_missing","models_invalid"} else "unavailable"
-            self.last_result = "Camera look failed: " + self.health.replace('_',' ') + "."
-            self.emit("vision_activity",{"kind":"automatic_look","message":self.last_result})
-            if trigger in TRIGGERS: self._decision(trigger,"failed",self.health)
-            if self._last_failure != self.health:
-                self._last_failure = self.health
-                with contextlib.suppress(Exception):
-                    await self.db("event",run=self.run,kind="recognition_unavailable" if self.health.startswith("models_") else "capture_failed",trigger=trigger,evidence={"health":self.health})
-        finally: self.publish()
+            present.append({'session':session,'person':confirmed,'identity':identity,'embedding':face.embedding,'seen':self.clock(),'observed':True})
+        sessions = {t['session'] for t in present}
+        self._tracks = present + [{**t,'observed':False} for t in self._tracks if t['session'] not in sessions and self.clock()-t['seen']<180]
+        self.subjects = len(present)
+        names = {p['id']:p['display_name'] for p in await self.db('persons')}
+        self.camera.check(generation)
+        confirmed_names = [names[t['person']] for t in present if t['person'] in names]
+        self.last_result = ('Recognised: '+', '.join(confirmed_names)+'.') if confirmed_names else (
+            quality_message(reports[-1]) if not sequence.current else f"{len(sequence.current)} usable face(s); no enrolled identity confirmed across {len(reports)} fresh frames.")
+        self.emit('vision_activity',{'kind':'automatic_look','message':self.last_result,'source':frame.source})
+        await self.db('event',run=self.run,kind='capture_result',trigger=trigger,frame=frame,
+            evidence={'frames':len(reports),'subjects':self.subjects,'confirmed':len(confirmed_names)})
+        self._last_failure = None
+        return True
 
     async def dispatch(self, generation):
         if self.gate() != "ready": return
@@ -418,115 +485,95 @@ class PerceptionController:
 
     async def enroll(self, name, person=None, *, keep_photos=False):
         if type(keep_photos) is not bool: raise ValueError("Choose whether to keep local review photos.")
+        if not isinstance(name,str) or not 1<=len(name.strip())<=80 or any(ord(c)<32 for c in name): raise ValueError('Enter a name of 1–80 characters.')
         await self.interrupt()
         self._explicit_task = asyncio.current_task()
-        try:
-            async with self.camera.unitv2.burst():
-                result = await self._enroll(name, person, keep_photos=keep_photos)
-            self.emit("enrollment",{"state":"saved","message":result["message"],"sample":3,"total":3})
-            return result
-        except BaseException as exc:
-            message = "Enrollment interrupted. Refresh Profiles to check the saved state." if isinstance(exc,asyncio.CancelledError) else str(exc) if type(exc) in {RuntimeError,ValueError} else "Enrollment failed. Check the camera and local face models."
-            self.emit("enrollment",{"state":"failed","message":message})
-            raise
-        finally:
-            self._explicit_task = None
-            self.publish()
-
-    async def _enroll(self, name, person=None, *, keep_photos=False):
-        if self._enrolling: raise RuntimeError("Enrollment is already running.")
-        self.camera.check()
         self._enrolling = True
         generation = self.camera.generation
-        vectors = []
+        training = LiveEnrollment()
         references = []
         source = None
         try:
-            if self.task and not self.task.done():
-                self.task.cancel()
-                with contextlib.suppress(asyncio.CancelledError): await self.task
-            for index in range(3):
-                self.emit("enrollment", {"state":"capturing","sample":index+1,"total":3})
-                if index: await asyncio.sleep(1)
-                if self.busy(): raise RuntimeError("Voice is busy. Try enrollment after the reply finishes.")
-                frame = await self.camera.acquire(purpose="enrollment")
-                faces,report = await self._face_evidence(frame,show=True)
-                self.camera.check(generation)
-                if source is not None and source != frame.source: raise RuntimeError("Camera source changed during enrollment. Choose a specific camera and retry.")
-                source = frame.source
-                if not faces: raise RuntimeError(quality_message(report))
-                if len(faces) != 1: raise RuntimeError("Multiple usable faces detected. Enrollment needs one person in view.")
-                vector = faces[0].embedding
-                if vectors and similarity(vectors[0],vector) < .65: raise RuntimeError("Face samples did not agree. Keep one person in view and retry.")
-                vectors.append(vector)
-                if keep_photos: references.append(await settled_thread(reference,frame,faces[0]))
-                self.camera.check(generation)
-                self.emit("enrollment", {"state":"accepted","sample":index+1,"total":3,"source":source})
+            # Validate profile/name before asking the owner to spend time training.
+            people = await self.db('persons')
+            if person and not any(p['id']==person for p in people): raise ValueError('That profile is no longer saved.')
+            if any(p['id']!=person and p['display_name'].casefold()==name.strip().casefold() for p in people):
+                raise ValueError('That name is already saved. Select its profile and use REPLACE SAMPLES.')
+            async with asyncio.timeout(120):
+                async with self.camera.unitv2.burst():
+                    for attempt in range(180):
+                        self.camera.check(generation)
+                        if self.busy(): raise LookInterrupted('voice_busy')
+                        self.emit('enrollment',{'state':'capturing','sample':len(training.faces),'total':training.TOTAL,'message':training.prompt,'view':training.VIEWS[training.stage]})
+                        if attempt: await asyncio.sleep(.5)
+                        frame = await self.camera.acquire(purpose='enrollment',source=source,timeout=8)
+                        if source is not None and source != frame.source: raise RuntimeError('Camera source changed during training. Choose a specific camera and retry.')
+                        source = frame.source
+                        faces,report = await self._face_evidence(frame,show=True)
+                        self.camera.check(generation)
+                        accepted,message = training.offer(faces,report)
+                        count = len(training.faces)
+                        if accepted:
+                            # Keep one front and each side view, only with explicit opt-in.
+                            references.append(await settled_thread(reference,frame,faces[0]) if keep_photos and count in (1,5,9) else None)
+                        self.emit('enrollment',{'state':'accepted' if accepted else 'waiting','sample':count,'total':training.TOTAL,'message':message,'source':source,'view':training.VIEWS[training.stage]})
+                        self.emit('recognition_evidence',recognition_diagnostic({**report,'kind':'enrollment','reason':'capturing','accepted':count,'total':training.TOTAL,'view':training.VIEWS[training.stage],'source':source}))
+                        if training.done: break
+                    if not training.done: raise TimeoutError()
+            # No partial profile is ever published. Stop must succeed before commit.
             self.camera.check(generation)
-            person = await self.db("enroll",name=name,vectors=vectors,person=person,references=references if keep_photos else None)
-            photo_message = "3 local review photos saved; select the profile to view them." if keep_photos else "No photographs saved."
-            return {"message":f"Saved: {name}. Three face samples from {source}. {photo_message}","person_id":person,"persons":await self.db("persons")}
+            saved = await self.db('enroll',name=name,vectors=[f.embedding for f in training.faces],person=person,
+                references=references if keep_photos else None)
+            photo_message = '3 local review photos saved; select the profile to view them.' if keep_photos else 'No photographs saved.'
+            message = f'Saved: {name}. {training.TOTAL} face samples covering front, both sides, chin tilt and distance. {photo_message} Run LIVE RECOGNITION CHECK while moving normally.'
+            self.emit('enrollment',{'state':'saved','sample':training.TOTAL,'total':training.TOTAL,'message':message})
+            self.emit('recognition_evidence',{'kind':'enrollment','reason':'saved','accepted':training.TOTAL,'total':training.TOTAL})
+            return {'message':message,'person_id':saved,'persons':await self.db('persons'),'samples':training.TOTAL}
+        except BaseException as exc:
+            message = ('Training timed out before all five views were captured. Previous samples were kept. Retry and follow the live guidance.' if isinstance(exc,TimeoutError) else
+                'Training interrupted. Refresh Profiles to check the saved state.' if isinstance(exc,asyncio.CancelledError) else
+                'Training paused for voice. Previous samples were kept; restart training when the reply finishes.' if isinstance(exc,LookInterrupted) else
+                str(exc) if type(exc) in {RuntimeError,ValueError} else 'Training failed. Check the camera and local face models.')
+            self.emit('enrollment',{'state':'failed','message':message})
+            if isinstance(exc,TimeoutError): raise RuntimeError(message) from None
+            raise
         finally:
+            training.faces.clear(); references.clear()
             self._enrolling = False
-            vectors.clear()
-            references.clear()
+            self._explicit_task = None
             self.publish()
 
-    async def test_recognition(self):
-        """Explicit, local two-frame check; never manufactures a visit or greeting."""
+    async def test_recognition(self, *, live=False):
+        """Explicit local check; never manufactures an automatic visit or greeting."""
         await self.interrupt()
         self.camera.check()
         self._explicit_task = asyncio.current_task()
         self._enrolling = True
         generation = self.camera.generation
         try:
-            profiles = await self.db("profiles")
-            candidates = []
-            confirmed = set()
-            reports, match_reports = [], []
-            agreement = False
-            async with self.camera.unitv2.burst():
-                for index in range(2):
-                    if index: await asyncio.sleep(.8)
-                    if self.busy(): raise RuntimeError("Voice is busy. Test recognition after the reply finishes.")
-                    self.camera.check(generation)
-                    self.emit("vision_activity",{"kind":"recognition_test","message":f"Checking frame {index+1}/2 locally…"})
-                    frame = await self.camera.acquire(purpose="manual")
-                    faces,report = await self._face_evidence(frame,show=True)
-                    reports.append(report)
-                    match_reports.append([match_details(face.embedding,profiles) for face in faces])
-                    self.camera.check(generation)
-                    if not index:
-                        candidates = [(face,match(face.embedding,profiles)) for face in faces]
-                        source = frame.source
-                    else:
-                        if frame.source != source: raise RuntimeError("Camera source changed between frames. Choose a specific camera and retry.")
-                        used = set()
-                        for face in faces:
-                            person,status = match(face.embedding,profiles)
-                            matches = sorted(((similarity(face.embedding,old.embedding),i,prior) for i,(old,prior) in enumerate(candidates) if i not in used),reverse=True)
-                            if not matches or matches[0][0] < .65: continue
-                            _,i,prior = matches[0]; used.add(i)
-                            agreement = True
-                            if person and prior[0] == person: confirmed.add(person)
+            async with asyncio.timeout(30 if live else 18):
+                async with self.camera.unitv2.burst():
+                    sequence,frame,reports,matches,seen = await self._recognize(kind='test',live=live)
             self.camera.check(generation)
-            names = [p["display_name"] for p in await self.db("persons") if p["id"] in confirmed]
+            people = {p['id']:p['display_name'] for p in await self.db('persons')}
             self.camera.check(generation)
-            message = "Recognised: " + ", ".join(names) + "." if names else "No enrolled identity confirmed."
-            if not faces: message = quality_message(report)
-            elif not profiles: message = "A face was seen, but there are no enabled compatible profiles. Enrol a profile first."
+            names = [people[p] for p in sorted(sequence.confirmed) if p in people]
+            seen_names = [people[p] for p in sorted(seen) if p in people]
+            message = 'Recognised now: '+', '.join(names)+'.' if names else 'No enrolled identity confirmed in the latest frame.'
+            if live and seen_names: message += ' Confirmed during this live check: '+', '.join(seen_names)+'.'
+            if not sequence.current: message += ' '+quality_message(reports[-1])
+            elif not sequence.profiles: message = 'A face was seen, but there are no enabled compatible profiles. Enrol a profile first.'
             elif not names:
-                best = max(match_reports[-1],key=lambda item:item["score"] if item["score"] is not None else -1)
-                if best["reason"] == "below_threshold": message += f" Best similarity {best['score']:.3f}; required {best['threshold']:.2f}. Try replacing samples from this camera."
-                elif best["reason"] == "ambiguous": message += f" Profiles too similar: score gap {best['gap']:.3f}; required {best['margin']:.2f}."
-                elif not agreement: message += " Faces did not agree across both frames. Hold still and retry."
-                else: message += " The same profile was not matched in both frames."
-            message = f"{source}: " + message + f" Usable faces by frame: {reports[0]['usable']} / {reports[1]['usable']}."
+                best = max(matches[-1],key=lambda m:m['score'] if m['score'] is not None else -2)
+                if best['reason']=='below_threshold': message += f" Best similarity {best['score']:.3f}; required {best['threshold']:.2f}. Use live training to cover this camera and viewing angle."
+                elif best['reason'] in {'ambiguous','duplicate_identity'}: message += ' Competing face/profile evidence; no identity assigned.'
+                else: message += ' More agreeing evidence is needed; no greeting was attempted.'
+            message = frame.source+': '+message+' Usable faces by frame: '+' / '.join(str(r['usable']) for r in reports)+'.'
             self.last_result = message
-            self._last_capture = self.clock()
-            self.emit("vision_activity",{"kind":"recognition_test","message":message,"source":source})
-            return {"message":message,"source":source,"names":names,"faces":len(faces),"frames":2,"quality":reports,
-                    "matches":[[{k:v for k,v in item.items() if k != "person"} for item in frame_matches] for frame_matches in match_reports]}
+            self.emit('vision_activity',{'kind':'recognition_test','message':message,'source':frame.source})
+            return {'message':message,'source':frame.source,'names':names,'seen_names':seen_names,'faces':len(sequence.current),'frames':len(reports),'quality':reports,'matches':matches}
+        except TimeoutError:
+            raise RuntimeError('Live check timed out. The camera has been released; inspect Activity and retry.') from None
         finally:
             self._enrolling = False
             self._explicit_task = None
@@ -536,7 +583,7 @@ class PerceptionController:
         data = {"occupancy":self.occupancy.state,"sensor_health":self.occupancy.health,
             "distance_mm":self.occupancy.distance,"health":self.health,"model_health":self.faces.health,
             "subjects":self.subjects,"confirmed_persons":[t["person"] for t in self._tracks if t["person"]],"policy":self.camera.config.policy,"privacy":self.camera.config.privacy,
-            "gate":self.gate(),"bursts":self._burst_number,"completed_bursts":self._completed_bursts,"pending":self.pending["trigger"] if self.pending else None,
+            "gate":self.gate(),"bursts":self._burst_number,"completed_bursts":self._completed_bursts,"pending":self.pending["trigger"] if self.pending else 'arrival' if self._arrival_retry else None,
             "ambiguous":sum(t.get("identity")=="ambiguous" and t.get("observed",False) for t in self._tracks),
             "observed":sum(t.get("observed",False) for t in self._tracks),
             "temporarily_lost":sum(not t.get("observed",False) for t in self._tracks),
