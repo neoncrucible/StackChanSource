@@ -1,0 +1,7 @@
+{
+  "status": "completed",
+  "steps": [
+    {"type": "thought", "summary": [{"type": "text", "text": "This is not the spoken answer."}]},
+    {"type": "model_output", "content": [{"type": "text", "text": "A red mug sits beside a blue notebook on the desk."}]}
+  ]
+}

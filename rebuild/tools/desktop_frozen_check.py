@@ -12,6 +12,10 @@ import queue
 def check(executable, expected_commit, *, offline=False):
     identity=json.loads(subprocess.check_output([str(executable),"--build-info"],text=True,timeout=30))
     assert identity["source_commit"]==expected_commit
+    vision_fixture=Path(__file__).resolve().parents[1]/'tests'/'fixtures'/'vision-modern-response.json'
+    vision=json.loads(subprocess.check_output([str(executable),'--vision-response-check',str(vision_fixture)],text=True,timeout=30))
+    assert vision=={'parsed':True,'chars':50},vision
+    print('DESKTOP_VISION_CONTRACT',json.dumps(vision),flush=True)
     fixture=Path(__file__).resolve().parents[1]/'tests'/'fixtures'/'stream-tone.mp3'
     decoded=json.loads(subprocess.check_output([str(executable),'--speech-decode-check',str(fixture)],text=True,timeout=30))
     assert decoded['before_eof'] and decoded['first_encoded_bytes']<=1152 and decoded['pcm_bytes']>128000,decoded

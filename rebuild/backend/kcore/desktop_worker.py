@@ -46,7 +46,8 @@ def settings_from_control(value: dict):
         gemini_api_key=string("gemini_api_key", "", 1024) or None,
         thinker_provider=string("thinker_provider", "gemini", 16),
         ollama_model=model_name(string("ollama_model", DEFAULT_OLLAMA_MODEL, 160)))
-    return ApplianceSettings(port, 115200, capture, 2, ssid, password, lan, providers, timezone_name, string("audio_output", "robot", 16))
+    return ApplianceSettings(port, 115200, capture, 2, ssid, password, lan, providers, timezone_name,
+                             string("audio_output", "robot", 16), not bool(string("lan_host", "", 45).strip()))
 
 
 class DesktopController:
@@ -359,7 +360,7 @@ class DesktopController:
             result = await request_device(self.app._body.host, action, args)
             self.emit("device", result.payload)
             return {"message": "Device setting applied."}
-        if action in {"camera_capture", "camera_describe", "camera_clear", "camera_save"}:
+        if action in {"camera_capture", "camera_describe", "camera_look", "camera_clear", "camera_save"}:
             if not self.app: raise RuntimeError("Start the server to use the camera.")
             if action == "camera_clear": self.app.vision.clear(); return {"message": "Transient image cleared."}
             if action == "camera_save": return await self.app.vision.save(self.services.paths, self.services.store, args["project_id"])
@@ -375,6 +376,8 @@ class DesktopController:
                     coroutine = self.app.capture_camera(source="auto", address=args.get("address"))
                 else:
                     raise ValueError("Choose a supported camera source.")
+            elif action == "camera_look":
+                coroutine = self.app.look_camera(args.get("question", "What is visible?"))
             else:
                 coroutine = self.app.vision.describe(args.get("question", "What is visible?"), self.app.settings.providers)
             self._network_media = action == "camera_capture" and args.get("source") in {"unitv2-camera", "auto"}
@@ -424,7 +427,8 @@ async def run_worker(incoming, outgoing):
         except (ValueError, RuntimeError) as exc:
             # Only project-owned messages may cross into the UI. Never expose
             # provider/serial exception strings (which may include request data).
-            message_text = str(exc) if type(exc) in {ValueError, RuntimeError} else "Operation failed. Check connection and configuration."
+            from .vision_provider import VisionServiceError
+            message_text = str(exc) if type(exc) in {ValueError, RuntimeError, VisionServiceError} else "Operation failed. Check connection and configuration."
             emit("result", {"id": ident, "ok": False, "message": message_text[:240]})
         except Exception:
             emit("result", {"id": ident, "ok": False, "message": "Operation failed. Check connection and configuration."})

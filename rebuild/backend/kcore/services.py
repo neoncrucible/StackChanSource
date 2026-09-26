@@ -42,8 +42,11 @@ class LocalServices:
         self.tools = make_local_tools(self.context, timezone_name=self.reminders.timezone_name)
         register_workbench(self.tools, self.store)
         async def look(args):
+            from .vision_provider import VisionServiceError
             if self.look_handler is None: return {"spoken":"Start the server and connect the robot before asking me to look."}
             try: return await self.look_handler(args["question"])
+            except VisionServiceError as exc:
+                return {"spoken":str(exc), "description_status":"failed", "reason":exc.reason}
             except (RuntimeError,ValueError) as exc:
                 return {"spoken":str(exc) if type(exc) in {RuntimeError,ValueError} else "The camera look failed. Check Vision on the PC."}
         self.tools.register(KadenceToolSpec("desk_look", "Take a fresh snapshot using the saved camera selection: UnitV2 extra camera, built-in StackChan camera, or AUTO. Describe visible objects or large labels. Only when the current user asks what you can see, to look or read. Requires Gemini for image description even with Ollama reasoning. No person identification.",
@@ -66,6 +69,8 @@ class LocalServices:
             with contextlib.suppress(asyncio.CancelledError): await self._scheduler
             self._scheduler = None
         if self.tools: await self.tools.close()
+        await self.store.close()
+        await self.context.close()
 
     async def _schedule(self):
         while True:

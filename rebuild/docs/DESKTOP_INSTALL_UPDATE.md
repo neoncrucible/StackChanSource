@@ -1,9 +1,18 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.8 — reboot recovery, face-test preview and optional profile photos.
+Current update: 0.4.9 — working description parsing and bounded voice recovery.
 Firmware remains 0.21.6; no flash. The accepted 0.4.3 voice transport and output
 pipeline are retained. This update includes the 0.4.6 UnitV2 setup permission repair.
 An already working paired UnitV2 service does not need reinstalling.
+
+Vision → Camera now starts with LOOK & DESCRIBE: one fresh image, with the actual
+view and description side by side. The outdated Gemini response parser is fixed.
+Errors distinguish credentials, quota, timeout and missing/invalid descriptions.
+Voice failures release the old turn, recover a stalled robot connection with a
+cooldown and wait for your next touch. No failed question is automatically replayed.
+Ambient presence no longer claims to be preparing audio. Overview shows the
+active audio endpoint, cancellation and the last voice/recovery result.
+Read PRODUCTION-HARDENING.txt for the evidence, limits and short acceptance check.
 
 Vision has Camera, Perception, Profiles, Activity and Face check tabs. Profiles reads your
 existing SQLite database, shows saved sample counts/dates and offers rename,
@@ -19,7 +28,7 @@ Samples. Select a saved profile to review its photos. Existing embeddings cannot
 recreate old pictures; use replacement to add new ones. Photos stay on this PC.
 
 The server now detects robot reboots even when USB remains connected, cancels the
-interrupted voice turn and reconnects. This clears the stale Preparing audio state.
+interrupted voice turn and reconnects. Additional stage deadlines cover lost ACKs.
 The captured firmware 0.21.6 I2C interrupt crash itself remains unresolved; this
 host-only package does not claim to prevent that reboot.
 

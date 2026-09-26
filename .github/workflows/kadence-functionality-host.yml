@@ -41,13 +41,13 @@ jobs:
       - name: Camera, privacy and perception regression
         env:
           KADENCE_TEST_MODELS: rebuild/dist/face_models
-        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_vision_console.py rebuild/tests/test_face_review.py rebuild/tests/test_camera_diagnostics.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py -q
+        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_vision_console.py rebuild/tests/test_vision_description.py rebuild/tests/test_face_review.py rebuild/tests/test_camera_diagnostics.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py -q
       - name: Observe-only reflex and desktop regression
         run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py -q
       - name: Autonomous perception, rate limits and visit semantics
         run: python -m pytest rebuild/tests/test_autonomous_perception.py -q
       - name: Voice completion and recovery regression
-        run: python -m pytest rebuild/tests/test_appliance_candidate.py rebuild/tests/test_voice_failures.py rebuild/tests/test_rc2_media.py rebuild/tests/test_provider_selection.py rebuild/tests/test_ollama_models.py rebuild/tests/test_thinking.py rebuild/tests/test_phase_b.py rebuild/tests/test_desktop.py rebuild/tests/test_desktop_installer.py -q
+        run: python -m pytest rebuild/tests/test_appliance_candidate.py rebuild/tests/test_voice_failures.py rebuild/tests/test_voice_recovery.py rebuild/tests/test_database_shutdown.py rebuild/tests/test_interaction_feedback.py rebuild/tests/test_rc2_media.py rebuild/tests/test_provider_selection.py rebuild/tests/test_ollama_models.py rebuild/tests/test_thinking.py rebuild/tests/test_phase_b.py rebuild/tests/test_desktop.py rebuild/tests/test_desktop_installer.py -q
       - name: Runtime ownership and alignment gate
         run: python rebuild/tools/phase_a4_gate.py
       - name: Streaming speech, cancellation and latency regression

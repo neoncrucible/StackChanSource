@@ -7,6 +7,45 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
+### Current work — descriptions and recovery, host 0.4.9
+
+The owner asked for production quality after 0.4.8 improved recognition but still
+needed a restart for audio and returned no scene descriptions. Latest screenshots
+show one usable face, an identity match, two completed automatic bursts and a
+delivered greeting. Do not repeat the private profile name. Latest diagnostics
+show `tcp-connect` code 116 before recording, then two completed voice turns
+after a server restart. Both voice looks obtained UnitV2 frames.
+
+Root defect in description code: `vision.describe_image` read the removed Gemini
+`outputs` response. Current Interactions uses `steps/model_output/content`; the
+new `vision_provider` adapter parses that contract, ignores thoughts/echoed inputs,
+bounds the whole request and returns typed, sanitised failures to speech and UI.
+No live Gemini key was available for testing; modern API fixtures now traverse
+the complete normal voice/tool/HTTP/speech/ACK path instead of mocking description.
+
+Voice has stage deadlines, immediate retirement after provider failure, and
+rate-limited reconnect through the existing serial supervisor after LAN/device
+stalls. No automatic microphone retry, question replay or unconfirmed history
+commit. Auto LAN selection refreshes per attempt; an explicit address is retained.
+Tests exposed a separate cancellation leak: awaiting utility metadata before
+releasing a connection could strand a closed audio slot. Cleanup now releases
+ownership synchronously; tracked SQLite workers settle before services close.
+
+Overview separates ambient Attentive from Connecting Audio, protects active host
+phase display from device polls, shows the endpoint/recovery result, and offers
+cancellation. Vision starts with Look & Describe and a side-by-side actual image
+and description. Source/setup controls follow below. Checked at 980×690.
+Diagnostics coalesces polling and preserves 240 important events separately from
+the 400 recent records. Both exports exclude image/text/key/profile contents.
+
+Local gate: **306 passed, four expected platform/model skips, 119 subtests**.
+The runtime ownership/alignment gate passes. Windows regression and frozen
+executable packaging are the remaining release gates at this checkpoint.
+See `PRODUCTION_HARDENING_0_4_9.md` for implementation, exact stage limits and the
+short physical acceptance sequence. Host 0.4.9 has no firmware or schema change.
+The earlier firmware I2C ISR crash remains a material physical limitation;
+do not label the complete robot production-accepted from host tests alone.
+
 ### Reboot recovery and face review — host 0.4.8
 
 Latest owner evidence: 0.4.7 screenshot shows one profile with 3/3 compatible

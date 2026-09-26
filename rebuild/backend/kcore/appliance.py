@@ -39,6 +39,19 @@ DEFAULT_PORT = "COM4"
 DEFAULT_BAUD = 115200
 DEFAULT_CAPTURE_MS = 4800
 DEFAULT_RECONNECT_DELAY = 2.0
+VOICE_CONNECT_TIMEOUT = 30.0  # Cold Wi-Fi (15 s) + LAN connect (10 s) + margin.
+VOICE_PROVIDER_TIMEOUT = 58.0  # Existing 52 s provider deadline + presentation/cleanup.
+VOICE_RECOVERY_COOLDOWN = 120.0
+
+
+class VoiceStageTimeout(TimeoutError):
+    def __init__(self, stage):
+        self.stage = stage
+        super().__init__("Voice stage did not complete: " + stage)
+
+
+class VoiceProviderFailed(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +66,7 @@ class ApplianceSettings:
     providers: VoiceProviderSettings
     timezone_name: str = "Europe/London"
     audio_output: str = "robot"
+    lan_auto: bool = False
 
     def __post_init__(self):
         if self.audio_output not in {"robot", "windows", "both"}:
@@ -99,6 +113,13 @@ class KadenceAppliance:
         self._companion: Companion | None = None
         self._provider_stage: str | None = None
         self._warmup_task = None
+        self._voice_stage = "idle"
+        self._voice_deadline = 0.0
+        self._voice_progress = asyncio.Event()
+        self._voice_failed = False
+        self._reconnect_requested = asyncio.Event()
+        self._last_voice_recovery = -float("inf")
+        self._recovering_voice = False
 
     def _report_issue(self, stage: str, error: Exception) -> None:
         # Status crosses the GUI boundary; arbitrary exception text never does.
@@ -106,6 +127,8 @@ class KadenceAppliance:
         if isinstance(error, VoiceTurnFailure):
             data.update(reason="device_proof", device_stage=error.stage,
                         error_code=error.error_code, wifi_reason=error.wifi_reason)
+        if isinstance(error, VoiceStageTimeout):
+            data["voice_stage"] = error.stage
         if stage == "providers" and self._provider_stage in {"stt", "reasoning", "tts", "tts_connect", "tts_audio", "tts_decode", "tts_fallback", "tts_local_input", "tts_local_load", "tts_local_render", "tts_ready"}:
             data["provider_stage"] = self._provider_stage
         self.emit("runtime_issue", data)
@@ -147,7 +170,11 @@ class KadenceAppliance:
                     if self.perception:
                         await self.perception.reset("device_reconnected")
                     self._body = body
+                    self._reconnect_requested.clear()
                     self.emit("robot", {"connected": True})
+                    if self._recovering_voice:
+                        self._recovering_voice = False
+                        self.emit("voice_recovery", {"state": "ready"})
                     print("KADENCE_RUNTIME DEVICE ready presence=local")
                     await self._run_connected(body)
                 except asyncio.CancelledError:
@@ -221,7 +248,9 @@ class KadenceAppliance:
         await self._close_connections()
         if self._companion:
             self._companion.abort_turn()
-            if self.services is None: await self._companion.tools.close()
+            if self.services is None:
+                await self._companion.tools.close()
+                if self._companion.store: await self._companion.store.close()
         if self.services:
             self.services.look_handler = None
             if self._owns_services: await self.services.close()
@@ -371,17 +400,40 @@ class KadenceAppliance:
         return await self._voice_task
 
     async def _look_during_voice(self, question):
+        try:
+            async with asyncio.timeout(26):
+                self.camera.check()
+                if not self.settings.providers.gemini_api_key:
+                    from .vision_provider import VisionServiceError
+                    self.emit("vision_description", {"state":"failed", "reason":"missing_key"})
+                    raise VisionServiceError("missing_key")
+                if self._capture_in_voice is None: raise RuntimeError("No active camera request channel")
+                if self.perception: await self.perception.interrupt()
+                self.vision.clear()
+                self.emit("activity", {"state":"camera"})
+                frame = await self.camera.acquire(purpose="voice", in_voice=self._capture_in_voice)
+                self.camera.check(frame.generation)
+                self.vision.accept_frame(frame)
+                result = await self.vision.describe(question, self.settings.providers)
+                self.emit("vision_activity",{"kind":"voice_look","message":"Fresh voice description completed.","source":frame.source})
+                return result
+        except TimeoutError:
+            from .vision_provider import VisionServiceError
+            self.emit("vision_description", {"state":"failed", "reason":"look_timeout"})
+            raise VisionServiceError("look_timeout") from None
+
+    async def look_camera(self, question):
+        """Explicit desktop equivalent of a fresh spoken look, using saved source."""
+        if self._voice_task is not None and not self._voice_task.done():
+            raise RuntimeError("Wait for the current voice turn or cancel it before a desktop look.")
         self.camera.check()
         if not self.settings.providers.gemini_api_key:
-            raise RuntimeError("I need a Gemini key to describe a picture. Local face recognition still works without it.")
-        if self._capture_in_voice is None: raise RuntimeError("No active camera request channel")
-        if self.perception: await self.perception.interrupt()
-        frame = await self.camera.acquire(purpose="voice", in_voice=self._capture_in_voice)
-        self.camera.check(frame.generation)
-        self.vision.accept_frame(frame)
-        result = await self.vision.describe(question, self.settings.providers)
-        self.emit("vision_activity",{"kind":"voice_look","message":"Fresh voice description completed.","source":frame.source})
-        return result
+            from .vision_provider import VisionServiceError
+            self.emit("vision_description", {"state":"failed", "reason":"missing_key"})
+            raise VisionServiceError("missing_key")
+        self.vision.clear()
+        await self.capture_camera()
+        return await self.vision.describe(question, self.settings.providers)
 
     async def _deliver_presence(self, action, check):
         check()
@@ -433,14 +485,15 @@ class KadenceAppliance:
         disconnected = asyncio.create_task(
             body.wait_disconnected(), name="kadence-device-disconnect"
         )
+        recovery = asyncio.create_task(self._reconnect_requested.wait(), name="kadence-device-recovery")
         try:
-            done, _ = await asyncio.wait({events, disconnected}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait({events, disconnected, recovery}, return_when=asyncio.FIRST_COMPLETED)
             if events in done:
                 events.result()
         finally:
-            for task in (events, disconnected):
+            for task in (events, disconnected, recovery):
                 task.cancel()
-            await asyncio.gather(events, disconnected, return_exceptions=True)
+            await asyncio.gather(events, disconnected, recovery, return_exceptions=True)
 
     async def _event_loop(self, body: RuntimeBody) -> None:
         while body.connected and not self._stop.is_set():
@@ -469,9 +522,13 @@ class KadenceAppliance:
             if type(duration) is not int or not 2400 <= duration <= 8000:
                 return
             data["capture_ms"] = duration
+            if self._voice_stage == "connecting":
+                self._set_voice_stage("recording", duration / 1000 + 8)
         self.emit("activity", data)
 
     def _begin_voice_turn(self, body: RuntimeBody, event: Envelope) -> None:
+        if self._reconnect_requested.is_set():
+            return
         active = self._voice_task
         if active is not None and not active.done():
             print("KADENCE_RUNTIME TURN ignored reason=voice-busy")
@@ -490,6 +547,7 @@ class KadenceAppliance:
     def _voice_task_done(self, task: asyncio.Task[None]) -> None:
         if self._voice_task is task:
             self._voice_task = None
+            self._voice_stage = "idle"
             self.emit("activity", {"state": "idle"})
         if task.cancelled():
             return
@@ -502,8 +560,13 @@ class KadenceAppliance:
         self._wire_claimed = False
         self._wire_result = None
         self._provider_stage = None
+        self._voice_failed = False
+        self._set_voice_stage("connecting", VOICE_CONNECT_TIMEOUT)
         try:
-            ack = await body.send_voice_turn(
+            if self.settings.lan_auto:
+                self.settings = replace(self.settings, lan_host=_local_lan_ipv4())
+                self.emit("voice_endpoint", {"host":self.settings.lan_host,"port":self._server_port})
+            ack = await self._await_voice_command(body.send_voice_turn(
                 ssid=self.settings.ssid,
                 password=self.settings.password,
                 host=self.settings.lan_host,
@@ -511,7 +574,7 @@ class KadenceAppliance:
                 capture_ms=self.settings.capture_ms,
                 timeout=210.0,
                 token=self._turn_token,
-            )
+            ))
         except asyncio.CancelledError:
             self._windows_audio.stop()
             self._turn_token = None
@@ -522,15 +585,25 @@ class KadenceAppliance:
             self._turn_token = None
             await self._cancel_active_provider()
             await self._close_connections()
+            self._wire_result = None
             if self._companion:
                 self._companion.abort_turn()
-            if not isinstance(exc, VoiceTurnFailure) or not exc.torque_released:
-                with contextlib.suppress(Exception):
-                    await body.send_voice_cancel(timeout=3.0)
+            released = isinstance(exc, VoiceTurnFailure) and exc.torque_released
+            if not released:
+                try:
+                    cancelled = await body.send_voice_cancel(timeout=3.0)
+                    released = isinstance(cancelled.payload, dict) and cancelled.payload.get("ok") is True and cancelled.payload.get("torque_released") is True
+                except Exception:
+                    pass
             if isinstance(exc, VoiceTurnFailure) and exc.cancelled:
                 print("KADENCE_RUNTIME TURN cancelled torque=released")
                 return
             self._report_issue("voice", exc)
+            network_failed = isinstance(exc, VoiceTurnFailure) and exc.stage in {
+                "tcp-connect", "socket", "wifi-ready", "wifi-stop-timeout", "wifi-connect", "wifi-start"}
+            device_stalled = isinstance(exc, VoiceStageTimeout) and exc.stage != "providers"
+            if network_failed or device_stalled or not released:
+                self._recover_voice_connection(body)
             print(
                 "KADENCE_RUNTIME TURN recovered "
                 f"reason={type(exc).__name__}:{_safe_message(exc)}"
@@ -613,11 +686,59 @@ class KadenceAppliance:
             # Retire the original wait after the device confirmed cancellation.
             # A dropped final voice ACK must not hold the UI busy for 210 seconds.
             await self._cancel_active_voice_task()
+        elif active_voice:
+            self._recover_voice_connection(body)
 
         print(
             "KADENCE_RUNTIME CANCEL touch=1 "
             f"provider={int(provider_cancelled)} control={int(cancel_ok)}"
         )
+
+    def _set_voice_stage(self, stage, duration):
+        self._voice_stage = stage
+        self._voice_deadline = time.monotonic() + duration
+        self._voice_progress.set()
+        self.emit("voice_progress", {"stage":stage, "timeout_ms":round(duration * 1000)})
+
+    async def _watch_voice_progress(self):
+        while True:
+            self._voice_progress.clear()
+            if self._voice_failed:
+                raise VoiceProviderFailed("Voice provider failed; retiring the device wait")
+            remaining = self._voice_deadline - time.monotonic()
+            if remaining <= 0: raise VoiceStageTimeout(self._voice_stage)
+            try:
+                await asyncio.wait_for(self._voice_progress.wait(), remaining)
+            except TimeoutError:
+                if time.monotonic() >= self._voice_deadline:
+                    raise VoiceStageTimeout(self._voice_stage) from None
+
+    async def _await_voice_command(self, command):
+        """Retire a lost ACK by stage, preserving the host's command ownership."""
+        pending = asyncio.create_task(command, name="kadence-voice-command")
+        watchdog = asyncio.create_task(self._watch_voice_progress(), name="kadence-voice-watchdog")
+        try:
+            done, _ = await asyncio.wait({pending, watchdog}, return_when=asyncio.FIRST_COMPLETED)
+            if pending in done: return pending.result()
+            watchdog.result()
+        finally:
+            for task in (pending, watchdog):
+                if not task.done(): task.cancel()
+            await asyncio.gather(pending, watchdog, return_exceptions=True)
+
+    def _recover_voice_connection(self, body):
+        if self._stop.is_set() or body is not self._body or not body.connected:
+            return
+        now = time.monotonic()
+        if now - self._last_voice_recovery < VOICE_RECOVERY_COOLDOWN:
+            self.emit("voice_recovery", {"state":"unavailable", "reason":"cooldown"})
+            return
+        self._last_voice_recovery = now
+        self._recovering_voice = True
+        self.emit("voice_recovery", {"state":"reconnecting"})
+        # The supervisor alone closes/reopens serial. No nested owner, automatic
+        # microphone retry or conversation replay; the next turn needs a touch.
+        self._reconnect_requested.set()
 
     async def _cancel_active_provider(self) -> bool:
         self._windows_audio.stop()
@@ -667,6 +788,7 @@ class KadenceAppliance:
             return
         self._connections[task] = writer
         phase = "UPLINK"
+        capture_in_voice = None
         try:
             async with self._provider_lock:
                 if mode in {"alert", "camera"}:
@@ -686,6 +808,7 @@ class KadenceAppliance:
                 if self._turn_token != token or self._body is not body or not body.connected:
                     return
                 self._wire_claimed = True
+                self._set_voice_stage("providers", VOICE_PROVIDER_TIMEOUT)
                 turn_started = time.perf_counter()
                 phase = "PROVIDERS"
                 bridge = RuntimePresentationBridge(body)
@@ -751,6 +874,7 @@ class KadenceAppliance:
                         self.emit("timing", {"stage": "first_audio", "elapsed_ms": round((time.perf_counter()-turn_started)*1000)})
                         await state_sink("speaking")
                 self._wire_result = result
+                self._set_voice_stage("playback", len(result.pcm) / 32000 + 10)
                 for stage, elapsed_ms in result.timings.items():
                     self.emit("timing", {"stage": stage, "elapsed_ms": elapsed_ms})
                 await self._send_speech(writer, result.pcm, streamed=streaming)
@@ -775,13 +899,19 @@ class KadenceAppliance:
                 print(f"KADENCE_RUNTIME {phase} recovered reason={type(exc).__name__}")
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(send_wire_error(writer, "voice service failure"), timeout=1)
+            if mode == "voice" and self._turn_token == token and self._wire_claimed:
+                self._voice_failed = True
+                self._voice_progress.set()
         finally:
-            self._capture_in_voice = None
+            if self._capture_in_voice is capture_in_voice:
+                self._capture_in_voice = None
+            # Release ownership synchronously before any cancellable metadata
+            # or socket-drain await. Repeated cancellation must not leak a slot.
+            writer.close()
+            self._connections.pop(task, None)
             if self.services and mode == "voice":
                 with contextlib.suppress(Exception):
                     self.emit("utilities", await self.services.snapshot())
-            writer.close()
-            self._connections.pop(task, None)
             with contextlib.suppress(ConnectionError, TimeoutError):
                 await asyncio.wait_for(writer.wait_closed(), timeout=1)
 

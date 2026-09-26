@@ -140,7 +140,8 @@ def test_console_retains_bounded_proposals_separately_from_device_spam(tmp_path)
         window.on_event("reflex_status", {**reflex.status(), "credential": "secret"})
         for _ in range(500):
             window.on_event("device", {"presentation": "idle"})
-        assert len(window.reflex_events) == 120 and len(window.diagnostic) == 400
+        assert len(window.reflex_events) == 120 and len(window.diagnostic) == 1
+        assert window.diagnostic[0]["event"] == "device"  # Repeated polls are coalesced.
         assert "Proposals 130" in window.reflex_counts.text()
         assert "OBSERVE_ONLY" in str(window.reflex_snapshot)
         output = tmp_path / "diagnostics.json"

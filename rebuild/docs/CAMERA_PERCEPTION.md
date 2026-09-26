@@ -1,18 +1,22 @@
-# Vision console, face review and reboot recovery — host 0.4.8
+# Vision console, descriptions and voice recovery — host 0.4.9
 
 Branch: `kadence/functionality`. Firmware stays at **0.21.6**; **no flash**.
 The accepted 0.4.3 voice transport/output pipeline and head alignment are retained.
-0.4.8 includes the 0.4.7 console/voice controls and 0.4.6 UnitV2 setup repair.
-The owner has reported start/stop and Privacy working. Recognition, greetings,
-voice camera commands and this new console still need physical acceptance.
+0.4.9 includes the 0.4.8 face/photo review and 0.4.6 UnitV2 setup repair.
+The owner has reported start/stop and Privacy working. The latest 0.4.8 screenshots
+also show successful recognition and a delivered greeting. Fresh scene descriptions
+and voice recovery are the remaining checks for this update.
 
 ## Start here
 
 Install using `Install-Kadence.cmd`, open the normal shortcut and check the console
-shows **0.4.8**. Start the server and select **Vision**. It has five tabs:
+shows **0.4.9**. Start the server and select **Vision**. It has five tabs:
 
-- **Camera**: choose UnitV2, StackChan or AUTO; Apply and Save. Capture checks the
-  actual view. Setup, start/stop test, mode and confirmed producer state are here.
+- **Camera**: **Look & Describe** captures and describes a fresh view, with the
+  image and text side by side. Capture Only and Describe Snapshot are separate
+  options. Source selection (UnitV2, StackChan or AUTO), setup, start/stop test,
+  mode and confirmed producer state follow below the view. Apply and Save sets
+  the choice for all camera uses; Look & Describe also applies displayed settings.
 - **Perception**: a prominent **Enable Automatic Perception** switch, actual gate,
   last completed look, recognition result and greeting outcome. Enabling from OFF
   selects EVENT ONLY. The enable, greeting and notice switches save immediately.

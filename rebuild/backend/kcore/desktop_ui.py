@@ -169,6 +169,10 @@ class MainWindow(QMainWindow):
         self.server_state="stopped"; self.robot_connected=False; self.quitting=False
         self.started_at=None; self.reminders=[]; self.projects=[]; self.nav=[]; self.entries=[]
         self.diagnostic=deque(maxlen=400); self._settings={}; self.snapshot_pixmap=None
+        self.important_diagnostics=deque(maxlen=240)
+        self._activity_owned=False
+        self._diagnostic_samples={}
+        self._voice_endpoint=""
         self.reflex_snapshot={}; self.reflex_events=deque(maxlen=120)
         self.perception_snapshot={}; self.perception_decisions=deque(maxlen=120)
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
@@ -225,6 +229,8 @@ class MainWindow(QMainWindow):
         self.model_info=label("Thinking provider: selected below; server stopped", "muted"); info.addWidget(self.model_info)
         self.next_due=label("No scheduled reminders."); self.turn_info=label("Completed turns  0","muted")
         for w in (self.activity,self.runtime_info,self.next_due,self.turn_info): info.addWidget(w)
+        self.voice_health=label("Voice ready · tap the robot to begin.","muted"); info.addWidget(self.voice_health)
+        info.addWidget(button("CANCEL CURRENT TASK",lambda:self.control.send("media_cancel")))
         info.addStretch(); top.addLayout(info,1); layout.addLayout(top)
         group=QGroupBox("CONNECTION & CREDENTIALS"); grid=QGridLayout(group)
         self.port=QComboBox(); self.port.setEditable(True); self.port.addItem("COM4")
@@ -337,8 +343,6 @@ class MainWindow(QMainWindow):
             self.camera_source.addItem(text,value)
         self.unitv2_address=line("UnitV2 Wi-Fi IPv4 address",45)
         self.camera_source.currentIndexChanged.connect(lambda:self.unitv2_address.setEnabled(self.camera_source.currentData()!="robot-camera"))
-        camera.addWidget(row(self.camera_source,self.unitv2_address))
-        camera.addWidget(label("Apply & Save sets the camera for voice, enrollment and automatic looks.","muted"))
         lifecycle=QGroupBox("UNITV2 START / STOP"); box=QVBoxLayout(lifecycle)
         self.unitv2_mode=QComboBox()
         for text,value in (("ON DEMAND · stop after capture","ON_DEMAND"),("KEEP READY · renewable lease","KEEP_READY"),("STOPPED · pause automatic looks","STOPPED")):
@@ -346,17 +350,24 @@ class MainWindow(QMainWindow):
         box.addWidget(row(self.unitv2_mode,button("APPLY MODE",self.apply_unitv2_mode),button("STOP NOW",lambda:self.control.send("unitv2_mode",{"mode":"STOPPED"}))))
         self.unitv2_state=label("Producer UNKNOWN · run setup once, then test start / stop.","status"); box.addWidget(self.unitv2_state)
         box.addWidget(row(button("SET UP UNITV2",self.setup_unitv2),button("TEST START / STOP",self.check_unitv2),button("REFRESH STATUS",lambda:self.control.send("unitv2_status"))))
-        camera.addWidget(lifecycle)
         self.preview=label("NO SNAPSHOT\n\nCapture to check the selected camera's view.","muted")
-        self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(320,180); self.preview.setMaximumHeight(280)
+        self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(320,180); self.preview.setMaximumHeight(180)
         self.preview.setStyleSheet("border: 1px solid #293c2f;")
         self.vision_question=line("What can you see? Read the large label.",500); camera.addWidget(self.vision_question)
-        camera.addWidget(row(button("CAPTURE",self.capture_camera,primary=True),button("DESCRIBE",lambda:self.control.send("camera_describe",{"question":self.vision_question.text() or "Describe the visible desk objects."})),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR",lambda:self.control.send("camera_clear"))))
-        camera.addWidget(self.preview)
-        self.vision_result=QPlainTextEdit(); self.vision_result.setReadOnly(True); self.vision_result.setMaximumHeight(100)
-        self.vision_result.setPlaceholderText("Gemini describes only an explicitly requested image. QR text is never executed."); camera.addWidget(self.vision_result)
+        self.look_button=button("LOOK & DESCRIBE",self.look_camera,primary=True)
+        camera.addWidget(row(self.look_button,button("CAPTURE ONLY",self.capture_camera),button("CANCEL",lambda:self.control.send("media_cancel"))))
+        self.vision_description_status=label("No description requested. Look & Describe takes a fresh image using the saved camera selection.","muted")
+        camera.addWidget(self.vision_description_status)
+        self.vision_result=QPlainTextEdit(); self.vision_result.setReadOnly(True); self.vision_result.setFixedHeight(180)
+        self.vision_result.setPlaceholderText("Your description appears here, beside the actual image. Gemini describes only a requested snapshot.")
+        camera.addWidget(row(self.preview,self.vision_result))
+        camera.addWidget(row(button("DESCRIBE SNAPSHOT",lambda:self.control.send("camera_describe",{"question":self.vision_question.text() or "Describe the visible desk objects."})),button("CLEAR",lambda:self.control.send("camera_clear"))))
         self.vision_project=QComboBox(); camera.addWidget(row(self.vision_project,button("SAVE OBSERVATION",lambda:self.control.send("camera_save",{"project_id":self.vision_project.currentData()}))))
         camera.addWidget(label("Snapshots are temporary until saved. Privacy blocks access and requests a producer stop; board power remains on.","muted"))
+        camera.addWidget(label("CAMERA SELECTION","status"))
+        camera.addWidget(row(self.camera_source,self.unitv2_address))
+        camera.addWidget(label("Apply & Save sets the camera for voice, enrollment and automatic looks. Look & Describe also applies these settings.","muted"))
+        camera.addWidget(lifecycle)
         perception=tab("Perception")
         self.perception_enable=QCheckBox("ENABLE AUTOMATIC PERCEPTION")
         self.perception_enable.clicked.connect(self.toggle_perception)
@@ -627,6 +638,21 @@ class MainWindow(QMainWindow):
         layout.addWidget(button("CHECK SPEECH",lambda:self.control.send("speech_check")))
         layout.addWidget(row(button("EXPORT DIAGNOSTICS",self.export_diagnostics),button("CLEAR VIEW",self.clear_diagnostics)))
         return page
+
+    def look_camera(self):
+        if self._activity_owned:
+            self.message.setText("Finish or cancel the current voice turn before a desktop look.")
+            return
+        self.look_button.setEnabled(False)
+        self.vision_description_status.setText("Capturing a fresh image, then asking Gemini to describe it…")
+        def finished(data):
+            self.look_button.setEnabled(True)
+            if not data.get("ok"):
+                self.vision_description_status.setText(data.get("message","The fresh look did not complete."))
+        def configured(data):
+            if not data.get("ok"): return finished(data)
+            self.control.send("camera_look",{"question":self.vision_question.text() or "What can you see?"},finished)
+        self.control.send("camera_settings",self.camera_policy_values(),configured)
 
     def navigate(self,index):
         self.pages.setCurrentIndex(index)
@@ -950,17 +976,35 @@ class MainWindow(QMainWindow):
         elif name=="server":
             self.server_state=data.get("state","stopped")
             self.server_label.setText("SERVER  "+self.server_state.upper())
-            if self.server_state=="running": self.started_at=time.monotonic()
+            if self.server_state=="running":
+                self.started_at=time.monotonic()
+                self._voice_endpoint=f"{data.get('lan','')}:{data.get('media_port','')}"
             if self.server_state=="stopped":
                 self.started_at=None; self.robot_connected=False; self.robot_label.setText("ROBOT  DISCONNECTED")
                 self.perception_gate.setText("Server stopped · automatic perception is not running.")
                 self.camera_state.setText("Server stopped · camera access unavailable.")
+                self._activity_owned=False; self.set_activity("idle")
             self.update_controls()
         elif name=="robot":
             self.robot_connected=data.get("connected") is True
             self.robot_label.setText("ROBOT  "+("CONNECTED" if self.robot_connected else "DISCONNECTED"))
+            if not self.robot_connected:
+                self._activity_owned=False; self.set_activity("idle")
         elif name=="activity":
+            self._activity_owned=data.get("state","idle")!="idle"
             self.set_activity(data.get("state","idle"),data.get("capture_ms"))
+        elif name=="voice_progress":
+            names={"connecting":"Connecting robot audio", "recording":"Recording your question",
+                   "providers":"Processing your question", "playback":"Delivering the reply"}
+            self.voice_health.setText(names.get(data.get("stage"),"Voice in progress") + " · cancellation is available.")
+        elif name=="voice_endpoint":
+            self._voice_endpoint=f"{data.get('host','')}:{data.get('port','')}"
+        elif name=="voice_recovery":
+            messages={"reconnecting":"Recovering the robot connection. The failed turn will not be replayed.",
+                "ready":"Robot reconnected. Tap to try a new question.",
+                "unavailable":"Audio connection still unavailable. Check the PC LAN address and allow Kadence through Windows Firewall on your private network."}
+            self.voice_health.setText(messages.get(data.get("state"),"Voice connection unavailable."))
+            self.message.setText(self.voice_health.text())
         elif name=="provider_stage":
             self.provider_stage={"stt":"TRANSCRIBING","reasoning":"THINKING","tts":"PREPARING VOICE",
                 "tts_connect":"CONNECTING VOICE","tts_audio":"RECEIVING VOICE","tts_decode":"DECODING VOICE",
@@ -969,7 +1013,9 @@ class MainWindow(QMainWindow):
             if data.get("stage")=="tts_fallback":
                 self.message.setText("Sonia did not complete. This reply is using the installed Windows voice.")
             self.refresh_activity()
-        elif name=="turn": self.turn_info.setText(f"Completed turns  {data.get('completed',0)}")
+        elif name=="turn":
+            self.turn_info.setText(f"Completed turns  {data.get('completed',0)}")
+            self.voice_health.setText("Last voice turn completed. Ready for your next question.")
         elif name=="utilities":
             self.active_timezone=data.get("clock",{}).get("timezone",self.active_timezone)
             self.reminders=data.get("reminders",[]); self.projects=data.get("projects",[])
@@ -987,7 +1033,12 @@ class MainWindow(QMainWindow):
             for widget,key in ((self.muted,"muted"),(self.quiet,"quiet"),(self.reverse,"reverse")): widget.setChecked(data.get(key) is True)
             if not self.maximum.hasFocus(): self.maximum.setValue(data.get("maximum",100))
             self.hardware.setText(f"Strips: {'ready' if data.get('leds') else 'unavailable'}  •  Front touch: {'ready' if data.get('front_touch') else 'unavailable'}  •  Top touch: {'ready' if data.get('top_touch') else 'unavailable'}  •  Camera: {'active' if data.get('camera_active') else 'off'}")
-            self.set_activity(data.get("presentation","idle"),data.get("capture_remaining_ms"))
+            # Presence animation is not a voice attempt. Polling must also not
+            # overwrite the host's real provider/camera/playback phase.
+            if not self._activity_owned:
+                self.set_activity(data.get("presentation","idle"),data.get("capture_remaining_ms"))
+            elif self.avatar.phase=="listening" and data.get("presentation")=="listening":
+                self.set_activity("listening",data.get("capture_remaining_ms"))
         elif name=="snapshot":
             encoded=data.get("png","")
             if encoded:
@@ -997,6 +1048,16 @@ class MainWindow(QMainWindow):
             values=[("UnitV2" if data.get("source_device")=="unitv2-camera" else "StackChan") + f" · {data.get('width',320)} × {data.get('height',240)}" if encoded else "",data.get("description","")]
             values.extend("QR (local, text only): "+str(qr) for qr in data.get("qr",[]))
             self.vision_result.setPlainText("\n\n".join(x for x in values if x))
+            state=data.get("description_state","captured" if encoded else "idle")
+            stamp=datetime.fromtimestamp(data["captured"],ZoneInfo(self.active_timezone)).strftime("%H:%M:%S %Z") if data.get("captured") else ""
+            detail={"idle":"No snapshot retained.", "captured":"Image captured · ready to describe.",
+                "describing":"Image captured · Gemini is describing it…", "complete":"Description received."}.get(state,data.get("description_error","Description interrupted."))
+            self.vision_description_status.setText((f"{stamp} · " if stamp else "")+detail)
+        elif name=="vision_description":
+            if data.get("state")=="failed":
+                from .vision_provider import failure_message
+                self.message.setText(failure_message(data.get("reason")))
+                self.vision_description_status.setText(failure_message(data.get("reason")))
         elif name=="result":
             if not data.get("ok"): self.message.setText(data.get("message","Operation was not confirmed."))
             elif isinstance(data.get("result"),dict) and data["result"].get("message"): self.message.setText(data["result"]["message"])
@@ -1019,6 +1080,12 @@ class MainWindow(QMainWindow):
             if data.get("provider_stage")=="reasoning":
                 from .thinking import failure_message
                 self.message.setText(failure_message(data.get("reason"),data.get("provider")))
+            if data.get("stage")=="voice":
+                if data.get("device_stage")=="tcp-connect":
+                    self.message.setText("The robot could not connect to this PC for audio. No question was recorded. Check the PC LAN address and Windows Firewall if recovery does not help.")
+                if data.get("voice_stage")=="connecting":
+                    self.message.setText("Audio connection timed out before recording. Cancelling the attempt and recovering the connection.")
+                self.voice_health.setText(self.message.text())
         elif name in {"fatal","message"}:
             self.message.setText(data.get("message","Local services unavailable."))
             if name=="fatal": self.update_controls()
@@ -1044,7 +1111,9 @@ class MainWindow(QMainWindow):
         elif state in {"thinking","tool-working"}:
             title="WORKING" if state=="tool-working" else self.provider_stage or "THINKING"
             text=f"{title}  {int(time.monotonic()-self.phase_started)}s"
-        else: text="PREPARING AUDIO" if state=="attentive" else state.upper().replace("-"," ")
+        elif state=="attentive" and self._activity_owned:
+            text=f"CONNECTING AUDIO  {int(time.monotonic()-self.phase_started)}s"
+        else: text=state.upper().replace("-"," ")
         self.activity.setText(text)
 
     def update_controls(self):
@@ -1061,7 +1130,7 @@ class MainWindow(QMainWindow):
         self.clock.setText(now.strftime("%a %d %b %Y  %H:%M:%S %Z").upper())
         if self.started_at:
             seconds=int(time.monotonic()-self.started_at)
-            self.runtime_info.setText(f"Uptime {seconds//3600:02d}:{seconds//60%60:02d}:{seconds%60:02d}\n"+("Robot connected." if self.robot_connected else "Waiting for the robot. Local utilities are ready."))
+            self.runtime_info.setText(f"Uptime {seconds//3600:02d}:{seconds//60%60:02d}:{seconds%60:02d}\n"+("Robot connected." if self.robot_connected else "Waiting for the robot. Local utilities are ready.")+"\nAudio endpoint "+self._voice_endpoint)
         else: self.runtime_info.setText("Server stopped. Local reminders work while this app is open.")
         due=[r for r in self.reminders if r["state"]=="due"]
         scheduled=[r for r in self.reminders if r["state"]=="scheduled"]
@@ -1085,7 +1154,7 @@ class MainWindow(QMainWindow):
             safe=diagnostic_status(data)
             if safe is not None:
                 record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
-                self.diagnostic.append(record)
+                self._append_diagnostic(record)
             return
         if name in {"reflex_status", "reflex_event"}:
             from .reflex import diagnostic_event, diagnostic_status
@@ -1104,21 +1173,27 @@ class MainWindow(QMainWindow):
                 self.reflex_log.appendPlainText(f"{stamp}Z  {safe['type'].upper()}  salience={safe['salience']:.2f} confidence={safe['confidence']:.2f}  proposed only")
             return
         from .device_diagnostics import DEVICE_REASONS, DEVICE_COMPONENTS, IMAGE_STAGES, IMAGE_REASONS
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer","thinking_check"}
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer","thinking_check","vision_description","voice_progress","voice_recovery"}
         if name not in allowed: return
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive","ready"}
+        states |= {"describing", "complete", "failed", "cancelled", "reconnecting"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
         stages |= {"first_audio","ollama_first_token","ollama_load","ollama_prompt","ollama_generate","ollama_warmup"}
         if name=="camera_transfer": stages=stages | IMAGE_STAGES
+        if name=="voice_progress": stages |= {"connecting", "recording", "providers", "playback"}
         reasons={"timeout","unavailable","device_proof"}
+        if name=="vision_description":
+            from .vision_provider import VISION_REASONS
+            reasons |= VISION_REASONS
+        if name=="voice_recovery": reasons |= {"cooldown"}
         if name=="runtime_issue" and data.get("provider_stage")=="reasoning":
             from .thinking import THINKING_REASONS
             reasons=reasons | THINKING_REASONS
         if name=="camera_transfer": reasons=reasons | IMAGE_REASONS
         if name=="device_diagnostic": reasons=reasons | DEVICE_REASONS
-        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active","cpu","reset_code","sensor_pid","received_bytes","expected_bytes"):
+        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active","cpu","reset_code","sensor_pid","received_bytes","expected_bytes","chars","timeout_ms"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
             elif isinstance(value,str) and (key=="state" and value in states or key in {"stage","provider_stage"} and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in reasons): safe[key]=value
@@ -1127,23 +1202,46 @@ class MainWindow(QMainWindow):
             trace=data.get("backtrace")
             if isinstance(trace,list) and 0<len(trace)<=16 and all(type(pc) is int and 0x40000000<=pc<0x44000000 for pc in trace): safe["backtrace"]=trace
         if name=="device" and data.get("presentation") in states: safe["state"]=data["presentation"]
-        if name in {"runtime_issue", "thinking_check"}:
+        if name in {"runtime_issue", "thinking_check", "vision_description"}:
             if data.get("provider") in {"ollama", "gemini", "unknown"}: safe["provider"]=data["provider"]
             if type(data.get("http_status")) is int and 400<=data["http_status"]<=599: safe["http_status"]=data["http_status"]
+        if name=="vision_description" and data.get("source_device") in {"unitv2-camera","robot-camera"}:
+            safe["source_device"]=data["source_device"]
+        if name=="runtime_issue" and data.get("voice_stage") in {"connecting","recording","providers","playback"}:
+            safe["voice_stage"]=data["voice_stage"]
         record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
-        self.diagnostic.append(record)
+        if not self._append_diagnostic(record): return
         self.log.appendPlainText(record["at"][11:19]+"  "+name.upper()+"  "+" ".join(f"{k}={v}" for k,v in safe.items()))
+
+    def _append_diagnostic(self, record):
+        name=record["event"]
+        if name in {"device","unitv2_lifecycle","device_status"}:
+            # Routine heap/counter polling must not evict the failure that
+            # prompted an export. Keep transitions and a 15-second heartbeat.
+            keys=("state","mode","stop_confirmed","reason","media_busy","camera_active","touch_seq","error_code")
+            fingerprint=tuple(record.get(key) for key in keys)
+            previous=self._diagnostic_samples.get(name)
+            now=time.monotonic()
+            if previous and previous[0]==fingerprint and now-previous[1]<15:
+                return False
+            self._diagnostic_samples[name]=(fingerprint,now)
+        else:
+            self.important_diagnostics.append(record)
+        self.diagnostic.append(record)
+        return True
 
     def export_diagnostics(self):
         filename,_=QFileDialog.getSaveFileName(self,"Export diagnostics","Kadence-diagnostics.json","JSON (*.json)")
         if filename:
             Path(filename).write_text(json.dumps({"format":"kadence-diagnostics-v1","build":build_info(),"events":list(self.diagnostic),
+                "important_events":list(self.important_diagnostics),
                 "reflex":{"status":self.reflex_snapshot,"events":list(self.reflex_events)},
                 "perception":{"status":self.perception_snapshot,"decisions":list(self.perception_decisions)}},indent=2)+"\n","utf-8")
             self.message.setText("Sanitised diagnostic report exported.")
 
     def clear_diagnostics(self):
         self.diagnostic.clear(); self.log.clear(); self.reflex_events.clear(); self.reflex_log.clear(); self.perception_decisions.clear()
+        self.important_diagnostics.clear(); self._diagnostic_samples.clear()
 
     def _make_tray(self):
         pixmap=QPixmap(64,64); pixmap.fill(QColor("#000000")); painter=QPainter(pixmap)

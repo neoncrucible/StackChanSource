@@ -17,15 +17,20 @@ class ContextStore:
         # Keep direct store construction testable without requiring a full service start.
         self.paths.database_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.paths.database
+        from .database_jobs import DatabaseJobs
+        self.jobs = DatabaseJobs()
 
     async def start(self) -> None:
-        await asyncio.to_thread(ensure_schema, self.paths, target=1)
+        await self.jobs.run(ensure_schema, self.paths, target=1)
+
+    async def close(self):
+        await self.jobs.close()
 
     async def perform(self, action: str, **args) -> dict:
         # Each worker owns its connection. SQLite's transaction and busy deadline
         # remain effective even if its awaiting voice turn is cancelled. Never
         # retry a timed-out write automatically: commit status may be unknown.
-        return await asyncio.to_thread(self._perform, action, args)
+        return await self.jobs.run(self._perform, action, args)
 
     def _perform(self, action: str, args: dict) -> dict:
         # SQLite's context manager commits/rolls back; it does not close.

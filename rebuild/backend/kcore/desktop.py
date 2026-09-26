@@ -19,6 +19,18 @@ def main():
         if index + 1 >= len(sys.argv): return 2
         print(json.dumps(decoder_check(Path(sys.argv[index + 1]).read_bytes())))
         return 0
+    if "--vision-response-check" in sys.argv:
+        # Packaging contract check: no camera access, key or network request.
+        import json
+        from pathlib import Path
+        from .vision_provider import description_text
+        index = sys.argv.index("--vision-response-check")
+        if index + 1 >= len(sys.argv): return 2
+        raw = Path(sys.argv[index + 1]).read_bytes()
+        if len(raw) > 128 * 1024: return 2
+        text = description_text(json.loads(raw))
+        print(json.dumps({"parsed":True,"chars":len(text)}))
+        return 0
     if "--speech-child" in sys.argv:
         from .speech_child import main as speech_child
         return speech_child()

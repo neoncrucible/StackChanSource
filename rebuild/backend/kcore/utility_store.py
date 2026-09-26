@@ -19,15 +19,20 @@ class UtilityStore:
         self.paths = KadencePaths.for_root(directory)
         self.paths.database_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.paths.database
+        from .database_jobs import DatabaseJobs
+        self.jobs = DatabaseJobs()
 
     async def start(self):
-        await asyncio.to_thread(self._start)
+        await self.jobs.run(self._start)
+
+    async def close(self):
+        await self.jobs.close()
 
     def _start(self):
         ensure_schema(self.paths)
 
     async def call(self, action: str, **args):
-        return await asyncio.to_thread(self._call, action, args)
+        return await self.jobs.run(self._call, action, args)
 
     @staticmethod
     def _text(value, limit=800):
