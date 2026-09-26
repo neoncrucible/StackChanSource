@@ -125,6 +125,9 @@ def build(commit: str, firmware: Path | None = None):
         'Qt source: https://download.qt.io/official_releases/qt/\n'
         'PySide6 source: https://code.qt.io/cgit/pyside/pyside-setup.git/\n'
         'Kadence source: https://github.com/neoncrucible/StackChanSource/tree/kadence/rebuild-kade\n')
+    # Standalone builds use the same verified replay gate as CI.
+    from prepare_face_fixtures import prepare as prepare_fixtures
+    prepare_fixtures(ROOT/'rebuild'/'dist'/'face_fixtures')
     subprocess.run([sys.executable,str(ROOT/'rebuild'/'tools'/'desktop_frozen_check.py'),str(desktop/'Kadence.exe'),commit,'--offline'],check=True)
     if firmware is None:
         return host_package(desktop,commit,ROOT/'rebuild'/'dist'/('Kadence-Desktop-'+HOST_VERSION+'-'+commit[:12]))
