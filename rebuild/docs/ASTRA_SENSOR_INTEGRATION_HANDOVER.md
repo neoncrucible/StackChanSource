@@ -7,7 +7,7 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
-### Current work — descriptions and recovery, host 0.4.9
+### Released — descriptions and recovery, host 0.4.9
 
 The owner asked for production quality after 0.4.8 improved recognition but still
 needed a restart for audio and returned no scene descriptions. Latest screenshots
@@ -40,7 +40,28 @@ the 400 recent records. Both exports exclude image/text/key/profile contents.
 
 Local gate: **306 passed, four expected platform/model skips, 119 subtests**.
 The runtime ownership/alignment gate passes. Windows regression and frozen
-executable packaging are the remaining release gates at this checkpoint.
+executable packaging also passed on runtime commit
+`9628a9bf2089e112a60328ae15375e3131db226f`:
+
+- Windows run **36264044193**, job **108465176368**, conclusion **success**.
+- **237 tests / 81 subtests**: camera 111/26; reflex 22; automatic perception 18;
+  voice and recovery 65/41; speech 21/14. Ownership/alignment gate passed.
+- The actual executable parsed the modern vision fixture (50 output characters),
+  decoded streaming speech before EOF, generated 119360 bytes of Windows local
+  speech PCM, and passed model/profile/photo/delete/backup/IPC/clean-exit checks.
+  `online_speech_tested=0`; no live Gemini account or physical robot was available.
+- Download (182543510 bytes):
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36264044193/artifacts/10913089516
+- Uploaded artifact SHA256:
+  `f5f27d9a17082016e397102c7295ab66429f0ad4be5d6013012c03758fa5fafe`.
+
+Install: quit the old tray instance, extract the whole download, run
+`Install-Kadence.cmd`, use the existing shortcut, verify **0.4.9** and start the
+server. Existing profiles/photos and pairing remain available. Ask for a fresh
+look and compare the spoken answer with Vision → Camera; then check ordinary
+questions and touch cancellation followed by a new question. Physical acceptance
+is outstanding; do not invent a user sign-off or move on to latency tuning.
+
 See `PRODUCTION_HARDENING_0_4_9.md` for implementation, exact stage limits and the
 short physical acceptance sequence. Host 0.4.9 has no firmware or schema change.
 The earlier firmware I2C ISR crash remains a material physical limitation;
