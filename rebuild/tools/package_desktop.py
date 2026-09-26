@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.4.3'
+HOST_VERSION='0.4.4'
 
 
 def archive_package(output: Path):
@@ -38,6 +38,8 @@ def host_package(desktop: Path, commit: str, output: Path):
     shutil.copyfile(ROOT/'rebuild'/'docs'/'CAMERA_PERCEPTION.md',output/'CAMERA-PERCEPTION.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'REFLEX_OBSERVATION.md',output/'REFLEX-OBSERVATION.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'VOICE_LATENCY.md',output/'VOICE-LATENCY.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'UNITV2_LIFECYCLE.md',output/'UNITV2-START-STOP.txt')
+    shutil.copytree(ROOT/'rebuild'/'unitv2',output/'UnitV2',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
         'firmware_included':False,'compatible_firmware':['0.21.6'],

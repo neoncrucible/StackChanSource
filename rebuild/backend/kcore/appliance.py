@@ -118,7 +118,9 @@ class KadenceAppliance:
         if self.services:
             from .camera_manager import CameraConfig
             from .perception import PerceptionController
+            self.camera.unitv2.verification_root = self.services.paths.root
             self.camera.configure(CameraConfig.load(self.services.paths.root))
+            with contextlib.suppress(Exception): await self.camera.settle_settings()
             self.perception = PerceptionController(self.camera, self.services.paths, self.emit,
                 self._deliver_presence, lambda: self._voice_task is not None and not self._voice_task.done(),
                 sampler=self.sensor_sampler)

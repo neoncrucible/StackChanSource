@@ -9,7 +9,7 @@ KEYS = frozenset({"openai_api_key", "gemini_api_key", "wifi_password"})
 
 
 class CredentialVault:
-    def __init__(self, target="Kadence/Desktop/Providers"):
+    def __init__(self, target="Kadence/Desktop/Providers", *, keys=KEYS):
         if os.name != "nt": raise RuntimeError("Remembered credentials require Windows Credential Manager.")
         class Credential(ctypes.Structure):
             _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
@@ -19,6 +19,7 @@ class CredentialVault:
                 ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
         self.Credential = Credential
         self.target = target
+        self.keys = frozenset(keys)
         self.api = ctypes.WinDLL("Advapi32.dll", use_last_error=True)
         self.api.CredWriteW.argtypes = [ctypes.POINTER(Credential), wintypes.DWORD]
         self.api.CredWriteW.restype = wintypes.BOOL
@@ -30,7 +31,7 @@ class CredentialVault:
         self.api.CredFree.restype = None
 
     def save(self, values: dict):
-        if set(values)-KEYS or any(not isinstance(v, str) or len(v)>1024 for v in values.values()):
+        if set(values)-self.keys or any(not isinstance(v, str) or len(v)>1024 for v in values.values()):
             raise ValueError("Invalid credential fields")
         raw = json.dumps(values).encode("utf-8")
         if len(raw)>2500: raise ValueError("Credentials exceed vault size limit")
@@ -50,7 +51,7 @@ class CredentialVault:
             size = pointer.contents.CredentialBlobSize
             if size>2500: raise RuntimeError("Saved credentials exceed the size limit.")
             values = json.loads(ctypes.string_at(pointer.contents.CredentialBlob, size))
-            if not isinstance(values, dict) or set(values)-KEYS or any(not isinstance(v,str) for v in values.values()):
+            if not isinstance(values, dict) or set(values)-self.keys or any(not isinstance(v,str) for v in values.values()):
                 raise RuntimeError("Saved credentials are invalid.")
             return values
         finally: self.api.CredFree(pointer)

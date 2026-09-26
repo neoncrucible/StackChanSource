@@ -317,7 +317,7 @@ class MainWindow(QMainWindow):
         self.camera_state=label("Camera IDLE · automatic capture OFF", "status")
         self.perception_state=label("Occupancy UNKNOWN · no visual identity evidence", "muted")
         layout.addWidget(self.camera_state); layout.addWidget(self.perception_state)
-        layout.addWidget(label("Privacy blocks Kadence capture and clears its preview. UnitV2 hardware standby is unverified.","muted"))
+        layout.addWidget(label("Privacy blocks capture and requests a producer stop. Check the confirmed status below. UnitV2 board power remains on.","muted"))
         reflex_group=QGroupBox("SENSOR OBSERVATIONS"); reflex_layout=QVBoxLayout(reflex_group)
         reflex_layout.addWidget(label("OBSERVE ONLY · automatic vision and reflex movement are paused.","status"))
         self.reflex_state=label("Waiting for sensor evidence.","muted")
@@ -335,6 +335,16 @@ class MainWindow(QMainWindow):
         self.unitv2_address.setEnabled(False)
         self.camera_source.currentIndexChanged.connect(lambda: self.unitv2_address.setEnabled(self.camera_source.currentData()!="robot-camera"))
         layout.addWidget(row(self.camera_source,self.unitv2_address))
+        lifecycle=QGroupBox("UNITV2 CAMERA CONTROL"); lifecycle_layout=QVBoxLayout(lifecycle)
+        self.unitv2_mode=QComboBox()
+        for text,value in (("ON DEMAND · stop after capture","ON_DEMAND"),("KEEP READY · until stopped","KEEP_READY"),("STOPPED · pause automatic capture","STOPPED")):
+            self.unitv2_mode.addItem(text,value)
+        lifecycle_layout.addWidget(row(self.unitv2_mode,button("APPLY MODE",self.apply_unitv2_mode),button("STOP NOW",lambda:self.control.send("unitv2_mode",{"mode":"STOPPED"}))))
+        self.unitv2_state=label("Producer UNKNOWN · run setup once, then test start / stop.","status")
+        lifecycle_layout.addWidget(self.unitv2_state)
+        lifecycle_layout.addWidget(row(button("SET UP UNITV2",self.setup_unitv2),button("TEST START / STOP",self.check_unitv2),button("REFRESH STATUS",lambda:self.control.send("unitv2_status"))))
+        lifecycle_layout.addWidget(label("On demand is the normal setting. Keep ready uses a renewable 30-second lease; lost connections expire on the camera.","muted"))
+        layout.addWidget(lifecycle)
         profiles=QGroupBox("LOCAL FACE PROFILES"); profile_layout=QVBoxLayout(profiles)
         self.face_name=line("Name for explicit enrollment — one person in view",80)
         self.face_profiles=QComboBox()
@@ -363,6 +373,25 @@ class MainWindow(QMainWindow):
 
     def apply_camera_policy(self, *args):
         self.control.send("camera_settings",self.camera_policy_values())
+
+    def apply_unitv2_mode(self):
+        mode=self.unitv2_mode.currentData()
+        def configured(response):
+            if response.get("ok"): self.control.send("unitv2_mode",{"mode":mode})
+        self.control.send("camera_settings",self.camera_policy_values(),configured)
+
+    def check_unitv2(self):
+        def configured(response):
+            if response.get("ok"): self.control.send("unitv2_check")
+        self.control.send("camera_settings",self.camera_policy_values(),configured)
+
+    def setup_unitv2(self):
+        from .unitv2_setup import launch
+        def stopped(response):
+            if response.get("ok"):
+                try: launch(self.unitv2_address.text().strip())
+                except Exception as exc: self.message.setText(str(exc))
+        self.control.send("server_stop",{},stopped)
 
     def refresh_faces(self, *args):
         self.control.send("face_profiles",{},self.faces_result)
@@ -682,6 +711,12 @@ class MainWindow(QMainWindow):
             self.presence_unknown.setChecked(data.get("unknown_alerts") is True)
         elif name=="camera_state":
             self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')} · automatic capture paused")
+        elif name=="unitv2_lifecycle":
+            confirmed="stop confirmed" if data.get("stop_confirmed") else "stop not confirmed"
+            self.unitv2_state.setText(f"Producer {data.get('state','UNKNOWN')} · {confirmed} · starts {data.get('starts',0)} / stops {data.get('stops',0)}")
+            self.unitv2_mode.setCurrentIndex(max(0,self.unitv2_mode.findData(data.get("mode"))))
+        elif name=="unitv2_check":
+            self.message.setText(f"UnitV2 start / capture / stop check {data.get('cycle',0)} of 2 passed.")
         elif name=="perception":
             distance=f" · {data['distance_mm']} mm" if data.get("distance_mm") is not None else ""
             self.perception_state.setText(f"Zone {data.get('occupancy','UNKNOWN')}{distance} · sensor {data.get('sensor_health','unavailable')}\nLocal vision {data.get('health','idle')} · models {data.get('model_health','not_loaded')} · recent subjects {data.get('subjects',0)} · confirmed {len(data.get('confirmed_persons',[]))}")
@@ -817,6 +852,13 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
+        if name=="unitv2_lifecycle":
+            from .unitv2_lifecycle import diagnostic_status
+            safe=diagnostic_status(data)
+            if safe is not None:
+                record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
+                self.diagnostic.append(record)
+            return
         if name in {"reflex_status", "reflex_event"}:
             from .reflex import diagnostic_event, diagnostic_status
             if name == "reflex_status":

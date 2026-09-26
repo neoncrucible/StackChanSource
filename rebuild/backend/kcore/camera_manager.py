@@ -111,6 +111,8 @@ class CameraManager:
         self._fail_until = {}
         self._closed = False
         self._waiter = False
+        from .unitv2_lifecycle import UnitV2Owner
+        self.unitv2 = UnitV2Owner(self.emit)
 
     def check(self, generation=None):
         if self._closed or self.config.privacy: raise RuntimeError("Camera access is blocked by privacy.")
@@ -120,26 +122,47 @@ class CameraManager:
         if state: self.state = state
         self.emit("camera_state", {"state": "PRIVACY" if self.config.privacy else self.state,
             "policy": self.config.policy, "privacy": self.config.privacy,
-            "source": self.config.source, "producer_standby": "unsupported",
+            "source": self.config.source, "producer_standby": self.unitv2.status.get("state", "UNKNOWN"),
             "busy": self._active is not None})
+        self.unitv2.publish()
 
     def configure(self, config):
         self.generation += 1
         self.config = config
         if self._active: self._active.cancel()
+        self.unitv2.revoke()
+        self.publish("IDLE")
+
+    async def settle_settings(self):
+        if self._active:
+            with contextlib.suppress(asyncio.CancelledError, Exception): await self._active
+        # Reconcile the configured device even if this host has not captured yet.
+        await self.unitv2.stop(self.config.address)
+
+    async def unitv2_control(self, mode):
+        if mode == "KEEP_READY": self.check()
+        self.generation += 1
+        self.unitv2.revoke()
+        if self._active:
+            self._active.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception): await self._active
+        await self.unitv2.control_mode(mode, self.config.address)
         self.publish("IDLE")
 
     async def close(self):
+        if self._closed: return
         self._closed = True
         self.generation += 1
         if self._active:
             self._active.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception): await self._active
+        with contextlib.suppress(Exception): await self.unitv2.close()
         self.publish("IDLE")
 
     async def acquire(self, *, purpose="manual", source=None, address=None, in_voice=None, timeout=25):
         self.check()
         if purpose == "automatic" and self.config.policy == "OFF": raise RuntimeError("Autonomous camera access is off.")
+        if purpose == "automatic" and self.unitv2.mode == "STOPPED": raise RuntimeError("Autonomous camera access is paused.")
         source = source or self.config.source
         if source not in {"auto", "robot-camera", "unitv2-camera"}: raise ValueError("Choose a supported camera source.")
         # One explicit waiter, no unbounded queue; explicit work preempts automatic work.
@@ -176,18 +199,11 @@ class CameraManager:
             try:
                 self.publish("CAPTURING")
                 if actual == "unitv2-camera":
-                    interrupted = threading.Event()
-                    def network():
-                        from .unitv2_network import start_camera_stream, capture_jpeg
-                        # Reserve time for AUTO fallback. Both operations share one deadline.
-                        end = time.monotonic() + min(remaining, 12 if source == "auto" else remaining)
-                        if interrupted.is_set(): raise RuntimeError("Camera request cancelled.")
-                        start_camera_stream(address, timeout=min(5, max(.1, end-time.monotonic())))
-                        if interrupted.is_set(): raise RuntimeError("Camera request cancelled.")
-                        left = end-time.monotonic()
-                        if left <= 0: raise TimeoutError()
-                        return decode_jpeg(capture_jpeg(address, timeout=left))
-                    png, width, height, qr = await settled_thread(network, on_cancel=interrupted.set)
+                    managed = await self.unitv2.capture(address, timeout=min(remaining,12))
+                    if managed is not None:
+                        png, width, height, qr = managed
+                    else:
+                        png, width, height, qr = await self._legacy_unitv2(address, remaining, source)
                 else:
                     async with asyncio.timeout(max(.1, deadline-self.clock())):
                         raw = await (in_voice() if in_voice else self.robot_capture())
@@ -204,3 +220,17 @@ class CameraManager:
                 self._fail_until[actual] = self.clock() + 15
         self.publish("FAULT")
         raise RuntimeError("Camera unavailable. Check its power, connection and address; retry after 15 seconds.")
+
+    async def _legacy_unitv2(self, address, remaining, source):
+        interrupted = threading.Event()
+        def network():
+            from .unitv2_network import start_camera_stream, capture_jpeg
+            # Reserve time for AUTO fallback. Both operations share one deadline.
+            end = time.monotonic() + min(remaining, 12 if source == "auto" else remaining)
+            if interrupted.is_set(): raise RuntimeError("Camera request cancelled.")
+            start_camera_stream(address, timeout=min(5, max(.1, end-time.monotonic())))
+            if interrupted.is_set(): raise RuntimeError("Camera request cancelled.")
+            left = end-time.monotonic()
+            if left <= 0: raise TimeoutError()
+            return decode_jpeg(capture_jpeg(address, timeout=left))
+        return await settled_thread(network, on_cancel=interrupted.set)

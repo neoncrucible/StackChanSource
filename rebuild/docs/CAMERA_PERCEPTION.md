@@ -115,10 +115,12 @@ The verified factory path bootstraps `/`, selects Camera Stream via `/func`, the
 reads one JPEG from `/video_feed`. Closing HTTP stops Kadence's retrieval, **not
 necessarily the producer or sensor**. The factory browser's stopLoadStream only
 stops browser polling, and the framework stream flag is not evidence of sensor
-standby. Hardware stop, power reduction, cooling and physical privacy remain
-unverified. This release exposes standby as unsupported; no guessed stop endpoint,
-SSH mutation or process killing is used. Physical sensor-off requires removing its
-power until a verified producer lifecycle implementation is available.
+standby. Host 0.4.4 adds the separate, reversible UnitV2 lifecycle service;
+see UNITV2-START-STOP.txt. It owns the verified vendor camera process, confirms
+process exit, and expires unattended leases on the camera. Legacy manual
+capture remains available before that service is installed. Electrical sensor
+standby, power reduction and cooling remain unmeasured; physical power-off
+still requires disconnecting UnitV2 power.
 
 ## Current acceptance pass
 

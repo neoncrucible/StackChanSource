@@ -3,6 +3,14 @@ import sys
 
 
 def main():
+    if "--unitv2-setup" in sys.argv:
+        from .unitv2_setup import main as setup
+        index = sys.argv.index("--unitv2-setup")
+        try: return setup(sys.argv[index+1] if index+1 < len(sys.argv) else "192.168.40.175")
+        except Exception as exc:
+            print("UnitV2 setup failed: "+str(exc))
+            input("Press Enter to close. ")
+            return 1
     if "--speech-decode-check" in sys.argv:
         from .speech_stream import decoder_check
         import json

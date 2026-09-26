@@ -144,6 +144,8 @@ class DesktopController:
                         if self._media: self._media.cancel()
                     blocked.save(self.services.paths.root)
                     if self.app and self.app.perception: await self.app.perception.reset("privacy")
+                    if self.app:
+                        with contextlib.suppress(Exception): await self.app.camera.settle_settings()
                 try: config = CameraConfig.parse(args)
                 except ValueError:
                     self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
@@ -156,7 +158,29 @@ class DesktopController:
                 config.save(self.services.paths.root)
                 self.emit("camera_settings", asdict(config))
                 if self.app and self.app.perception: await self.app.perception.reset("settings_changed")
+                if self.app:
+                    with contextlib.suppress(Exception): await self.app.camera.settle_settings()
             return {"message": "Camera policy saved."}
+        if action in {"unitv2_mode", "unitv2_status", "unitv2_check"}:
+            if not self.app: raise RuntimeError("Start the server to control UnitV2.")
+            camera = self.app.camera
+            if action == "unitv2_status": return await camera.unitv2.refresh(camera.config.address)
+            if self.app.perception: await self.app.perception.interrupt()
+            if action == "unitv2_mode":
+                await camera.unitv2_control(args.get("mode"))
+                if args.get("mode") == "STOPPED": self.app.vision.clear()
+                return {"message":"UnitV2 mode applied; see producer status for confirmation."}
+            camera.check()
+            await camera.unitv2_control("ON_DEMAND")
+            for cycle in range(2):
+                frame = await camera.acquire(source="unitv2-camera")
+                status = await camera.unitv2.refresh(camera.config.address)
+                if not status["stop_confirmed"]: raise RuntimeError("UnitV2 stop was not confirmed.")
+                camera.check(frame.generation)
+                self.app.vision.accept_frame(frame)
+                self.emit("unitv2_check", {"cycle":cycle+1,"state":"passed"})
+            camera.unitv2.record_verified(self.services.paths.root)
+            return {"message":"UnitV2 lifecycle PASS: two fresh captures, two confirmed stops. Producer is stopped."}
         if action in {"face_profiles", "face_forget", "face_enroll"}:
             from .perception_store import PerceptionStore
             from .camera_manager import settled_thread

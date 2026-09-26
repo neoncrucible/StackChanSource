@@ -1,8 +1,8 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.2, Ollama reply format and diagnostics fix, retaining the
-observe-only sensor reflexes. Firmware remains 0.21.6.
-Read REFLEX-OBSERVATION.txt for the single Gate 2 observation pass.
+Current update: 0.4.4, UnitV2 producer start/stop control, retaining the accepted
+0.4.3 voice responsiveness and observe-only sensor reflexes. Firmware remains
+0.21.6. Read UNITV2-START-STOP.txt for one-time setup and the acceptance run.
 Automatic perception is paused in this observation build, including when an
 older EVENT_ONLY or AWARE setting is saved. Explicit camera use remains available.
 
