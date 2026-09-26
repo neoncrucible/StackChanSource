@@ -6,10 +6,34 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+
+
+# Factory devtmpfs can recreate /dev/null as root:root 0660 after reboot.
+# SCP needs normal-user access. Check the opened Linux null device itself
+# before changing its standard permissions; never follow a replacement symlink.
+NULL_DEVICE_PREFLIGHT = """import os, stat
+fd = os.open('/dev/null', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    info = os.fstat(fd)
+    if not stat.S_ISCHR(info.st_mode) or info.st_rdev != os.makedev(1, 3):
+        raise SystemExit('Unexpected /dev/null device; no changes made')
+    if stat.S_IMODE(info.st_mode) != 0o666:
+        os.fchmod(fd, 0o666)
+        print('Corrected UnitV2 /dev/null permissions for file transfer.', flush=True)
+finally:
+    os.close(fd)
+"""
+
+
+def preparation_command(destination):
+    return ("sudo python3 -c " + shlex.quote(NULL_DEVICE_PREFLIGHT)
+            + " && test -r /dev/null && test -w /dev/null"
+            + " && umask 077 && mkdir " + shlex.quote(destination))
 
 
 def bundle_directory():
@@ -52,8 +76,9 @@ def main(address="192.168.40.175"):
     options = ["-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=ask"]
     print("\nOpenSSH will ask for the UnitV2 password; Kadence does not store it.")
     print("If it asks about the host fingerprint, compare it with your existing UnitV2 SSH connection.")
+    print("Setup checks the camera's /dev/null permissions before copying files; sudo may ask for the same password.")
     try:
-        subprocess.run(["ssh", *options, remote, "umask 077 && mkdir "+destination], check=True)
+        subprocess.run(["ssh", "-t", *options, remote, preparation_command(destination)], check=True)
         with tempfile.TemporaryDirectory(prefix="kadence-unitv2-") as folder:
             temporary = Path(folder)
             for name in ("kadence_unitv2.py", "install_unitv2.py"): shutil.copyfile(source/name,temporary/name)

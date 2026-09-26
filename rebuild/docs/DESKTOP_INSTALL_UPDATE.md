@@ -1,7 +1,10 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.5, UnitV2 lifecycle plus bounded local perception. It retains
+Current update: 0.4.6, UnitV2 setup repair plus bounded local perception. It retains
 the accepted 0.4.3 voice responsiveness. Firmware remains 0.21.6; no flash.
+0.4.6 checks and repairs the factory /dev/null permissions before SCP, fixing
+the owner's reported Permission denied setup failure. Camera service, voice
+and perception behavior are otherwise unchanged from 0.4.5.
 Read UNITV2-START-STOP.txt for one-time setup, then CAMERA-PERCEPTION.txt.
 Automatic perception defaults unchecked even if an older EVENT_ONLY or AWARE
 policy was saved. Complete TEST START / STOP before explicitly enabling it.

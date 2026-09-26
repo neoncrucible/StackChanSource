@@ -1,4 +1,4 @@
-# UnitV2 start / stop — hosts 0.4.4 and 0.4.5
+# UnitV2 start / stop — hosts 0.4.4 through 0.4.6
 
 This release controls the actual `camera_stream` process on UnitV2. It keeps
 the accepted 0.4.3 voice path and firmware 0.21.6. No robot firmware flash.
@@ -14,12 +14,16 @@ camera-service installation is needed when updating from 0.4.4 to 0.4.5.
 3. In the setup window press Enter to install. Enter the camera's existing
    SSH password when OpenSSH or sudo asks. Host fingerprint checking stays
    enabled; Kadence never stores that password.
+   Host 0.4.6 first verifies the Linux null character device and restores its
+   standard 0666 permissions if necessary. The factory image can recreate it
+   as root:root 0660 after reboot, preventing SCP even with a correct password.
+   This check runs before each setup/restore; no startup scripts are changed.
 4. When setup says complete, unplug and reconnect **UnitV2 power**. Wait for
    its normal boot. Start the Kadence server.
 
 Setup verifies the installed factory Python service and camera executable
-against the exact M5Stack 7 September 2021 recovery image before modifying
-anything. Unknown builds are refused. The original entry is backed up at
+against the exact M5Stack 7 September 2021 recovery image before replacing
+any camera-service files. Unknown builds are refused. The original entry is backed up at
 `/home/m5stack/payload/server_core.kadence-original.py`.
 
 The new service replaces the factory recognition web application while
@@ -27,6 +31,18 @@ installed. Its original supervisor, camera executable, Wi-Fi settings, Linux
 image and SD card contents are retained. The old browser preview is not used.
 The original web application can be restored through **SET UP UNITV2**, option
 **R**, followed by another UnitV2 power cycle. Restore does not undo Wi-Fi.
+
+If 0.4.4/0.4.5 setup fails with `Couldn't open /dev/null: Permission denied`,
+the file copy failed before the service installer ran. Either use 0.4.6 or run
+this once in Windows PowerShell and then retry SET UP UNITV2:
+
+```powershell
+ssh -t m5stack@192.168.40.175 'test -c /dev/null && sudo chmod 666 /dev/null && ls -l /dev/null'
+```
+
+Use the camera's actual address if DHCP changed it. Password prompts are for
+SSH and sudo; the factory `m5stack` password is `12345678` unless changed. Expect
+`crw-rw-rw-` for `/dev/null`. This repair alone does not install the service.
 
 The generated pairing key stays in Windows Credential Manager and a protected
 camera file. Requests use a signed, single-use challenge; no password/key is

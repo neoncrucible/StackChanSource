@@ -41,7 +41,7 @@ jobs:
       - name: Camera, privacy and perception regression
         env:
           KADENCE_TEST_MODELS: rebuild/dist/face_models
-        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py -q
+        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py -q
       - name: Observe-only reflex and desktop regression
         run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py -q
       - name: Autonomous perception, rate limits and visit semantics

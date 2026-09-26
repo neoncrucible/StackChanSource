@@ -7,6 +7,22 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
+### Setup repair — host 0.4.6
+
+The owner's 0.4.5 setup reached SSH, then SCP failed with
+`Couldn't open /dev/null: Permission denied`. The remote service installer had
+not run. The earlier Wi-Fi bring-up recorded factory `/dev/null` as root:root
+0660 and a temporary 0666 correction; persistence was never accepted.
+Host 0.4.6 verifies the opened Linux null character device (major 1, minor 3,
+no symlink) and restores standard 0666 permissions through sudo before copying
+files. It verifies the m5stack user's read/write access before staging. This
+runs for both install and restore, and makes no boot-script changes. Camera
+service, recognition and accepted voice behavior are unchanged. The existing
+0.4.5 package can be unblocked with the single PowerShell command documented
+in UNITV2_LIFECYCLE.md, then SET UP UNITV2 can be retried. Physical acceptance
+remains pending. Six new installer regressions and the twenty local lifecycle
+tests passed; Windows packaging evidence will follow the release commit.
+
 - **0.4.4**: UnitV2 producer lifecycle checkpoint, commit
   `70d896b4f4c72c349fb7dad9231e6b456c211edc`. Windows regression and real frozen
   executable gates passed. Artifact:
