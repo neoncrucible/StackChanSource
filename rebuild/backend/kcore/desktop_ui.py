@@ -420,9 +420,9 @@ class MainWindow(QMainWindow):
         face_check=tab("Face check")
         face_check.addWidget(row(button("TEST RECOGNITION",lambda:self.run_vision_test("recognition_test"),primary=True),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR PREVIEW",lambda:self.control.send("face_preview_clear"))))
         self.face_check_status=label("Run a test to see the actual camera frame and detection result.","status"); face_check.addWidget(self.face_check_status)
-        self.face_check_preview=label("NO FACE CHECK IMAGE","muted"); self.face_check_preview.setAlignment(Qt.AlignCenter); self.face_check_preview.setMinimumHeight(240); self.face_check_preview.setMaximumHeight(320)
-        self.face_check_preview.setStyleSheet("border: 1px solid #293c2f;"); face_check.addWidget(self.face_check_preview)
         self.face_check_result=label("Recognition has not been tested.","status"); self.face_check_result.setTextInteractionFlags(Qt.TextSelectableByMouse); face_check.addWidget(self.face_check_result)
+        self.face_check_preview=label("NO FACE CHECK IMAGE","muted"); self.face_check_preview.setAlignment(Qt.AlignCenter); self.face_check_preview.setFixedHeight(220)
+        self.face_check_preview.setStyleSheet("border: 1px solid #293c2f;"); face_check.addWidget(self.face_check_preview)
         face_check.addWidget(label("This is the last explicit enrollment/test frame, not a live stream. Green boxes mark usable faces. Small or blurred faces are reported separately. Similarity is a score, not a percentage probability. Test images are temporary; only the enrollment checkbox saves review photos.","muted")); face_check.addStretch()
         self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
@@ -887,7 +887,7 @@ class MainWindow(QMainWindow):
             encoded=data.get("png_base64")
             if encoded:
                 pixmap=QPixmap(); pixmap.loadFromData(base64.b64decode(encoded,validate=True),"PNG")
-                self.face_check_preview.setPixmap(pixmap.scaled(400,300,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+                self.face_check_preview.setPixmap(pixmap.scaled(400,216,Qt.KeepAspectRatio,Qt.SmoothTransformation))
                 stamp=datetime.fromtimestamp(data["captured_at"]).strftime("%H:%M:%S")
                 self.face_check_status.setText(f"{data['source']} · captured {stamp} · {data.get('message','')}")
             else:
