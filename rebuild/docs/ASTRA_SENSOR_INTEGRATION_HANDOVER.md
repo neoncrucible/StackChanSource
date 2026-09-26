@@ -7,7 +7,7 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
-### Immediate voice outage — host 0.4.11
+### Released — audio connection repair, host 0.4.11
 
 The owner uploaded the 26 September 20:55 UTC diagnostic and then said voice
 is not working. Runtime was cde2a47 / 0.4.10. Four connection attempts appear,
@@ -30,8 +30,30 @@ Diagnostics distinguish cancellation and configuration evidence from confirmed
 audio playback; no IPs, SSIDs, paths or credentials are exported.
 
 Local: **330 tests / 119 subtests passed**, four expected Windows-only skips;
-ownership/alignment gate passed and Overview checked at 980×690. Windows release
-evidence is pending. See VOICE_CONNECTION_0_4_11.md for checks and limitations.
+ownership/alignment gate passed and Overview checked at 980×690. The final UI
+follow-up passed its ten focused local checks (two Windows-only skips).
+
+Windows release evidence:
+
+- Runtime source **4686472bd754d7131d22c64dab3712450c164519**.
+- Run **36272800678**, job **108489822915**, conclusion **success**.
+- **261 tests / 81 subtests**: camera/perception 125/26, reflex 22, automatic 18,
+  voice/recovery/network 75/41, speech 21/14. Ownership/alignment gate passed.
+- Packaged helper constructed a real Windows COM rule in memory: exact running
+  program, inbound TCP, Private profile, LocalSubnet, no edge traversal. CI did
+  not register firewall rules or test the administrator prompt on the owner's PC.
+- Packaged executable passed modern vision parsing, streaming decode, Windows
+  local speech (119360 PCM bytes), face replay, profile/photo/delete/backup/IPC
+  and clean shutdown. Online provider services and physical robot untested here.
+- Download (182581230 bytes):
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36272800678/artifacts/10916455114
+- Artifact SHA256:
+  `4a547913b575a83380bdaa25ec2fe81d5c74944bf8ce1beca4c94394fcb052de`.
+
+Install using the existing installer/shortcut, confirm **0.4.11**, start the
+server → CHECK NETWORK → ALLOW ROBOT AUDIO if indicated → TEST AUDIO LINK.
+Then tap once and wait for the recording cue before asking a question. No firmware
+flash or UnitV2 service reinstall. See VOICE_CONNECTION_0_4_11.md for limitations.
 
 Separate unresolved enrollment evidence from the same export: 120 enrollment
 records; best progress 9/20 at turn_other. No saved event. All 40 test and 18
