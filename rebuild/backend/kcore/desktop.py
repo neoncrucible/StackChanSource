@@ -36,7 +36,9 @@ def main():
         import json
         index = sys.argv.index("--face-replay-check")
         if index + 1 >= len(sys.argv): return 2
-        print(json.dumps(replay_check(sys.argv[index+1])))
+        # Native OpenCV/video loader diagnostics can share stdout in a frozen
+        # console process. Give this offline gate an explicit result record.
+        print("\nKADENCE_FACE_REPLAY " + json.dumps(replay_check(sys.argv[index+1])), flush=True)
         return 0
     if "--speech-child" in sys.argv:
         from .speech_child import main as speech_child

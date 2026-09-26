@@ -92,7 +92,9 @@ def check(executable, expected_commit, *, offline=False):
     fixtures=Path(__file__).resolve().parents[1]/'dist'/'face_fixtures'
     if not fixtures.is_dir():raise RuntimeError('Release face replay fixtures are missing')
     replay=subprocess.run([str(executable),'--face-replay-check',str(fixtures)],capture_output=True,text=True,timeout=45,check=True)
-    evidence=json.loads(replay.stdout)
+    records=[line.removeprefix('KADENCE_FACE_REPLAY ') for line in replay.stdout.splitlines() if line.startswith('KADENCE_FACE_REPLAY ')]
+    assert len(records)==1,('Missing replay result',replay.stdout[-2000:],replay.stderr[-2000:])
+    evidence=json.loads(records[0])
     assert evidence['matched_views']>evidence['three_sample_matches'] and evidence['different_people_rejected']==2,evidence
     print('DESKTOP_FACE_REPLAY',json.dumps(evidence),flush=True)
     print(f'DESKTOP_FROZEN PASS private_worker=1 timezone=1 persistence=1 utilities=1 profiles=1 profile_photos=1 photo_delete=1 backup=1 camera_voice_status=1 vision_history=1 online_speech_tested={int(not offline)} local_speech_pcm=1 clean_shutdown=1')
