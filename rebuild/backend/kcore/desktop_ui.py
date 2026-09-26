@@ -242,6 +242,7 @@ class MainWindow(QMainWindow):
         self.ollama_model=QComboBox(); self.ollama_model.setEditable(True)
         self.ollama_model.addItem(DEFAULT_OLLAMA_MODEL)
         self.ollama_model.lineEdit().setMaxLength(160)
+        self.ollama_model.setToolTip("qwen3.5:4b preserves the current model. For a smaller model, install qwen3.5:2b in Ollama, then REFRESH, select it and TEST REPLY. Saved choices are never changed automatically.")
         self.models_refresh=button("REFRESH",self.refresh_models)
         self.reply_check=button("TEST REPLY",self.test_ollama_reply)
         self.reply_check.setToolTip("Stop the server, then test the selected Ollama model's actual reply.")
@@ -745,9 +746,9 @@ class MainWindow(QMainWindow):
             if not data.get("ok"): self.message.setText(data.get("message","Operation was not confirmed."))
             elif isinstance(data.get("result"),dict) and data["result"].get("message"): self.message.setText(data["result"]["message"])
         elif name=="timing":
-            if data.get("stage") in {"stt","reasoning","tts"}:
+            if data.get("stage") in {"stt","reasoning","tts","first_audio"}:
                 self.timings[data["stage"]]=data.get("elapsed_ms",0)
-                self.timing_label.setText("  /  ".join(f"{key.upper()} {value/1000:.2f}s" for key,value in self.timings.items()))
+                self.timing_label.setText("  /  ".join(f"{'FIRST AUDIO' if key=='first_audio' else key.upper()} {value/1000:.2f}s" for key,value in self.timings.items()))
         elif name=="runtime_issue":
             hints={"connection":"Waiting for the robot. Check its USB port and normal boot mode.",
                 "voice":"Voice did not complete. Check connection and provider settings; details are in Diagnostics.",
@@ -771,6 +772,9 @@ class MainWindow(QMainWindow):
     def set_activity(self,state,remaining_ms=None):
         if state!=self.avatar.phase:
             self.phase_started=time.monotonic()
+            if state=="listening":
+                self.timings.clear()
+                self.timing_label.setText("Waiting for this turn's timing…")
             if state in {"idle","attentive","listening"}: self.provider_stage=""
         self.avatar.phase=state
         if state=="listening" and type(remaining_ms) is int:
@@ -836,6 +840,7 @@ class MainWindow(QMainWindow):
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive","ready"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
+        stages |= {"first_audio","ollama_first_token","ollama_load","ollama_prompt","ollama_generate","ollama_warmup"}
         if name=="camera_transfer": stages=stages | IMAGE_STAGES
         reasons={"timeout","unavailable","device_proof"}
         if name=="runtime_issue" and data.get("provider_stage")=="reasoning":

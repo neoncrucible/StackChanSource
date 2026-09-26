@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import time
 import wave
 from collections.abc import AsyncIterator, Mapping
 from contextlib import aclosing
@@ -229,6 +230,18 @@ class OllamaThinker:
         if not model.strip() or len(model) > 160:
             raise ValueError("Enter the exact installed Ollama model name.")
         self.model = model.strip()
+        self.timings = {}
+
+    async def warm_up(self):
+        """Load only the explicitly selected model, without generating a reply."""
+        httpx = _require_httpx()
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+            response = await client.post("http://127.0.0.1:11434/api/generate",
+                json={"model": self.model, "stream": False, "keep_alive": "30m"})
+            response.raise_for_status()
+            result = response.json()
+            if not isinstance(result, dict) or result.get("done") is not True or result.get("error"):
+                raise ThinkingServiceError("model_error")
 
     async def stream_reply(self, text: str) -> AsyncIterator[str]:
         async with aclosing(self._stream(text)) as stream:
@@ -245,7 +258,14 @@ class OllamaThinker:
             raise ValueError("thinker input must not be empty")
         httpx = _require_httpx()
         from .identity import KADENCE_IDENTITY
-        body = {"model": self.model, "stream": True, "think": False,
+        self.timings = {}
+        started = time.perf_counter()
+        identity = KADENCE_IDENTITY.system_context()
+        # The planner already contains the provider-neutral persona. Ollama has
+        # a separate system message, so avoid evaluating that text twice.
+        if text.startswith(identity + "\n"):
+            text = text[len(identity):].lstrip("\n")
+        body = {"model": self.model, "stream": True, "think": False, "keep_alive": "30m",
                 "messages": [{"role": "system", "content": KADENCE_IDENTITY.system_context()},
                              {"role": "user", "content": text}],
                 "options": {"num_predict": 1024}}
@@ -285,12 +305,19 @@ class OllamaThinker:
                         if length > MAX_PLAN_CHARS:
                             raise ThinkingServiceError("response_limit")
                         if chunk:
+                            if "ollama_first_token" not in self.timings:
+                                self.timings["ollama_first_token"] = round((time.perf_counter()-started)*1000)
                             yield chunk
                         if event.get("done") is True:
                             if event.get("done_reason") == "length":
                                 raise ThinkingServiceError("truncated_response")
                             if not length:
                                 raise ThinkingServiceError("empty_response")
+                            for key, stage in (("load_duration", "ollama_load"),
+                                    ("prompt_eval_duration", "ollama_prompt"), ("eval_duration", "ollama_generate")):
+                                value = event.get(key)
+                                if type(value) is int and 0 <= value <= 3600 * 10**9:
+                                    self.timings[stage] = round(value / 10**6)
                             return
                     raise ThinkingServiceError("truncated_response")
         except httpx.TimeoutException:
@@ -315,9 +342,10 @@ class EdgeNeuralTTS:
         self.voice = voice.strip()
         self.rate = rate
 
-    async def synthesize_pcm(self, text: str, *, progress_sink=None) -> bytes:
+    async def synthesize_pcm(self, text: str, *, progress_sink=None, pcm_sink=None) -> bytes:
         from .speech_output import synthesize_pcm
-        return await synthesize_pcm(text, voice=self.voice, rate=self.rate, progress_sink=progress_sink)
+        return await synthesize_pcm(text, voice=self.voice, rate=self.rate,
+            progress_sink=progress_sink, pcm_sink=pcm_sink)
 
     async def synthesize(self, text: str) -> AsyncIterator[bytes]:
         spoken = text.strip()

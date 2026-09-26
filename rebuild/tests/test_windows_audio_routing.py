@@ -32,3 +32,12 @@ class Routing(unittest.IsolatedAsyncioTestCase):
         app=self.app('both')
         await app._cancel_active_provider()
         app._windows_audio.stop.assert_called_once()
+
+    async def test_streaming_sends_only_remaining_silence_without_replaying(self):
+        app=self.app('windows')
+        app._windows_audio.remaining_pcm_bytes.return_value=3200
+        writer=Mock()
+        with patch('kcore.appliance.send_wire_reply',new_callable=AsyncMock) as send:
+            await app._send_speech(writer,b'\1\0'*32000,streamed=True)
+        app._windows_audio.start.assert_not_called()
+        send.assert_awaited_once_with(writer,bytes(3200))

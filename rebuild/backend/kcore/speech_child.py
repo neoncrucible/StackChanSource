@@ -14,6 +14,24 @@ async def render(request, output):
     if not isinstance(rate, str) or not 0 < len(rate) <= 10: raise ValueError()
     def stage(value):
         output.write(json.dumps({"stage": value}).encode()+b"\n"); output.flush()
+    if request.get("stream") is True:
+        from .speech_stream import Mp3Decoder
+        decoder = Mp3Decoder()
+        def write_pcm(pcm):
+            output.write(json.dumps({"pcm_bytes": len(pcm)}).encode()+b"\n")
+            output.write(pcm); output.flush()
+        stage("tts_connect")
+        first = True
+        async for chunk in EdgeNeuralTTS(voice=voice, rate=rate).synthesize(text):
+            if first:
+                stage("tts_audio")
+                first = False
+            for pcm in decoder.feed(chunk):
+                write_pcm(pcm)
+        for pcm in decoder.finish():
+            write_pcm(pcm)
+        output.write(b'{"done":true}\n'); output.flush()
+        return
     stage("tts_connect")
     parts=[]; size=0
     async for chunk in EdgeNeuralTTS(voice=voice, rate=rate).synthesize(text):
@@ -32,7 +50,8 @@ def main():
         raw = sys.stdin.buffer.read(100001)
         if len(raw) > 100000: return 2
         request = json.loads(raw)
-        if not isinstance(request, dict) or set(request) != {"text", "voice", "rate"}: return 2
+        if not isinstance(request, dict) or set(request) not in ({"text", "voice", "rate"}, {"text", "voice", "rate", "stream"}): return 2
+        if "stream" in request and type(request["stream"]) is not bool: return 2
         asyncio.run(render(request, sys.stdout.buffer))
         return 0
     except Exception:

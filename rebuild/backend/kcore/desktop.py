@@ -3,6 +3,14 @@ import sys
 
 
 def main():
+    if "--speech-decode-check" in sys.argv:
+        from .speech_stream import decoder_check
+        import json
+        from pathlib import Path
+        index = sys.argv.index("--speech-decode-check")
+        if index + 1 >= len(sys.argv): return 2
+        print(json.dumps(decoder_check(Path(sys.argv[index + 1]).read_bytes())))
+        return 0
     if "--speech-child" in sys.argv:
         from .speech_child import main as speech_child
         return speech_child()

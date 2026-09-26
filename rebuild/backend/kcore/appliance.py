@@ -98,6 +98,7 @@ class KadenceAppliance:
         self._connections: dict[asyncio.Task, asyncio.StreamWriter] = {}
         self._companion: Companion | None = None
         self._provider_stage: str | None = None
+        self._warmup_task = None
 
     def _report_issue(self, stage: str, error: Exception) -> None:
         # Status crosses the GUI boundary; arbitrary exception text never does.
@@ -112,6 +113,8 @@ class KadenceAppliance:
     async def run_forever(self) -> None:
         await self._start_companion()
         await self._start_voice_server()
+        if self.settings.providers.thinker_provider == "ollama":
+            self._warmup_task = asyncio.create_task(self._warm_thinker(), name="kadence-ollama-warmup")
         if self.services:
             from .camera_manager import CameraConfig
             from .perception import PerceptionController
@@ -182,8 +185,24 @@ class KadenceAppliance:
         finally:
             await self.close()
 
+    async def _warm_thinker(self):
+        from .voice_providers import OllamaThinker
+        started = time.perf_counter()
+        try:
+            await OllamaThinker(model=self.settings.providers.ollama_model).warm_up()
+            self.emit("timing", {"stage": "ollama_warmup", "elapsed_ms": round((time.perf_counter()-started)*1000)})
+        except Exception:
+            # Warm-up is opportunistic. It must not block local services or
+            # replace the selected model; normal voice reports precise errors.
+            self.emit("runtime_issue", {"stage": "providers", "provider_stage": "ollama_warmup", "reason": "unavailable"})
+
     async def close(self) -> None:
         self._stop.set()
+        if self._warmup_task is not None:
+            self._warmup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._warmup_task
+            self._warmup_task = None
         if self.perception:
             await self.perception.close()
             self.perception = None
@@ -511,13 +530,36 @@ class KadenceAppliance:
             )
             return
 
-        await self._windows_audio.finish()
-        self._turn_token = None
         if ack.payload.get("ok") is not True:
+            self._windows_audio.stop()
+            self._turn_token = None
+            self._wire_result = None
             if self._companion:
                 self._companion.abort_turn()
             print("KADENCE_RUNTIME TURN recovered reason=device-proof-missing")
             return
+        try:
+            await self._windows_audio.finish()
+        except asyncio.CancelledError:
+            self._windows_audio.stop()
+            self._turn_token = None
+            self._wire_result = None
+            if self._companion:
+                self._companion.abort_turn()
+            raise
+        except Exception as exc:
+            self._windows_audio.stop()
+            self._turn_token = None
+            self._wire_result = None
+            if self._companion:
+                self._companion.abort_turn()
+            self._report_issue("voice", exc)
+            self.emit("activity", {"state": "idle"})
+            return
+        # Touch cancellation may have arrived while Windows drained its queue.
+        if self._turn_token is None:
+            return
+        self._turn_token = None
 
         if self._companion and self._wire_result is not None:
             result = self._wire_result
@@ -592,13 +634,14 @@ class KadenceAppliance:
         if self._voice_task is task:
             self._voice_task = None
 
-    async def _send_speech(self, writer, pcm):
+    async def _send_speech(self, writer, pcm, *, streamed=False):
         mode = self.settings.audio_output
-        if mode != "robot":
+        if mode != "robot" and not streamed:
             self._windows_audio.start(pcm)
         try:
             # Equal-duration silence preserves the robot speaking/cancel lifecycle.
-            await asyncio.wait_for(send_wire_reply(writer, bytes(len(pcm)) if mode == "windows" else pcm), 10)
+            size = self._windows_audio.remaining_pcm_bytes() if streamed else len(pcm)
+            await asyncio.wait_for(send_wire_reply(writer, bytes(size) if mode == "windows" else pcm), 10)
         except BaseException:
             self._windows_audio.stop()
             raise
@@ -636,6 +679,7 @@ class KadenceAppliance:
                 if self._turn_token != token or self._body is not body or not body.connected:
                     return
                 self._wire_claimed = True
+                turn_started = time.perf_counter()
                 phase = "PROVIDERS"
                 bridge = RuntimePresentationBridge(body)
                 camera_requested = False
@@ -665,10 +709,24 @@ class KadenceAppliance:
                     self._provider_stage = stage
                     self.emit("provider_stage", {"stage": stage})
 
+                first_audio = False
+                async def pcm_sink(pcm):
+                    nonlocal first_audio
+                    if self._turn_token != token or self._body is not body or not body.connected:
+                        raise asyncio.CancelledError()
+                    self._windows_audio.feed(pcm)
+                    if self._windows_audio.streaming_started and not first_audio:
+                        first_audio = True
+                        self.emit("timing", {"stage": "first_audio", "elapsed_ms": round((time.perf_counter()-turn_started)*1000)})
+                        await state_sink("speaking")
+
+                streaming = self.settings.audio_output == "windows"
+                options = {"pcm_sink": pcm_sink} if streaming else {}
+
                 provider_task = asyncio.create_task(
                     process_wire_turn(turn, settings=self.settings.providers,
                                       companion=self._companion, state_sink=state_sink,
-                                      progress_sink=provider_progress),
+                                      progress_sink=provider_progress, **options),
                     name="kadence-provider-turn",
                 )
                 self._provider_task = provider_task
@@ -680,18 +738,25 @@ class KadenceAppliance:
                         self._provider_task = None
                 if self._turn_token != token:
                     return
+                if streaming:
+                    self._windows_audio.end_stream()
+                    if not first_audio:
+                        self.emit("timing", {"stage": "first_audio", "elapsed_ms": round((time.perf_counter()-turn_started)*1000)})
+                        await state_sink("speaking")
                 self._wire_result = result
                 for stage, elapsed_ms in result.timings.items():
                     self.emit("timing", {"stage": stage, "elapsed_ms": elapsed_ms})
-                await self._send_speech(writer, result.pcm)
+                await self._send_speech(writer, result.pcm, streamed=streaming)
                 print(
                     "KADENCE_RUNTIME PROVIDERS complete "
                     f"transcript_chars={len(result.transcript)} "
                     f"reply_chars={len(result.reply)} pcm_bytes={len(result.pcm)}"
                 )
         except asyncio.CancelledError:
+            self._windows_audio.stop()
             raise
         except Exception as exc:
+            self._windows_audio.stop()
             self._report_issue("providers" if phase == "PROVIDERS" else "uplink", exc)
             if self._turn_token == token:
                 self._wire_result = None

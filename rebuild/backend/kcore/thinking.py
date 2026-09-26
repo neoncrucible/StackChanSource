@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 PLAN_TIMEOUT = 22.0  # Fits the existing 52 s host / 55 s device voice deadlines.
 MAX_PLAN_CHARS = 8192
@@ -79,11 +80,34 @@ def _unique_object(pairs):
     return result
 
 
-async def request_plan(thinker, prompt: str) -> dict:
+def reply_preview(raw: str) -> str | None:
+    """A short speculative speech draft. This is NEVER an accepted plan.
+
+    It may be rendered privately while the model finishes, but no samples may
+    be played until the complete plan validates and its reply matches exactly.
+    """
+    match = re.match(r'^\s*\{\s*"reply"\s*:\s*"', raw)
+    if not match:
+        return None
+    tail = raw[match.end():]
+    for index, char in enumerate(tail[:240]):
+        if char not in ".!?" or index + 1 >= len(tail) or tail[index + 1] not in ' \t\r\n"':
+            continue
+        try:
+            value = json.loads('"' + tail[:index + 1] + '"').strip()
+        except ValueError:
+            continue
+        if 12 <= len(value) <= 200:
+            return value
+    return None
+
+
+async def request_plan(thinker, prompt: str, *, preview_sink=None) -> dict:
     """Request exactly one plan; never repair or execute model output here."""
     try:
         chunks = []
         length = 0
+        offered = False
         stream = getattr(thinker, "stream_plan", thinker.stream_reply)
         async with asyncio.timeout(PLAN_TIMEOUT):
             iterator = stream(prompt)
@@ -95,6 +119,11 @@ async def request_plan(thinker, prompt: str) -> dict:
                     if length > MAX_PLAN_CHARS:
                         raise ThinkingServiceError("response_limit")
                     chunks.append(chunk)
+                    if preview_sink is not None and not offered:
+                        preview = reply_preview("".join(chunks))
+                        if preview:
+                            await preview_sink(preview)
+                            offered = True
             finally:
                 close = getattr(iterator, "aclose", None)
                 if close is not None:

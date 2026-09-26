@@ -11,6 +11,7 @@ import struct
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -131,6 +132,48 @@ class ApplianceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tool-working",self.device.states)
         self.assertEqual(self.app._connections,{})
         self.assertIsNone(self.app._provider_task)
+
+    async def test_windows_stream_commits_only_after_device_and_audio_completion(self):
+        drained = asyncio.Event(); waiting = asyncio.Event(); events = []
+        class Audio:
+            streaming_started = False
+            def feed(self, pcm): self.streaming_started = True
+            def end_stream(self): pass
+            def remaining_pcm_bytes(self): return 320
+            def stop(self): self.streaming_started = False
+            async def finish(self): waiting.set(); await drained.wait()
+        self.app._windows_audio = Audio()
+        with patch("kcore.appliance.os.name", "nt"):
+            self.app.settings = replace(self.app.settings, audio_output="windows")
+        self.app.emit = lambda *args: events.append(args)
+        self.app._voice_task = asyncio.create_task(self.app._run_voice_turn(self.device))
+        await asyncio.wait_for(waiting.wait(), 2)
+        self.assertEqual(self.device.played, 320)
+        self.assertFalse(self.app._companion.history)
+        self.assertTrue(any(event=="timing" and data["stage"]=="first_audio" for event,data in events))
+        drained.set()
+        await asyncio.wait_for(self.app._voice_task, 2)
+        self.assertEqual(len(self.app._companion.history), 1)
+        self.assertEqual(self.device.moved, 0)
+
+    async def test_windows_cancel_after_device_ack_does_not_commit_unfinished_audio(self):
+        waiting = asyncio.Event()
+        class Audio:
+            streaming_started = False
+            def feed(self, pcm): self.streaming_started = True
+            def end_stream(self): pass
+            def remaining_pcm_bytes(self): return 320
+            def stop(self): self.streaming_started = False
+            async def finish(self): waiting.set(); await asyncio.Event().wait()
+        self.app._windows_audio = Audio()
+        with patch("kcore.appliance.os.name", "nt"):
+            self.app.settings = replace(self.app.settings, audio_output="windows")
+        self.app._voice_task = asyncio.create_task(self.app._run_voice_turn(self.device))
+        await asyncio.wait_for(waiting.wait(), 2)
+        self.app._voice_task.cancel()
+        with self.assertRaises(asyncio.CancelledError): await self.app._voice_task
+        self.assertFalse(self.app._companion.history)
+        self.assertIsNone(self.app._wire_result)
 
     async def test_unheard_confirmation_is_not_authoritative(self):
         self.adapters.text = "Please keep the detail we discussed"

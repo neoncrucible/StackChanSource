@@ -204,6 +204,8 @@ class DesktopController:
                             "elapsed_ms": round((time.monotonic()-started)*1000),
                             "message": failure_message(exc.reason, "ollama")}
                 elapsed = round((time.monotonic()-started)*1000)
+                for stage, elapsed_ms in thinker.timings.items():
+                    self.emit("timing", {"stage": stage, "elapsed_ms": elapsed_ms})
                 self.emit("thinking_check", {"provider": "ollama", "state": "ready", "elapsed_ms": elapsed})
                 return {"passed": True, "elapsed_ms": elapsed,
                         "message": f"Ollama generated a valid Kadence reply in {elapsed/1000:.1f}s. Start the server and try a voice turn."}
@@ -345,6 +347,9 @@ def main():
             if getattr(sys, "frozen", False):
                 from .local_faces import LocalFaces
                 LocalFaces.preload()
+                # Initialize the streaming output extension before worker
+                # threads, following the frozen native-loader ownership rule.
+                import miniaudio
             asyncio.run(run_worker(incoming, outgoing))
         except KeyboardInterrupt: pass
         except Exception:

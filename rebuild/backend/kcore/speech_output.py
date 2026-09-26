@@ -67,7 +67,7 @@ def child_environment():
         "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "KADENCE_WIFI_PASSWORD"}}
 
 
-async def _render(command, payload, *, timeout, progress_sink=None):
+async def _render(command, payload, *, timeout, progress_sink=None, pcm_sink=None):
     """Kill and reap even a wedged native decoder or websocket shutdown."""
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     spawning = asyncio.create_task(asyncio.create_subprocess_exec(*command, stdin=asyncio.subprocess.PIPE,
@@ -87,15 +87,27 @@ async def _render(command, payload, *, timeout, progress_sink=None):
             process.stdin.write(payload)
             await process.stdin.drain()
             process.stdin.close()
-            for _ in range(8):
+            parts = []
+            total = 0
+            for _ in range(16384 if pcm_sink else 8):
                 record = json.loads(await process.stdout.readline())
                 if not isinstance(record, dict): break
+                if pcm_sink and record == {"done": True}:
+                    if total and not await process.stdout.read(1) and await process.wait() == 0:
+                        return b"".join(parts)
+                    break
                 if record.get("stage") in STAGES:
                     if progress_sink: await progress_sink(record["stage"])
                     continue
                 size = record.get("pcm_bytes")
                 if type(size) is not int or not 0 < size <= MAX_PCM or size % 2: break
+                total += size
+                if total > MAX_PCM or (pcm_sink and size > 16384): break
                 pcm = await process.stdout.readexactly(size)
+                if pcm_sink:
+                    parts.append(pcm)
+                    await pcm_sink(pcm)
+                    continue
                 if await process.stdout.read(1) or await process.wait() != 0: break
                 return pcm
         raise VoiceProviderUnavailable("Speech renderer returned an invalid result")
@@ -107,20 +119,33 @@ async def _render(command, payload, *, timeout, progress_sink=None):
         await process.wait()
 
 
-async def synthesize_pcm(text, *, voice, rate, progress_sink=None):
+async def synthesize_pcm(text, *, voice, rate, progress_sink=None, pcm_sink=None):
     spoken = text.strip()
     if not spoken or len(spoken) > 8000:
         raise ValueError("Speech must contain 1..8000 characters")
+    delivered = False
+    async def deliver(chunk):
+        nonlocal delivered
+        # A sink failure may happen after playback starts. Never replay a partly
+        # heard answer through the fallback voice.
+        delivered = True
+        await pcm_sink(chunk)
+    request = {"text": spoken, "voice": voice, "rate": rate}
+    options = {}
+    if pcm_sink is not None:
+        request["stream"] = True
+        options["pcm_sink"] = deliver
     try:
-        pcm = await _render(child_command(), json.dumps({"text": spoken,
-            "voice": voice, "rate": rate}, ensure_ascii=True).encode(),
-            timeout=EDGE_SECONDS, progress_sink=progress_sink)
+        pcm = await _render(child_command(), json.dumps(request, ensure_ascii=True).encode(),
+            timeout=EDGE_SECONDS, progress_sink=progress_sink, **options)
     except (TimeoutError, VoiceProviderUnavailable, OSError):
         # Cancellation deliberately bypasses fallback: a cancelled answer must
         # never be resurrected or committed as heard.
-        if os.name != "nt": raise
+        if delivered or os.name != "nt": raise
         if progress_sink: await progress_sink("tts_fallback")
         pcm = await synthesize_local(spoken, progress_sink=progress_sink)
+        if pcm_sink is not None:
+            await pcm_sink(pcm)
     if progress_sink: await progress_sink("tts_ready")
     return pcm
 

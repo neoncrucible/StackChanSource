@@ -108,3 +108,15 @@ remains pending; automatic perception/reflex actions remain paused.
 Ollama API references:
 https://docs.ollama.com/api/chat
 https://docs.ollama.com/capabilities/structured-outputs
+
+Desktop 0.4.3 voice latency candidate — 2026-09-26
+Windows speaker / Bluetooth now starts playing arriving speech instead of
+waiting for the entire spoken answer. First-sentence preparation overlaps
+reasoning, but playback waits for a validated complete reply. Ollama preloads
+the selected model at server start and retains it for 30 minutes between uses.
+Ordinary answers are shorter without changing Kadence's persona or saved model.
+
+Diagnostics shows FIRST AUDIO and numeric Ollama stage timings. Read
+VOICE-LATENCY.txt for the measured bottleneck, output-mode scope, comparison
+steps and optional qwen3.5:2b model. Firmware remains 0.21.6; no flash is needed.
+The 2–3-second target and audible quality require physical acceptance.

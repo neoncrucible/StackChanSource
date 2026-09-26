@@ -195,10 +195,11 @@ async def read_wire_turn(reader: asyncio.StreamReader, *, expected_token: str | 
     return VoiceWireTurn(sample_rate, frame_ms, tuple(packets))
 
 
-async def _synthesize_reply(providers: LiveVoiceProviders, reply: str, *, progress_sink=None) -> bytes:
+async def _synthesize_reply(providers: LiveVoiceProviders, reply: str, *, progress_sink=None, pcm_sink=None) -> bytes:
     render_pcm = getattr(providers.tts, "synthesize_pcm", None)
     if render_pcm is not None:
-        return await render_pcm(reply, progress_sink=progress_sink)
+        options = {"pcm_sink": pcm_sink} if pcm_sink is not None else {}
+        return await render_pcm(reply, progress_sink=progress_sink, **options)
     mp3_parts: list[bytes] = []
     size = 0
     async with asyncio.timeout(18):
@@ -211,7 +212,10 @@ async def _synthesize_reply(providers: LiveVoiceProviders, reply: str, *, progre
             mp3_parts.append(chunk)
         mp3 = b"".join(mp3_parts)
         if progress_sink: await progress_sink("tts_decode")
-        return await asyncio.to_thread(decode_edge_mp3_to_pcm16, mp3)
+        pcm = await asyncio.to_thread(decode_edge_mp3_to_pcm16, mp3)
+        if pcm_sink is not None:
+            await pcm_sink(pcm)
+        return pcm
 
 
 async def process_wire_turn(
@@ -221,6 +225,7 @@ async def process_wire_turn(
     companion: Companion | None = None,
     state_sink: StateSink | None = None,
     progress_sink: StateSink | None = None,
+    pcm_sink=None,
 ) -> VoiceWireResult:
     resolved = VoiceProviderSettings.from_env() if settings is None else settings
     missing = resolved.missing_credentials()
@@ -247,7 +252,7 @@ async def process_wire_turn(
         timings["stt"] = round((time.perf_counter()-started)*1000)
         started = time.perf_counter()
         if progress_sink: await progress_sink("tts")
-        pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY, progress_sink=progress_sink)
+        pcm = await _synthesize_reply(providers, NO_SPEECH_REPLY, progress_sink=progress_sink, pcm_sink=pcm_sink)
         timings["tts"] = round((time.perf_counter()-started)*1000)
         return VoiceWireResult(
             transcript="",
@@ -258,28 +263,43 @@ async def process_wire_turn(
         )
 
     timings["stt"] = round((time.perf_counter()-started)*1000)
-    started = time.perf_counter()
-    if progress_sink: await progress_sink("reasoning")
-    if companion is not None:
-        reply = await companion.respond(transcript, providers.thinker, state_sink=state_sink)
-    else:
-        prompt = KADENCE_IDENTITY.wrap_user_text(transcript)
-        reply_parts: list[str] = []
-        async with asyncio.timeout(22):
-            async for chunk in providers.thinker.stream_reply(prompt):
-                reply_parts.append(chunk)
-                if sum(map(len, reply_parts)) > 8000:
-                    raise ValueError("reply exceeds limit")
-        reply = "".join(reply_parts).strip()
-    if not reply:
-        raise RuntimeError("Thinker returned an empty reply")
+    from .speech_draft import SpeechDrafts
+    async def render(text, *, pcm_sink):
+        return await _synthesize_reply(providers, text, pcm_sink=pcm_sink)
+    drafts = SpeechDrafts(render)
+    try:
+        started = time.perf_counter()
+        if progress_sink: await progress_sink("reasoning")
+        if companion is not None:
+            options = {"preview_sink": drafts.offer} if pcm_sink is not None else {}
+            reply = await companion.respond(transcript, providers.thinker, state_sink=state_sink, **options)
+        else:
+            prompt = KADENCE_IDENTITY.wrap_user_text(transcript)
+            reply_parts: list[str] = []
+            async with asyncio.timeout(22):
+                async for chunk in providers.thinker.stream_reply(prompt):
+                    reply_parts.append(chunk)
+                    if sum(map(len, reply_parts)) > 8000:
+                        raise ValueError("reply exceeds limit")
+            reply = "".join(reply_parts).strip()
+        if not reply:
+            raise RuntimeError("Thinker returned an empty reply")
 
-    timings["reasoning"] = round((time.perf_counter()-started)*1000)
-    started = time.perf_counter()
-    if progress_sink: await progress_sink("tts")
-    pcm = await _synthesize_reply(providers, reply, progress_sink=progress_sink)
-    timings["tts"] = round((time.perf_counter()-started)*1000)
-    return VoiceWireResult(transcript=transcript, reply=reply, pcm=pcm, timings=timings)
+        timings["reasoning"] = round((time.perf_counter()-started)*1000)
+        timings.update(getattr(providers.thinker, "timings", {}))
+        started = time.perf_counter()
+        if progress_sink: await progress_sink("tts")
+        if pcm_sink is not None and drafts.first is not None:
+            pcm = await drafts.speak(reply, pcm_sink)
+            if progress_sink: await progress_sink("tts_ready")
+        else:
+            pcm = await _synthesize_reply(providers, reply, progress_sink=progress_sink, pcm_sink=pcm_sink)
+        if len(pcm) > MAX_PCM_REPLY:
+            raise ValueError("Combined speech exceeds limit")
+        timings["tts"] = round((time.perf_counter()-started)*1000)
+        return VoiceWireResult(transcript=transcript, reply=reply, pcm=pcm, timings=timings)
+    finally:
+        await drafts.close()
 
 
 async def send_wire_reply(writer: asyncio.StreamWriter, pcm: bytes) -> None:

@@ -12,6 +12,10 @@ import queue
 def check(executable, expected_commit, *, offline=False):
     identity=json.loads(subprocess.check_output([str(executable),"--build-info"],text=True,timeout=30))
     assert identity["source_commit"]==expected_commit
+    fixture=Path(__file__).resolve().parents[1]/'tests'/'fixtures'/'stream-tone.mp3'
+    decoded=json.loads(subprocess.check_output([str(executable),'--speech-decode-check',str(fixture)],text=True,timeout=30))
+    assert decoded['before_eof'] and decoded['first_encoded_bytes']<=1152 and decoded['pcm_bytes']>128000,decoded
+    print('DESKTOP_STREAM_DECODER',json.dumps(decoded),flush=True)
     with tempfile.TemporaryDirectory() as tmp:
         process=subprocess.Popen([str(executable),'--worker'],stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
