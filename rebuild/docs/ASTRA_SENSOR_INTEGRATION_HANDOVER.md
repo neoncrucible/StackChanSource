@@ -1,4 +1,61 @@
-# Kadence clean-base handover for Astra
+# Kadence integration handover for Astra
+
+## Current continuation — 26 September 2026
+
+Active work is on `kadence/functionality`, firmware **0.21.6**, schema **4**.
+The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
+pipeline and home alignment; latency tuning is parked until camera/perception
+and then tools are complete.
+
+- **0.4.4**: UnitV2 producer lifecycle checkpoint, commit
+  `70d896b4f4c72c349fb7dad9231e6b456c211edc`. Windows regression and real frozen
+  executable gates passed. Artifact:
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36241332115/artifacts/10905609924
+- **0.4.5**: explicit opt-in for event perception and sparse AWARE checks,
+  layered on the existing SensorSampler / ReflexController / CameraManager.
+  Local two-frame face recognition, once-per-visit optional greetings, bounded
+  deferred events, privacy, cancellation and diagnostic decision reporting.
+  Runtime commit: `82af99b2e7a2faaad86b4577d9c72e91b55b4fee`.
+  Windows run `36243033611`, job `108407012243`: all gates passed, including
+  187 tests / 58 subtests, runtime ownership, local model inference, and the
+  real packaged worker / speech decoding / storage / clean-shutdown checks.
+  Artifact (182483818 bytes):
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36243033611/artifacts/10906712848
+  Uploaded artifact SHA256:
+  `b52a28cad83810fb25857abaffb615e8976760624e28fbd842bd6d2541f2426e`.
+  Install 0.4.5 directly to get both releases; keep perception unchecked while
+  accepting the lifecycle. Preserve 0.4.4 as the lifecycle-only checkpoint.
+  Windows HTTP reads explicitly poll cancellation, including while waiting for
+  response headers. Socket shutdown alone failed the Windows cancellation test
+  and is not relied upon. STOPPED mode survives unrelated settings changes.
+- UnitV2 needs the reversible service setup in `UNITV2_LIFECYCLE.md`. This uses
+  the unchanged factory camera binary and preserves the original service for
+  rollback. No robot or camera firmware flash. The installer refuses unknown
+  factory checksums. Actual producer exit is distinct from electrical standby.
+  To return to the older 0.4.3 camera path, use the new setup tool's R option
+  and power-cycle UnitV2 to restore its factory service before starting 0.4.3.
+  Host 0.4.4 uses the same lifecycle service and does not need that restore.
+- Physical acceptance of these two new releases remains pending. Begin with
+  automatic perception unchecked, run TEST START / STOP, then follow
+  `CAMERA_PERCEPTION.md`. The saved check is tied to the paired service. Old
+  EVENT_ONLY/AWARE settings do not silently activate automatic captures.
+- Next after acceptance: bounded physical reflexes / richer cognition as needed,
+  then tools (possibly OpenClaw), then revisit voice latency. Do not silently
+  add automatic LLM calls, camera images in storage, or servo movement here.
+
+Install sequence: quit Kadence; extract the download until Install-Kadence.cmd
+is visible; run it and open the desktop shortcut. In Vision use SET UP UNITV2
+once, follow its SSH/sudo prompts, power-cycle UnitV2, and start the server.
+Select UnitV2, leave automatic perception unchecked, and run TEST START / STOP.
+Require two successful cycles and STOPPED / stop confirmed. Then enroll a face,
+select EVENT ONLY, enable automatic perception and Apply & Save. Follow the
+short physical checks in CAMERA-PERCEPTION.txt before enabling optional greetings
+or progressing to AWARE. No additional source pull or PowerShell launch is needed.
+
+## Historical sensor clean-base snapshot
+
+The following records retain their original dates and acceptance scope. The
+current continuation above supersedes their branch and release instructions.
 
 Date: 2026-09-13
 
@@ -557,31 +614,3 @@ model loading, saved privacy, speech and clean shutdown. Owner acceptance of the
 new policy/enrollment/autonomy behaviour is pending. Previously accepted manual
 camera and voice behaviour remains covered; the onboard two-click quirk remains.
 UnitV2 producer-off/sensor standby is still unsupported, not claimed by privacy.
-# Current continuation — 26 September 2026
-
-Active work is on `kadence/functionality`, firmware **0.21.6**, schema **4**.
-The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
-pipeline and home alignment; latency tuning is parked until camera/perception
-and then tools are complete.
-
-- **0.4.4**: UnitV2 producer lifecycle checkpoint, commit
-  `70d896b4f4c72c349fb7dad9231e6b456c211edc`. Windows regression and real frozen
-  executable gates passed. Artifact:
-  https://github.com/neoncrucible/StackChanSource/actions/runs/36241332115/artifacts/10905609924
-- **0.4.5**: explicit opt-in for event perception and sparse AWARE checks,
-  layered on the existing SensorSampler / ReflexController / CameraManager.
-  Local two-frame face recognition, once-per-visit optional greetings, bounded
-  deferred events, privacy, cancellation and diagnostic decision reporting.
-- UnitV2 needs the reversible service setup in `UNITV2_LIFECYCLE.md`. This uses
-  the unchanged factory camera binary and preserves the original service for
-  rollback. No robot or camera firmware flash. The installer refuses unknown
-  factory checksums. Actual producer exit is distinct from electrical standby.
-- Physical acceptance of these two new releases remains pending. Begin with
-  automatic perception unchecked, run TEST START / STOP, then follow
-  `CAMERA_PERCEPTION.md`. The saved check is tied to the paired service. Old
-  EVENT_ONLY/AWARE settings do not silently activate automatic captures.
-- Next after acceptance: bounded physical reflexes / richer cognition as needed,
-  then tools (possibly OpenClaw), then revisit voice latency. Do not silently
-  add automatic LLM calls, camera images in storage, or servo movement here.
-
-The earlier sensor bring-up history follows for provenance.
