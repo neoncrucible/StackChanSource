@@ -155,7 +155,16 @@ class DesktopTests(unittest.TestCase):
                 window.on_event('voice_recovery',{'state':'reconnecting'})
                 self.assertIn('Recovering',window.voice_health.text())
                 window.on_event('voice_recovery',{'state':'ready'})
-                self.assertIn('Tap',window.voice_health.text())
+                self.assertIn('audio is unverified',window.voice_health.text())
+                window.on_event('audio_network',{'state':'no_allow_rule','profile':'private','assigned':True,
+                    'host':'192.0.2.9','port':40000,'message':'Run Allow Robot Audio','ssid':fake})
+                self.assertEqual(window.audio_network_status.text(),'Run Allow Robot Audio')
+                self.assertNotIn('192.0.2.9',str(window.important_diagnostics))
+                window.on_event('audio_link_test',{'state':'failed'})
+                self.assertIn('failed',window.voice_health.text())
+                with patch.object(window.control,'send') as send:
+                    window.audio_action('audio_link_test')
+                    self.assertEqual(send.call_args.args[0],'audio_link_test')
                 window.on_event('vision_description',{'state':'failed','reason':'quota','http_status':429,
                     'source_device':'unitv2-camera','response':fake,'key':fake})
                 self.assertIn('quota',window.vision_description_status.text())

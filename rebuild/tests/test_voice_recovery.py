@@ -45,12 +45,12 @@ class VoiceRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app._turn_sequence,0)
         app._body=None;await app.close()
 
-    async def test_tcp_failure_recovers_through_real_supervisor_without_replaying_a_turn(self):
+    async def test_wifi_failure_recovers_through_real_supervisor_without_replaying_a_turn(self):
         with tempfile.TemporaryDirectory() as root:
             services=LocalServices(directory=Path(root));await services.start()
             events=[];app=KadenceAppliance(settings(),services=services,emit=lambda n,d:events.append((n,d)))
             first=Device(app);second=Device(app);opened=[];second_ready=asyncio.Event()
-            failure=VoiceTurnFailure(["ok"],{"stage":"tcp-connect","error_code":116,"torque_released":True})
+            failure=VoiceTurnFailure(["ok"],{"stage":"wifi-ready","error_code":116,"torque_released":True})
             first.send_voice_turn=AsyncMock(side_effect=failure)
             async def open_body(*args,**kwargs):
                 item=first if not opened else second;opened.append(item)
@@ -126,7 +126,8 @@ class VoiceRecoveryTests(unittest.IsolatedAsyncioTestCase):
             app=KadenceAppliance(replace(settings(),lan_auto=auto))
             cancelled=VoiceTurnFailure(["ok"],{"stage":"cancelled","cancelled":True,"torque_released":True})
             body=SimpleNamespace(send_voice_turn=AsyncMock(side_effect=cancelled))
-            with patch("kcore.appliance._local_lan_ipv4",return_value="192.168.40.99") as discover:
+            with patch("kcore.appliance._local_lan_ipv4",return_value="192.168.40.99") as discover, \
+                 patch("kcore.appliance.address_is_local",return_value=True):
                 await app._run_voice_turn(body)
             self.assertEqual(body.send_voice_turn.call_args.kwargs["host"],"192.168.40.99" if auto else "127.0.0.1")
             self.assertEqual(discover.call_count,int(auto))

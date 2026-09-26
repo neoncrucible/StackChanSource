@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kade-runtime"
-version = "0.4.10"
+version = "0.4.11"
 description = "Host runtime for the Kadence clean rebuild"
 requires-python = ">=3.12"
 dependencies = ["pyserial>=3.5,<4", "tzdata>=2025.2"]
@@ -31,6 +31,9 @@ package-dir = {"" = "backend"}
 [tool.setuptools.packages.find]
 where = ["backend"]
 include = ["kcore*"]
+
+[tool.setuptools.package-data]
+kcore = ["*.ps1"]
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]

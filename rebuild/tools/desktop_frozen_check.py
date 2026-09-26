@@ -12,6 +12,11 @@ import queue
 def check(executable, expected_commit, *, offline=False):
     identity=json.loads(subprocess.check_output([str(executable),"--build-info"],text=True,timeout=30))
     assert identity["source_commit"]==expected_commit
+    network=json.loads(subprocess.check_output([str(executable),'--audio-network-check'],text=True,timeout=30))
+    assert network['rule_validated'] and network['program_matches'],network
+    assert (network['profiles'],network['protocol'],network['direction'],network['action'])==(2,6,1,1),network
+    assert network['remote'].lower()=='localsubnet' and network['edge'] is False,network
+    print('DESKTOP_AUDIO_NETWORK_HELPER',json.dumps(network),flush=True)
     vision_fixture=Path(__file__).resolve().parents[1]/'tests'/'fixtures'/'vision-modern-response.json'
     vision=json.loads(subprocess.check_output([str(executable),'--vision-response-check',str(vision_fixture)],text=True,timeout=30))
     assert vision=={'parsed':True,'chars':50},vision

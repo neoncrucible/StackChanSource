@@ -7,6 +7,41 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
+### Immediate voice outage — host 0.4.11
+
+The owner uploaded the 26 September 20:55 UTC diagnostic and then said voice
+is not working. Runtime was cde2a47 / 0.4.10. Four connection attempts appear,
+no recording/provider/completed-turn events, and `tcp-connect` code 116 at
+20:54:13 UTC. USB recovery reported ready at 20:54:35; this proved only serial
+reconnection. Do not claim that voice worked afterward. No new panic was recorded.
+
+0.4.11 prioritizes audio restoration: Overview has an authenticated, no-microphone
+two-tone Test Audio Link, read-only Windows network inspection and an explicit
+Allow Robot Audio action. The elevated helper only updates Kadence's own app-path
+TCP rule on Private/local-subnet networks. Public/global settings and unrelated
+rules remain unchanged. Existing versioned installs use different executable
+paths; stale firewall allowances are a credible cause, not proven by this export.
+Automatic address selection can prefer physical Wi-Fi over VPN/UnitV2 USB routes;
+explicit addresses remain authoritative and are checked for local assignment.
+Alerts, greetings and snapshots also refresh the endpoint. TCP failures with
+confirmed release no longer reboot otherwise working USB; Wi-Fi/device stalls
+retain the supervisor. Alert/playback waits now share bounded voice deadlines.
+Diagnostics distinguish cancellation and configuration evidence from confirmed
+audio playback; no IPs, SSIDs, paths or credentials are exported.
+
+Local: **330 tests / 119 subtests passed**, four expected Windows-only skips;
+ownership/alignment gate passed and Overview checked at 980×690. Windows release
+evidence is pending. See VOICE_CONNECTION_0_4_11.md for checks and limitations.
+
+Separate unresolved enrollment evidence from the same export: 120 enrollment
+records; best progress 9/20 at turn_other. No saved event. All 40 test and 18
+automatic records have samples=0; 43 usable-face records say no_profiles.
+First attempt detected two faces (not proof of two actual people). Do not blame
+lighting or reduce match thresholds. The strict all-or-nothing guided training
+needs a usable save/refinement path and exported rejection codes/pose evidence.
+The log currently says capturing for every training frame, hiding why progress
+stalled. Recognition/greeting acceptance remains open; scene descriptions accepted.
+
 ### Released — live recognition, host 0.4.10
 
 The owner now confirms “what can you see, with description works flawlessly.”

@@ -229,9 +229,14 @@ class MainWindow(QMainWindow):
         self.model_info=label("Thinking provider: selected below; server stopped", "muted"); info.addWidget(self.model_info)
         self.next_due=label("No scheduled reminders."); self.turn_info=label("Completed turns  0","muted")
         for w in (self.activity,self.runtime_info,self.next_due,self.turn_info): info.addWidget(w)
-        self.voice_health=label("Voice ready · tap the robot to begin.","muted"); info.addWidget(self.voice_health)
+        self.voice_health=label("Audio not checked · start the server, then Test Audio Link.","muted"); info.addWidget(self.voice_health)
         info.addWidget(button("CANCEL CURRENT TASK",lambda:self.control.send("media_cancel")))
         info.addStretch(); top.addLayout(info,1); layout.addLayout(top)
+        layout.addWidget(row(button("TEST AUDIO LINK",lambda:self.audio_action("audio_link_test"),primary=True),
+            button("CHECK NETWORK",lambda:self.audio_action("audio_network_check")),
+            button("ALLOW ROBOT AUDIO",lambda:self.audio_action("audio_network_allow"))))
+        self.audio_network_status=label("Test plays two tones without recording. Allow Robot Audio requests Windows permission for Kadence on your private local network.","muted")
+        layout.addWidget(self.audio_network_status)
         group=QGroupBox("CONNECTION & CREDENTIALS"); grid=QGridLayout(group)
         self.port=QComboBox(); self.port.setEditable(True); self.port.addItem("COM4")
         self.ssid=line("Wi-Fi network",32); self.lan=QComboBox(); self.lan.setEditable(True); self.lan.addItem("Auto-detect","")
@@ -813,6 +818,16 @@ class MainWindow(QMainWindow):
             if value: self.ssid.setText(value)
         self.message.setText("Connection list refreshed. Choose the PC address on the robot's Wi-Fi network.")
 
+    def audio_action(self, action):
+        messages={"audio_link_test":"Testing the robot audio link. Wait for two tones; no microphone recording.",
+                  "audio_network_check":"Checking this PC's address, listener and Windows access rules…",
+                  "audio_network_allow":"Approve the Windows administrator prompt to allow this Kadence version on the private local network."}
+        self.audio_network_status.setText(messages[action])
+        def finished(data):
+            result=data.get("result",{}) if data.get("ok") else data
+            self.audio_network_status.setText(result.get("message",result.get("error","Audio check did not complete.")))
+        self.control.send(action,{},finished,timeout=110)
+
     def create_reminder(self):
         self.control.send("reminder_create",{"text":self.reminder_text.text(),"when":self.reminder_when.text()},self.reminder_result)
 
@@ -1009,6 +1024,7 @@ class MainWindow(QMainWindow):
                 self.perception_gate.setText("Server stopped · automatic perception is not running.")
                 self.camera_state.setText("Server stopped · camera access unavailable.")
                 self._activity_owned=False; self.set_activity("idle")
+                self.voice_health.setText("Audio not checked · server stopped.")
             self.update_controls()
         elif name=="robot":
             self.robot_connected=data.get("connected") is True
@@ -1021,12 +1037,24 @@ class MainWindow(QMainWindow):
         elif name=="voice_progress":
             names={"connecting":"Connecting robot audio", "recording":"Recording your question",
                    "providers":"Processing your question", "playback":"Delivering the reply"}
-            self.voice_health.setText(names.get(data.get("stage"),"Voice in progress") + " · cancellation is available.")
+            suffix=" · wait for the recording cue; another tap cancels." if data.get("stage")=="connecting" else " · cancellation is available."
+            self.voice_health.setText(names.get(data.get("stage"),"Voice in progress") + suffix)
+        elif name=="audio_network":
+            self.audio_network_status.setText(data.get("message","Network check incomplete."))
+            self._voice_endpoint=f"{data.get('host','')}:{data.get('port','')}"
+        elif name=="audio_link_test":
+            messages={"testing":"Testing audio link · waiting for two tones.",
+                "passed":"Robot confirmed audio playback. Tap once and wait for the recording cue to test a question.",
+                "failed":"Audio link failed. Check the network result below.","cancelled":"Audio test cancelled."}
+            self.voice_health.setText(messages.get(data.get("state"),"Audio not checked."))
+        elif name=="voice_result" and data.get("state")=="cancelled":
+            self.voice_health.setText("Cancelled. Tap once to start a new question, then wait for the recording cue.")
         elif name=="voice_endpoint":
             self._voice_endpoint=f"{data.get('host','')}:{data.get('port','')}"
         elif name=="voice_recovery":
             messages={"reconnecting":"Recovering the robot connection. The failed turn will not be replayed.",
-                "ready":"Robot reconnected. Tap to try a new question.",
+                "ready":"USB control reconnected; audio is unverified. Run Test Audio Link.",
+                "network_required":"Robot audio could not reach this PC. Check Network shows the next step.",
                 "unavailable":"Audio connection still unavailable. Check the PC LAN address and allow Kadence through Windows Firewall on your private network."}
             self.voice_health.setText(messages.get(data.get("state"),"Voice connection unavailable."))
             self.message.setText(self.voice_health.text())
@@ -1166,6 +1194,10 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
+        if name=="audio_network":
+            from .audio_network import diagnostic
+            self._append_diagnostic({"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**diagnostic(data)})
+            return
         if name=="recognition_evidence":
             from .face_sequence import recognition_diagnostic
             safe=recognition_diagnostic(data)
@@ -1203,17 +1235,18 @@ class MainWindow(QMainWindow):
                 self.reflex_log.appendPlainText(f"{stamp}Z  {safe['type'].upper()}  salience={safe['salience']:.2f} confidence={safe['confidence']:.2f}  proposed only")
             return
         from .device_diagnostics import DEVICE_REASONS, DEVICE_COMPONENTS, IMAGE_STAGES, IMAGE_REASONS
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer","thinking_check","vision_description","voice_progress","voice_recovery"}
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer","thinking_check","vision_description","voice_progress","voice_recovery","voice_result","audio_link_test"}
         if name not in allowed: return
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive","ready"}
         states |= {"describing", "complete", "failed", "cancelled", "reconnecting"}
+        if name in {"audio_link_test", "voice_recovery"}: states |= {"testing", "passed", "network_required"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
         stages |= {"first_audio","ollama_first_token","ollama_load","ollama_prompt","ollama_generate","ollama_warmup"}
         if name=="camera_transfer": stages=stages | IMAGE_STAGES
         if name=="voice_progress": stages |= {"connecting", "recording", "providers", "playback"}
-        reasons={"timeout","unavailable","device_proof"}
+        reasons={"timeout","unavailable","device_proof","address_not_local"}
         if name=="vision_description":
             from .vision_provider import VISION_REASONS
             reasons |= VISION_REASONS

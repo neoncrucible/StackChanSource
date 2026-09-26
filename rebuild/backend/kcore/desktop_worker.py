@@ -323,6 +323,15 @@ class DesktopController:
                 self.emit("thinking_check", {"provider": "ollama", "state": "ready", "elapsed_ms": elapsed})
                 return {"passed": True, "elapsed_ms": elapsed,
                         "message": f"Ollama generated a valid Kadence reply in {elapsed/1000:.1f}s. Start the server and try a voice turn."}
+        if action in {"audio_network_check", "audio_network_allow", "audio_link_test"}:
+            if args: raise ValueError("Audio checks take no arguments.")
+            if not self.app: raise RuntimeError("Start the server before checking robot audio.")
+            app = self.app
+            if action == "audio_link_test": return await app.test_audio_link()
+            if action == "audio_network_allow":
+                from .audio_network import allow_windows_audio
+                await allow_windows_audio()
+            return await app.check_audio_network()
         if action == "speech_check":
             if set(args)-{"local"} or type(args.get("local", False)) is not bool:
                 raise ValueError("Invalid speech check options.")

@@ -33,6 +33,7 @@ from .device_control import request_device
 from .vision import DeskVision, read_media_auth, read_image
 from .voice_wire import _synthesize_reply
 from .voice_providers import LiveVoiceProviders
+from .audio_network import AudioAddressUnavailable, address_is_local, inspect_windows, network_report, select_address
 
 
 DEFAULT_PORT = "COM4"
@@ -120,6 +121,9 @@ class KadenceAppliance:
         self._reconnect_requested = asyncio.Event()
         self._last_voice_recovery = -float("inf")
         self._recovering_voice = False
+        self._network_snapshot = {"interfaces": []}
+        self._network_check_task = None
+        self._network_check_lock = asyncio.Lock()
 
     def _report_issue(self, stage: str, error: Exception) -> None:
         # Status crosses the GUI boundary; arbitrary exception text never does.
@@ -129,6 +133,8 @@ class KadenceAppliance:
                         error_code=error.error_code, wifi_reason=error.wifi_reason)
         if isinstance(error, VoiceStageTimeout):
             data["voice_stage"] = error.stage
+        if isinstance(error, AudioAddressUnavailable):
+            data["reason"] = "address_not_local"
         if stage == "providers" and self._provider_stage in {"stt", "reasoning", "tts", "tts_connect", "tts_audio", "tts_decode", "tts_fallback", "tts_local_input", "tts_local_load", "tts_local_render", "tts_ready"}:
             data["provider_stage"] = self._provider_stage
         self.emit("runtime_issue", data)
@@ -136,6 +142,7 @@ class KadenceAppliance:
     async def run_forever(self) -> None:
         await self._start_companion()
         await self._start_voice_server()
+        self._schedule_network_check()
         if self.settings.providers.thinker_provider == "ollama":
             self._warmup_task = asyncio.create_task(self._warm_thinker(), name="kadence-ollama-warmup")
         if self.services:
@@ -227,6 +234,10 @@ class KadenceAppliance:
 
     async def close(self) -> None:
         self._stop.set()
+        if self._network_check_task is not None:
+            self._network_check_task.cancel()
+            await asyncio.gather(self._network_check_task, return_exceptions=True)
+            self._network_check_task = None
         if self._warmup_task is not None:
             self._warmup_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -359,15 +370,23 @@ class KadenceAppliance:
         self._media_result = None
         self.emit("activity", {"state": self._media_mode})
         try:
-            await request_device(body.host, name, {"ssid": self.settings.ssid, "password": self.settings.password,
+            self._prepare_audio_endpoint()
+            command = request_device(body.host, name, {"ssid": self.settings.ssid, "password": self.settings.password,
                 "host": self.settings.lan_host, "port": self._server_port, "capture_ms": self.settings.capture_ms,
                 "token": self._turn_token}, timeout=45 if name == "camera.snapshot" else 190)
+            if name == "voice.alert":
+                self._voice_failed = False
+                self._set_voice_stage("connecting", VOICE_CONNECT_TIMEOUT)
+                await self._await_voice_command(command)
+            else:
+                await command
             if self._media_result is None: raise RuntimeError("media transfer was not confirmed")
             if name == "voice.alert": await self._windows_audio.finish()
             return self._media_result
         except BaseException as exc:
             if isinstance(exc, Exception): self._report_issue(self._media_mode, exc)
             with contextlib.suppress(Exception): await body.send_voice_cancel(timeout=3)
+            if isinstance(exc, Exception): self._network_failure(exc)
             raise
         finally:
             self._windows_audio.stop()
@@ -375,6 +394,75 @@ class KadenceAppliance:
             await self._close_connections()
             self._media_mode = "voice"
             self.emit("activity", {"state": "idle"})
+
+    async def test_audio_link(self):
+        """Explicit local chime through the authenticated robot media path."""
+        body = self._body
+        if body is None or not body.connected:
+            raise RuntimeError("Connect the robot before testing audio.")
+        if self._voice_task is not None and not self._voice_task.done():
+            raise RuntimeError("Wait for the active task or cancel it before testing audio.")
+        async def check():
+            started = time.monotonic()
+            self.emit("audio_link_test", {"state": "testing"})
+            try:
+                if self.perception: await self.perception.interrupt()
+                # Two short tapered tones; no microphone, provider or history.
+                self._alert_pcm = b"".join(struct.pack("<h", int(1800 *
+                    min(1, (i % 8000) / 160, max(0, (6400 - i % 8000) / 160)) *
+                    math.sin(i * 2 * math.pi * (660 if i < 8000 else 880) / 16000)))
+                    for i in range(16000))
+                await self._run_media(body, "voice.alert")
+                data = {"state": "passed", "elapsed_ms": round((time.monotonic()-started)*1000)}
+                self.emit("audio_link_test", data)
+                return {**data, "message": "Robot confirmed audio transfer and playback. Two tones were sent to the selected output. Tap once, wait for the recording cue, then ask a question to check the microphone and voice services."}
+            except asyncio.CancelledError:
+                self.emit("audio_link_test", {"state": "cancelled"})
+                raise
+            except Exception as exc:
+                self.emit("audio_link_test", {"state": "failed"})
+                if isinstance(exc, VoiceTurnFailure) and exc.stage == "tcp-connect":
+                    raise RuntimeError("The robot could not reach this PC for audio. Run Check Network, then Allow Robot Audio if indicated.") from None
+                if isinstance(exc, AudioAddressUnavailable):
+                    raise RuntimeError("The PC audio address is no longer assigned here. Check Network and select the current LAN address.") from None
+                raise RuntimeError("Audio playback was not confirmed. Check Network and the voice status; the microphone was not used.") from None
+            finally:
+                self._alert_pcm = b""
+        self._voice_task = asyncio.create_task(check(), name="kadence-audio-link-test")
+        self._voice_task.add_done_callback(self._voice_task_done)
+        return await self._voice_task
+
+    def _prepare_audio_endpoint(self, *, validate=True):
+        if self.settings.lan_auto:
+            default = _local_lan_ipv4()
+            selected = default if os.environ.get("KADENCE_LAN_HOST", "").strip() else select_address(
+                default, self._network_snapshot.get("interfaces", []), self.settings.ssid)
+            self.settings = replace(self.settings, lan_host=selected)
+        self.emit("voice_endpoint", {"host": self.settings.lan_host, "port": self._server_port})
+        if validate and not address_is_local(self.settings.lan_host):
+            raise AudioAddressUnavailable("Selected audio address is not assigned to this PC")
+
+    async def check_audio_network(self):
+        async with self._network_check_lock:
+            self._network_snapshot = await inspect_windows()
+            if self._voice_task is None or self._voice_task.done():
+                with contextlib.suppress(OSError, RuntimeError): self._prepare_audio_endpoint(validate=False)
+            report = network_report(self._network_snapshot, self.settings.lan_host, self._server_port,
+                automatic=self.settings.lan_auto, listening=self._server is not None and self._server.is_serving())
+            self.emit("audio_network", report)
+            return report
+
+    def _schedule_network_check(self):
+        if not self._stop.is_set() and (self._network_check_task is None or self._network_check_task.done()):
+            self._network_check_task = asyncio.create_task(self.check_audio_network(), name="kadence-audio-network-check")
+
+    def _network_failure(self, exc):
+        failed = (isinstance(exc, AudioAddressUnavailable) or isinstance(exc, VoiceTurnFailure)
+                  and exc.stage in {"tcp-connect", "socket", "host-address"})
+        if failed:
+            self.emit("voice_recovery", {"state": "network_required"})
+            self._schedule_network_check()
+        return failed
 
     async def capture_unitv2_snapshot(self, address):
         return await self.capture_camera(source="unitv2-camera", address=address)
@@ -562,10 +650,10 @@ class KadenceAppliance:
         self._provider_stage = None
         self._voice_failed = False
         self._set_voice_stage("connecting", VOICE_CONNECT_TIMEOUT)
+        issued = False
         try:
-            if self.settings.lan_auto:
-                self.settings = replace(self.settings, lan_host=_local_lan_ipv4())
-                self.emit("voice_endpoint", {"host":self.settings.lan_host,"port":self._server_port})
+            self._prepare_audio_endpoint()
+            issued = True
             ack = await self._await_voice_command(body.send_voice_turn(
                 ssid=self.settings.ssid,
                 password=self.settings.password,
@@ -588,7 +676,7 @@ class KadenceAppliance:
             self._wire_result = None
             if self._companion:
                 self._companion.abort_turn()
-            released = isinstance(exc, VoiceTurnFailure) and exc.torque_released
+            released = not issued or isinstance(exc, VoiceTurnFailure) and exc.torque_released
             if not released:
                 try:
                     cancelled = await body.send_voice_cancel(timeout=3.0)
@@ -596,11 +684,13 @@ class KadenceAppliance:
                 except Exception:
                     pass
             if isinstance(exc, VoiceTurnFailure) and exc.cancelled:
+                self.emit("voice_result", {"state": "cancelled"})
                 print("KADENCE_RUNTIME TURN cancelled torque=released")
                 return
             self._report_issue("voice", exc)
+            self._network_failure(exc)
             network_failed = isinstance(exc, VoiceTurnFailure) and exc.stage in {
-                "tcp-connect", "socket", "wifi-ready", "wifi-stop-timeout", "wifi-connect", "wifi-start"}
+                "wifi-ready", "wifi-stop-timeout", "wifi-connect", "wifi-start"}
             device_stalled = isinstance(exc, VoiceStageTimeout) and exc.stage != "providers"
             if network_failed or device_stalled or not released:
                 self._recover_voice_connection(body)
@@ -686,6 +776,7 @@ class KadenceAppliance:
             # Retire the original wait after the device confirmed cancellation.
             # A dropped final voice ACK must not hold the UI busy for 210 seconds.
             await self._cancel_active_voice_task()
+            self.emit("voice_result", {"state": "cancelled"})
         elif active_voice:
             self._recover_voice_connection(body)
 
@@ -796,6 +887,7 @@ class KadenceAppliance:
                     if self._turn_token != token or self._body is not body or not body.connected: return
                     self._wire_claimed = True
                     if mode == "alert":
+                        self._set_voice_stage("playback", len(self._alert_pcm) / 32000 + 10)
                         await self._send_speech(writer, self._alert_pcm)
                         self._media_result = True
                     else:

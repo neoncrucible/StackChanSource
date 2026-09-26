@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.4.10'
+HOST_VERSION='0.4.11'
 
 
 def archive_package(output: Path):
@@ -41,6 +41,7 @@ def host_package(desktop: Path, commit: str, output: Path):
     shutil.copyfile(ROOT/'rebuild'/'docs'/'UNITV2_LIFECYCLE.md',output/'UNITV2-START-STOP.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'PRODUCTION_HARDENING_0_4_9.md',output/'PRODUCTION-HARDENING.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'LIVE_FACE_TRAINING_0_4_10.md',output/'LIVE-FACE-TRAINING.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'VOICE_CONNECTION_0_4_11.md',output/'VOICE-CONNECTION.txt')
     shutil.copytree(ROOT/'rebuild'/'unitv2',output/'UnitV2',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
@@ -105,6 +106,7 @@ def build(commit: str, firmware: Path | None = None):
         '--runtime-hook',str(ROOT/'rebuild'/'tools'/'pyi_rth_cv2.py'),
         '--hidden-import','_cffi_backend',
         '--add-data',str(model_dir)+os.pathsep+'face_models',
+        '--add-data',str(ROOT/'rebuild'/'backend'/'kcore'/'audio_network.ps1')+os.pathsep+'kcore',
         '--add-data',str(work/'BUILD.json')+os.pathsep+'.',str(entry)],cwd=ROOT,check=True)
     desktop=work/'app'/'Kadence'
     notices=desktop/'ThirdParty'; notices.mkdir(exist_ok=True)

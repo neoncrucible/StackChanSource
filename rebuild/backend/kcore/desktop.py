@@ -3,6 +3,12 @@ import sys
 
 
 def main():
+    if "--audio-network-check" in sys.argv:
+        from .audio_network import _powershell
+        import asyncio, json
+        # Read-only construction of a real Windows rule; no administrator prompt.
+        print(json.dumps(asyncio.run(_powershell("Validate"))))
+        return 0
     if "--unitv2-setup" in sys.argv:
         from .unitv2_setup import main as setup
         index = sys.argv.index("--unitv2-setup")

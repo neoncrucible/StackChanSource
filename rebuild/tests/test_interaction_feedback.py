@@ -48,6 +48,8 @@ class FeedbackTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancel_confirmation_retires_missing_final_voice_ack(self):
         app=self.app()
+        from dataclasses import replace
+        app.settings=replace(app.settings,lan_host="127.0.0.1")
         app._server_port=12345
         host=HostServer(RuntimeConfig("127.0.0.1",0,5,15))
         host._active_writer=object(); host._active_session=Session("test",True)

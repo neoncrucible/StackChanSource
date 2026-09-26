@@ -1,22 +1,25 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.10 — guided live face training and movement-tolerant recognition.
+Current update: 0.4.11 — robot audio connection checks and Windows access repair.
 Firmware remains 0.21.6; no flash. The accepted 0.4.3 voice transport and output
 pipeline are retained. This update includes the 0.4.6 UnitV2 setup permission repair.
 An already working paired UnitV2 service does not need reinstalling.
 
 Scene descriptions in 0.4.9 are physically accepted by the owner.
-For this update, select Vision → Profiles → your profile → REPLACE SAMPLES.
-Follow the live preview through five views until all 20 samples save, then use
-LIVE RECOGNITION CHECK while turning and at your normal seated distance.
-Enable Automatic Perception and Greetings for automatic spoken greetings.
-Read LIVE-FACE-TRAINING.txt for the changes, evidence and limits.
+For this update, START SERVER, then use Overview → CHECK NETWORK.
+If an allowance is missing, select ALLOW ROBOT AUDIO and approve the Windows
+administrator prompt. The allowance covers this executable on Private local
+networks only. TEST AUDIO LINK plays two tones without recording or calling AI.
+After it passes, tap once, wait for the recording cue, then ask a question.
+Read VOICE-CONNECTION.txt for exact behavior and remaining network checks.
+Live face enrollment/greetings remain unaccepted: the latest training attempt
+did not save a profile. This voice repair does not claim to resolve that issue.
 
 Vision → Camera starts with LOOK & DESCRIBE: one fresh image, with the actual
 view and description side by side. The outdated Gemini response parser is fixed.
 Errors distinguish credentials, quota, timeout and missing/invalid descriptions.
-Voice failures release the old turn, recover a stalled robot connection with a
-cooldown and wait for your next touch. No failed question is automatically replayed.
+Voice failures release the old turn. TCP access failures show network guidance;
+Wi-Fi/device stalls retain bounded supervisor recovery. No question is replayed.
 Ambient presence no longer claims to be preparing audio. Overview shows the
 active audio endpoint, cancellation and the last voice/recovery result.
 Read PRODUCTION-HARDENING.txt for the evidence, limits and short acceptance check.

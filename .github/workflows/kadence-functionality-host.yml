@@ -51,7 +51,7 @@ jobs:
       - name: Autonomous perception, rate limits and visit semantics
         run: python -m pytest rebuild/tests/test_autonomous_perception.py -q
       - name: Voice completion and recovery regression
-        run: python -m pytest rebuild/tests/test_appliance_candidate.py rebuild/tests/test_voice_failures.py rebuild/tests/test_voice_recovery.py rebuild/tests/test_database_shutdown.py rebuild/tests/test_interaction_feedback.py rebuild/tests/test_rc2_media.py rebuild/tests/test_provider_selection.py rebuild/tests/test_ollama_models.py rebuild/tests/test_thinking.py rebuild/tests/test_phase_b.py rebuild/tests/test_desktop.py rebuild/tests/test_desktop_installer.py -q
+        run: python -m pytest rebuild/tests/test_appliance_candidate.py rebuild/tests/test_voice_failures.py rebuild/tests/test_voice_recovery.py rebuild/tests/test_audio_network.py rebuild/tests/test_database_shutdown.py rebuild/tests/test_interaction_feedback.py rebuild/tests/test_rc2_media.py rebuild/tests/test_provider_selection.py rebuild/tests/test_ollama_models.py rebuild/tests/test_thinking.py rebuild/tests/test_phase_b.py rebuild/tests/test_desktop.py rebuild/tests/test_desktop_installer.py -q
       - name: Runtime ownership and alignment gate
         run: python rebuild/tools/phase_a4_gate.py
       - name: Streaming speech, cancellation and latency regression
