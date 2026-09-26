@@ -7,7 +7,7 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
-### Current release work — live recognition, host 0.4.10
+### Released — live recognition, host 0.4.10
 
 The owner now confirms “what can you see, with description works flawlessly.”
 Record scene descriptions as physically accepted. The owner's live recognition
@@ -50,8 +50,30 @@ controls stayed unrecognized. This is a small regression fixture, not a deployme
 accuracy claim. The actual Windows executable must pass the same replay.
 See LIVE_FACE_TRAINING_0_4_10.md for controls, limits, sources and acceptance.
 Local verification: 321 tests passed, 119 subtests passed, three expected Windows-only skips.
-The runtime ownership/alignment gate passed. Windows release evidence and download
-are pending the build below.
+The runtime ownership/alignment gate passed. Windows release evidence:
+
+- Runtime source: `cde2a47ff45792eda9c1e81f00ee412d4fcb416b`.
+- Windows run **36269318743**, job **108480108003**, conclusion **success**.
+- **251 tests / 81 subtests**: camera/perception 125/26, reflex 22, autonomous 18,
+  voice/recovery 65/41, speech 21/14. Ownership/alignment gate passed.
+- Actual executable: 770 video frames decoded, 17 training views, 16 held-out
+  views, 16 matches versus 14 with three frontal prototypes, two different-person
+  controls rejected and four dim views usable. Native loader output is separated
+  from a tagged replay result; earlier untagged console parsing failed the gate.
+- Frozen speech generated 119360 PCM bytes; streaming decode emitted audio before
+  EOF. Modern scene-description parser, models, profile/photo/delete/backup/IPC
+  and clean shutdown checks passed. No live provider keys or physical robot here.
+- Download (182563820 bytes):
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36269318743/artifacts/10914857905
+- Artifact SHA256:
+  `ae1cec5abee806c4df457ee53cf1f03443e5044020f2c53e29a203d6f9434c18`.
+
+Install using the existing shortcut/installer workflow, verify **0.4.10**, then
+select the saved profile → REPLACE SAMPLES. Complete the five-view live guidance
+until 20 samples save, run LIVE RECOGNITION CHECK while turning/sitting normally,
+then use TEST AUTOMATIC EVENT with Automatic Perception and Greetings enabled.
+No firmware flash or UnitV2 service reinstall. Do not manufacture recognition or
+greeting hardware sign-off from the replay: normal-use acceptance remains open.
 
 ### Released — descriptions and recovery, host 0.4.9
 
