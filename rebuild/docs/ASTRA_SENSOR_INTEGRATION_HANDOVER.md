@@ -43,10 +43,33 @@ no automatic frames are retained. Photos, embeddings and names remain excluded
 from diagnostic export. The accepted voice transport/output and UnitV2 service
 are unchanged. No firmware flash or SQL migration is required for this package.
 
-Local regression: 291 passed / 103 subtests, four expected platform/model skips.
-Windows packaging and the final release link are pending at this checkpoint.
-The frozen gate now verifies a large three-photo response and actual photo deletion.
-Physical face matching, greetings and recovery still require the owner's device.
+### Verified 0.4.8 release evidence — 26 September 2026
+
+Runtime commit: `1bd1bddd88c24411e8f512ef357df499dbf1f92e`.
+Windows run `36259629029`, job `108452847019`, completed successfully:
+**219 tests / 65 subtests**, runtime ownership/alignment gate and packaged
+executable checks. Frozen verification includes real model inference, large
+three-photo IPC response, profile/photo deletion, SQLite backup, camera voice
+status, activity reads, streamed decoding, installed local speech and clean exit.
+Online speech generation is not exercised by that frozen gate.
+Local full suite: **291 passed / 103 subtests**, four expected platform/model skips.
+The gallery and Face check were visually inspected at 1160x800 and 980x690;
+results remain above the complete image at minimum size. The photo checkbox and
+Replace Samples controls remain visible without expanding an empty gallery.
+
+Download (182525325 bytes):
+https://github.com/neoncrucible/StackChanSource/actions/runs/36259629029/artifacts/10911738089
+Uploaded artifact SHA256:
+`e4128448e1a42b4f6c0fe481c31f65674a55d58ac38ca9478e84cb671377557e`.
+
+Quit Kadence including its tray instance, extract the full download, run
+`Install-Kadence.cmd`, reopen the normal shortcut and verify 0.4.8. No UnitV2
+service reinstall, SQL migration or firmware flash is required. To add photos to
+an existing profile: select it, check Keep 3 local review photos, Replace Samples.
+Then use Test & Preview to inspect the actual selected camera and matching result.
+Hardware face matching, greetings and recovery still require the owner's device.
+The firmware I2C crash remains unresolved; do not claim the host package prevents
+reboots. Any recurrence should be investigated from the verified symbol record.
 
 ### Authorized full console / voice update — host 0.4.7
 
