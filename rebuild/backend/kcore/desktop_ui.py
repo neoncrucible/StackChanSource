@@ -378,7 +378,7 @@ class MainWindow(QMainWindow):
         profiles=tab("Profiles")
         self.profile_summary=label("Loading saved profiles…","status"); profiles.addWidget(self.profile_summary)
         self.profiles_table=table(["Name","Samples","Recognition","Greeting","Samples saved"])
-        self.profiles_table.setFixedHeight(132)
+        self.profiles_table.setFixedHeight(110)
         self.profiles_table.itemSelectionChanged.connect(self.select_profile); profiles.addWidget(self.profiles_table)
         self.face_profiles=QComboBox(); self.face_profiles.hide()  # Stable selected-ID adapter.
         self.profile_rows=[]
@@ -386,17 +386,29 @@ class MainWindow(QMainWindow):
         self.profile_recognition=QCheckBox("Recognise"); self.profile_greeting=QCheckBox("Greet")
         profiles.addWidget(row(self.profile_name,self.profile_recognition,self.profile_greeting))
         profiles.addWidget(row(button("SAVE PROFILE",self.update_profile),button("REPLACE SAMPLES",self.replace_face),button("DELETE",self.forget_face),button("REFRESH",self.refresh_faces)))
+        self.photo_status=label("Select a profile to review its saved photos.","muted"); profiles.addWidget(self.photo_status)
+        gallery=QWidget(); gallery_row=QHBoxLayout(gallery); gallery_row.setContentsMargins(0,0,0,0)
+        self.profile_photo_labels=[]; self.profile_photo_captions=[]
+        for _ in range(3):
+            card=QWidget(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(0,0,0,0)
+            photo=label("NO REVIEW PHOTO","muted"); photo.setAlignment(Qt.AlignCenter); photo.setFixedHeight(120); photo.setMinimumWidth(120)
+            photo.setStyleSheet("border: 1px solid #293c2f;"); card_layout.addWidget(photo)
+            caption=label("","muted"); caption.setAlignment(Qt.AlignCenter); card_layout.addWidget(caption)
+            gallery_row.addWidget(card,1); self.profile_photo_labels.append(photo); self.profile_photo_captions.append(caption)
+        self.profile_gallery=gallery; gallery.hide(); profiles.addWidget(gallery)
         self.face_name=line("New profile name · one person in view",80)
         self.enroll_button=button("ENROLL 3 SAMPLES",self.enroll_face,primary=True)
         profiles.addWidget(row(self.face_name,self.enroll_button))
+        self.keep_face_photos=QCheckBox("Keep 3 local review photos with these new samples")
+        profiles.insertWidget(3,self.keep_face_photos)
         self.enrollment_progress=QProgressBar(); self.enrollment_progress.setRange(0,3); self.enrollment_progress.setValue(0); self.enrollment_progress.setFormat("%v / 3 samples accepted")
         profiles.addWidget(self.enrollment_progress)
-        self.enrollment_result=label("Face the selected camera in good light. Enrollment saves local face samples, not photographs.","muted"); profiles.addWidget(self.enrollment_result)
+        self.enrollment_result=label("Face the selected camera. Review photos are optional; existing samples cannot be converted back into photographs.","muted"); profiles.addWidget(self.enrollment_result)
         self.enrollment_result.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        profiles.addWidget(row(button("TEST RECOGNITION",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel")),button("BACK UP DATABASE",self.backup_database)))
+        profiles.addWidget(row(button("TEST & PREVIEW",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel")),button("BACK UP DATABASE",self.backup_database)))
         self.profile_test_result=label("Recognition has not been tested.","status"); profiles.addWidget(self.profile_test_result)
         self.database_location=label("Database: loading…","muted"); self.database_location.setTextInteractionFlags(Qt.TextSelectableByMouse); profiles.addWidget(self.database_location)
-        profiles.addWidget(label("These are Kadence's local profiles. Factory UnitV2 face-tracking profiles are separate. Deleting here removes current samples and names; existing backups retain their copies.","muted")); profiles.addStretch()
+        profiles.addWidget(label("Kadence compares numerical face embeddings, not percentages of facial dimensions. Factory UnitV2 profiles are separate. Delete removes current samples, review photos and names. Existing backups retain their copies.","muted")); profiles.addStretch()
         activity=tab("Activity")
         self.reflex_state=label("Waiting for sensor evidence.","muted"); self.reflex_counts=label("Proposals 0 · background 0 · cooldowns 0","muted")
         activity.addWidget(self.reflex_state); activity.addWidget(self.reflex_counts)
@@ -405,6 +417,13 @@ class MainWindow(QMainWindow):
         activity.addWidget(row(label("RECENT SAVED ACTIVITY","status"),button("REFRESH HISTORY",self.refresh_vision_activity)))
         self.vision_history=QPlainTextEdit(); self.vision_history.setReadOnly(True); self.vision_history.setMinimumHeight(130); self.vision_history.document().setMaximumBlockCount(90); activity.addWidget(self.vision_history,1)
         activity.addWidget(label("Recent history shows status metadata. Automatic images are discarded after local analysis.","muted"))
+        face_check=tab("Face check")
+        face_check.addWidget(row(button("TEST RECOGNITION",lambda:self.run_vision_test("recognition_test"),primary=True),button("CANCEL",lambda:self.control.send("media_cancel")),button("CLEAR PREVIEW",lambda:self.control.send("face_preview_clear"))))
+        self.face_check_status=label("Run a test to see the actual camera frame and detection result.","status"); face_check.addWidget(self.face_check_status)
+        self.face_check_preview=label("NO FACE CHECK IMAGE","muted"); self.face_check_preview.setAlignment(Qt.AlignCenter); self.face_check_preview.setMinimumHeight(240); self.face_check_preview.setMaximumHeight(320)
+        self.face_check_preview.setStyleSheet("border: 1px solid #293c2f;"); face_check.addWidget(self.face_check_preview)
+        self.face_check_result=label("Recognition has not been tested.","status"); self.face_check_result.setTextInteractionFlags(Qt.TextSelectableByMouse); face_check.addWidget(self.face_check_result)
+        face_check.addWidget(label("This is the last explicit enrollment/test frame, not a live stream. Green boxes mark usable faces. Small or blurred faces are reported separately. Similarity is a score, not a percentage probability. Test images are temporary; only the enrollment checkbox saves review photos.","muted")); face_check.addStretch()
         self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
 
@@ -455,8 +474,10 @@ class MainWindow(QMainWindow):
             values=(person["display_name"],f"{person.get('compatible_samples',0)} / {person.get('samples',0)} compatible","On" if person.get("recognition_enabled") else "Off","On" if person.get("greeting_enabled") else "Off",stamp)
             for col,value in enumerate(values): self.profiles_table.setItem(index,col,QTableWidgetItem(value))
         self.profiles_table.blockSignals(False)
-        if self.profile_rows: self.profiles_table.selectRow(selected); self.select_profile()
-        else: self.profile_name.clear(); self.face_profiles.setCurrentIndex(-1)
+        if self.profile_rows:
+            self.profiles_table.blockSignals(True); self.profiles_table.selectRow(selected); self.profiles_table.blockSignals(False); self.select_profile()
+        else:
+            self.profile_name.clear(); self.face_profiles.setCurrentIndex(-1); self.clear_profile_photos()
         self.profile_summary.setText(f"{len(self.profile_rows)} saved profile(s) · {sum(p.get('compatible_samples',0) for p in self.profile_rows)} compatible face samples")
         if result.get("database"): self.database_location.setText("SQLite database: " + result["database"])
         if result.get("message") and result["message"]!="Local face profiles loaded.": self.enrollment_result.setText(result["message"])
@@ -468,6 +489,38 @@ class MainWindow(QMainWindow):
         self.profile_name.setText(person["display_name"])
         self.profile_recognition.setChecked(bool(person.get("recognition_enabled")))
         self.profile_greeting.setChecked(bool(person.get("greeting_enabled")))
+        self.clear_profile_photos()
+        if not person.get("photo_count"):
+            self.photo_status.setText("No photos were retained. Check ‘Keep 3 local review photos’ and Replace Samples to add them.")
+            return
+        self.photo_status.setText("Loading saved review photos…")
+        self.profile_gallery.show()
+        self.control.send("face_photos",{"person_id":person["id"]},lambda response:self.show_profile_photos(person["id"],response))
+
+    def clear_profile_photos(self):
+        self.profile_gallery.hide()
+        for photo,caption in zip(self.profile_photo_labels,self.profile_photo_captions):
+            photo.clear(); photo.setText("NO REVIEW PHOTO"); caption.clear()
+        self.photo_status.setText("No saved review photos to display.")
+
+    def show_profile_photos(self,person,response):
+        if person != self.face_profiles.currentData(): return
+        self.clear_profile_photos()
+        if not response.get("ok"):
+            self.photo_status.setText(response.get("message","Could not load review photos.")); return
+        photos=response.get("result",{}).get("photos",[])[:3]
+        self.profile_gallery.setVisible(bool(photos))
+        shown=0
+        for index,item in enumerate(photos):
+            pixmap=QPixmap()
+            if item.get("png_base64"):
+                pixmap.loadFromData(base64.b64decode(item["png_base64"],validate=True),"PNG")
+            if not pixmap.isNull():
+                self.profile_photo_labels[index].setPixmap(pixmap.scaled(180,116,Qt.KeepAspectRatio,Qt.SmoothTransformation)); shown+=1
+            else: self.profile_photo_labels[index].setText("PHOTO UNAVAILABLE")
+            stamp=datetime.fromtimestamp(item["captured"]).strftime("%d %b %H:%M")
+            self.profile_photo_captions[index].setText(f"{item['source']} · {stamp}")
+        self.photo_status.setText(f"{shown} saved local review photo(s) · enrollment references, not live images.")
 
     def update_profile(self):
         person=self.face_profiles.currentData()
@@ -491,14 +544,14 @@ class MainWindow(QMainWindow):
             if response.get("ok"): self.enrollment_progress.setValue(3)
         def configured(response):
             if not response.get("ok"): finished(response); return
-            args={"name":name}
+            args={"name":name,"keep_photos":self.keep_face_photos.isChecked()}
             if person: args["person_id"]=person
             self.control.send("face_enroll",args,finished)
         self.control.send("camera_settings",self.camera_policy_values(),configured)
 
     def forget_face(self):
         person=self.face_profiles.currentData()
-        if person and QMessageBox.question(self,"Delete local face profile", "Delete this person's current local face samples and name? Existing database backups retain their copies.") == QMessageBox.Yes:
+        if person and QMessageBox.question(self,"Delete local face profile", "Delete this person's current face samples, local review photos and name? Existing backups retain their copies.") == QMessageBox.Yes:
             self.control.send("face_forget",{"person_id":person},self.faces_result)
 
     def toggle_perception(self,checked):
@@ -509,8 +562,11 @@ class MainWindow(QMainWindow):
         def finished(response):
             message=response.get("result",{}).get("message","Test finished.") if response.get("ok") else response.get("message","Test failed.")
             self.perception_test_result.setText(message); self.profile_test_result.setText(message)
+            if action=="recognition_test": self.face_check_result.setText(message)
             self.refresh_vision_activity()
         self.perception_test_result.setText("Test running…"); self.profile_test_result.setText("Test running…")
+        if action=="recognition_test":
+            self.face_check_result.setText("Checking two fresh frames locally…"); self.vision_tabs.setCurrentIndex(4)
         def configured(response):
             if response.get("ok"): self.control.send(action,{},finished)
             else: finished(response)
@@ -826,7 +882,18 @@ class MainWindow(QMainWindow):
         self.control.send("device.settings",values)
 
     def on_event(self,name,data):
-        if name=="camera_settings":
+        if name=="face_preview":
+            self.face_check_preview.clear()
+            encoded=data.get("png_base64")
+            if encoded:
+                pixmap=QPixmap(); pixmap.loadFromData(base64.b64decode(encoded,validate=True),"PNG")
+                self.face_check_preview.setPixmap(pixmap.scaled(400,300,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+                stamp=datetime.fromtimestamp(data["captured_at"]).strftime("%H:%M:%S")
+                self.face_check_status.setText(f"{data['source']} · captured {stamp} · {data.get('message','')}")
+            else:
+                self.face_check_preview.setText("NO FACE CHECK IMAGE")
+                self.face_check_status.setText(data.get("message","Temporary face preview cleared."))
+        elif name=="camera_settings":
             self.camera_policy.setCurrentIndex(max(0,self.camera_policy.findData(data.get("policy"))))
             self.camera_privacy.setChecked(data.get("privacy") is True)
             self.camera_source.setCurrentIndex(max(0,self.camera_source.findData(data.get("source"))))
@@ -870,6 +937,7 @@ class MainWindow(QMainWindow):
             if state in {"accepted","saved"}: self.enrollment_progress.setValue(sample)
             text=data.get("message") or f"Sample {sample}/3 · {'accepted' if state=='accepted' else 'capturing'}. Keep one face in view."
             self.enrollment_result.setText(text)
+            if data.get("source"): self.enrollment_result.setText(text + " Camera: " + data["source"])
             if state in {"saved","failed"}: self.enroll_button.setEnabled(True); self.refresh_faces()
         elif name=="vision_activity":
             self.reflex_log.appendPlainText(datetime.now().strftime("%H:%M:%S") + "  " + data.get("kind","vision").upper() + "  " + data.get("message","") + (" · " + data["source"] if data.get("source") else ""))

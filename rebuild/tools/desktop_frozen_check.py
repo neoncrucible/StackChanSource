@@ -64,6 +64,20 @@ def check(executable, expected_commit, *, offline=False):
             assert camera['ok'] and camera['result']['ok'] and 'Privacy is on' in camera['result']['data']['spoken'],camera
             send(12,'vision_activity',{}); history=until('result',12)
             assert history['ok'] and history['result']['items']==[],history
+            # Exercise photo reads/deletion through the actual frozen worker,
+            # including the largest ordinary RGB PNG gallery wire payload.
+            import base64, io
+            from PIL import Image
+            from kcore.perception_store import PerceptionStore
+            photo=io.BytesIO();Image.frombytes('RGB',(256,256),os.urandom(256*256*3)).save(photo,format='PNG')
+            store=PerceptionStore(Path(tmp)/'database'/'kadence.sqlite3')
+            person=store.call('enroll',name='Frozen photo fixture',vectors=[(1.0,)+(0.0,)*127]*3,
+                references=[{'png':photo.getvalue(),'source':'unitv2-camera','captured':1700000000.0}]*3)
+            send(13,'face_photos',{'person_id':person}); photos=until('result',13)
+            assert photos['ok'] and len(photos['result']['photos'])==3
+            assert all(base64.b64decode(item['png_base64'])==photo.getvalue() for item in photos['result']['photos'])
+            send(14,'face_forget',{'person_id':person}); assert until('result',14)['ok']
+            assert not list((Path(tmp)/'media'/'face-profiles').glob('*.png'))
             send(6,'quit',{})
             assert until('closed')['clean'] is True
             assert process.wait(timeout=15)==0
@@ -71,7 +85,7 @@ def check(executable, expected_commit, *, offline=False):
             assert not process.stderr.read().strip()
         finally:
             if process.poll() is None: process.kill(); process.wait(timeout=5)
-    print(f'DESKTOP_FROZEN PASS private_worker=1 timezone=1 persistence=1 utilities=1 profiles=1 backup=1 camera_voice_status=1 vision_history=1 online_speech_tested={int(not offline)} local_speech_pcm=1 clean_shutdown=1')
+    print(f'DESKTOP_FROZEN PASS private_worker=1 timezone=1 persistence=1 utilities=1 profiles=1 profile_photos=1 photo_delete=1 backup=1 camera_voice_status=1 vision_history=1 online_speech_tested={int(not offline)} local_speech_pcm=1 clean_shutdown=1')
 
 
 if __name__=='__main__': check(Path(sys.argv[1]),sys.argv[2],offline='--offline' in sys.argv[3:])

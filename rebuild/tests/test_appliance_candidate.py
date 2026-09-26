@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import queue
 import struct
 import tempfile
 import threading
@@ -256,6 +257,61 @@ class ApplianceTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError): await task
         self.assertTrue(port.closed.is_set())
+
+    async def test_in_place_serial_reboot_cancels_provider_and_allows_next_touch(self):
+        # Real serial owner and voice socket. USB stays open, but the firmware
+        # resets without completing the outstanding voice.turn command.
+        loop=asyncio.get_running_loop()
+        uplinks=[]
+        class Serial:
+            closed=False
+            def __init__(self):
+                self.lines=queue.Queue();self.lines.put(b'PROBE21 status=ready\n')
+            def readline(self):
+                try:return self.lines.get(timeout=.01)
+                except queue.Empty:return b''
+            def reset_input_buffer(self):pass
+            def flush(self):pass
+            def close(self):self.closed=True
+            def write(port,raw):
+                command=Envelope.from_json(raw.decode())
+                if command.name=='voice.turn':
+                    async def uplink():
+                        reader,writer=await asyncio.open_connection('127.0.0.1',self.app._server_port)
+                        try:
+                            writer.write(struct.pack('!4sHH',b'KDV2',16000,60)+command.payload['token'].encode()+b'\0\3abc\0\0')
+                            await writer.drain();await reader.read()
+                        finally:
+                            writer.close();await writer.wait_closed()
+                    loop.call_soon_threadsafe(lambda:uplinks.append(asyncio.create_task(uplink())))
+                else:
+                    ack=Envelope(MessageKind.ACK,command.name,{'ok':True,**command.payload},request_id=command.request_id)
+                    port.lines.put((ack.to_json()+'\n').encode())
+                return len(raw)
+        port=Serial()
+        body=await RuntimeBody.open(RuntimeConfig('127.0.0.1',8765,5,15),serial_factory=lambda *a,**k:port)
+        self.app._body=body;self.adapters.hang=True
+        self.app._begin_voice_turn(body,Envelope(MessageKind.EVENT,'voice.request',{'trigger':'touch'}))
+        turn=self.app._voice_task
+        await asyncio.wait_for(self.adapters.entered.wait(),2)
+        # Exercise reset detection even after the diagnostic logging budget is used.
+        body.session._diagnostic_count=128
+        for line in ("Guru Meditation Error: Core  0 panic'ed (StoreProhibited).",'Backtrace: 0x4037b29c:0x3fce1234','Rebooting...'):
+            port.lines.put((line+'\n').encode())
+        await asyncio.wait_for(body.wait_disconnected(),1)
+        await asyncio.wait_for(turn,2)
+        await asyncio.wait_for(self.adapters.cancelled.wait(),1)
+        await asyncio.gather(*uplinks)
+        self.assertFalse(port.closed)  # The reset itself did not unplug USB.
+        self.assertIsNone(self.app._voice_task)
+        self.assertIsNone(self.app._turn_token)
+        self.assertEqual(self.app._connections,{})
+        self.assertFalse(self.app._companion.history)
+        await body.close()
+        self.device=Device(self.app);self.app._body=self.device;self.adapters.hang=False
+        self.app._begin_voice_turn(self.device,Envelope(MessageKind.EVENT,'voice.request',{'trigger':'touch'}))
+        await asyncio.wait_for(self.app._voice_task,2)
+        self.assertEqual(len(self.app._companion.history),1)
 
 
 if __name__ == "__main__": unittest.main()

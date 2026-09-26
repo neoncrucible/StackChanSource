@@ -1,13 +1,17 @@
 """Typed perception persistence. Short transactions; delivery always outside SQLite."""
 from __future__ import annotations
-from contextlib import closing
+from contextlib import closing, nullcontext
 import json
 import math
 import sqlite3
 import time
+import threading
 import uuid
 from .local_faces import FINGERPRINT, PREPROCESSING, encode, decode
 from .storage import connect_database
+from .face_media import ProfilePhotos
+
+_media_lock = threading.RLock()
 
 
 def ident(): return str(uuid.uuid4())
@@ -17,16 +21,32 @@ def check_id(value):
 
 
 class PerceptionStore:
-    def __init__(self, database): self.database = database
+    def __init__(self, database):
+        self.database = database
+        self.photos = ProfilePhotos(database)
 
     def call(self, operation, **args):
-        allowed = {"begin", "end", "enroll", "persons", "profiles", "update_person", "activity", "forget", "observe", "expire", "event", "claim", "complete"}
+        allowed = {"begin", "end", "enroll", "persons", "photos", "profiles", "update_person", "activity", "forget", "observe", "expire", "event", "claim", "complete"}
         if operation not in allowed: raise ValueError("Unknown perception operation.")
-        with closing(connect_database(self.database, timeout=2)) as db:
+        media_operation = operation in {"enroll","forget","photos","persons"}
+        with _media_lock if media_operation else nullcontext(), closing(connect_database(self.database, timeout=2)) as db:
             db.row_factory = sqlite3.Row
-            with db:
-                db.execute("BEGIN IMMEDIATE")
-                return getattr(self, "_"+operation)(db, **args)
+            staged = []
+            try:
+                with db:
+                    db.execute("BEGIN IMMEDIATE")
+                    if operation == "enroll": args["staged"] = staged
+                    result = getattr(self, "_"+operation)(db, **args)
+            except BaseException:
+                for path in staged:
+                    try: path.unlink(missing_ok=True)
+                    except OSError: pass  # Bounded orphan cleanup retries on next profile access.
+                raise
+            if media_operation:
+                with db: cleaned = self.photos.cleanup(db)
+                if operation == "forget" and not cleaned:
+                    raise RuntimeError("Profile removed; a local review photo could not be deleted. Close programs using it and refresh Profiles to retry.")
+            return result
 
     def _begin(self, db, fingerprint):
         now = time.time()
@@ -47,11 +67,16 @@ class PerceptionStore:
     def _persons(self, db):
         rows = db.execute("""SELECT p.id,p.display_name,p.recognition_enabled,p.greeting_enabled,
             p.enrolled_at,p.updated_at,count(f.id) AS samples,
+            count(f.reference_media_id) AS photo_count,
             coalesce(sum(f.model_fingerprint=? AND f.preprocessing=? AND f.metric='cosine'
             AND f.encoding='float32-le' AND f.embedding_dimension=128),0) AS compatible_samples
             FROM persons p LEFT JOIN face_profiles f ON f.person_id=p.id AND f.active=1
             WHERE p.active=1 GROUP BY p.id ORDER BY p.display_name LIMIT 32""", (FINGERPRINT,PREPROCESSING))
         return [dict(r) for r in rows]
+
+    def _photos(self, db, person):
+        check_id(person)
+        return self.photos.read(db,person)
 
     def _update_person(self, db, person, name, recognition_enabled, greeting_enabled):
         check_id(person)
@@ -92,30 +117,33 @@ class PerceptionStore:
             except ValueError: continue
         return result
 
-    def _enroll(self, db, name, vectors, person=None):
+    def _enroll(self, db, name, vectors, person=None, references=None, staged=None):
         self._check_name(db,name,person)
         if len(vectors) != 3: raise ValueError("Enrollment requires three face samples.")
         blobs = [encode(v) for v in vectors]
+        media = self.photos.add(db,references,staged)
         now = time.time()
         if person:
             check_id(person)
             if not db.execute("SELECT 1 FROM persons WHERE id=? AND active=1",(person,)).fetchone(): raise ValueError("That profile is no longer saved.")
             # Old samples remain intact until all new samples validate in this transaction.
+            self.photos.retire(db,person)
             db.execute("DELETE FROM face_profiles WHERE person_id=?",(person,))
             db.execute("UPDATE persons SET enrolled_at=?,updated_at=? WHERE id=?",(now,now,person))
         else:
             if db.execute("SELECT count(*) FROM persons WHERE active=1").fetchone()[0] >= 32: raise ValueError("Remove an unused profile before enrolling another person.")
             person = ident()
             db.execute("INSERT INTO persons(id,display_name,greeting_name,recognition_enabled,enrolled_at,created_at,updated_at) VALUES(?,?,?,1,?,?,?)", (person,name.strip(),name.strip(),now,now,now))
-        for blob in blobs:
-            db.execute("""INSERT INTO face_profiles(id,person_id,model_fingerprint,preprocessing,metric,embedding_dimension,embedding,created_at)
-                VALUES(?,?,?,?,'cosine',128,?,?)""", (ident(),person,FINGERPRINT,PREPROCESSING,blob,now))
+        for blob,photo in zip(blobs,media,strict=True):
+            db.execute("""INSERT INTO face_profiles(id,person_id,model_fingerprint,preprocessing,metric,embedding_dimension,embedding,created_at,reference_media_id)
+                VALUES(?,?,?,?,'cosine',128,?,?,?)""", (ident(),person,FINGERPRINT,PREPROCESSING,blob,now,photo))
         return person
 
     def _forget(self, db, person):
         check_id(person)
         now = time.time()
         # Remove biometric data and names; retain anonymous relational history.
+        self.photos.retire(db,person)
         db.execute("DELETE FROM face_profiles WHERE person_id=?", (person,))
         db.execute("UPDATE persons SET active=0,recognition_enabled=0,greeting_enabled=0,display_name='Removed profile',greeting_name='',updated_at=? WHERE id=?", (now,person))
         db.execute("UPDATE presence_sessions SET ended_at=coalesce(last_visual_seen_at,checkpoint_at),end_reason='profile_removed' WHERE person_id=? AND ended_at IS NULL", (person,))

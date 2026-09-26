@@ -117,6 +117,9 @@ def test_voice_commands_are_direct_but_model_changes_need_confirmation(tmp_path)
         look.assert_awaited_once_with('What can you see?')
         await companion.respond('Use the extra camera',NoPlanner())
         assert CameraConfig.load(tmp_path).source=='unitv2-camera'
+        await companion.respond('Use the robot camera',NoPlanner())
+        await companion.respond('Switch to extra camera',NoPlanner())
+        assert CameraConfig.load(tmp_path).source=='unitv2-camera'
         reply=await companion.respond('Enable greetings',NoPlanner())
         assert 'still off' in reply
         await companion.respond('Turn privacy on',NoPlanner())

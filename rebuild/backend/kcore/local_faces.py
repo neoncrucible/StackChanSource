@@ -39,16 +39,35 @@ class Face:
     quality: float
 
 
-def match(embedding, profiles, *, threshold=.55, margin=.08):
+def match_details(embedding, profiles, *, threshold=.55, margin=.08):
     """Per-person best score; several samples of one person aren't runner-up identities."""
     scores = {}
     for person, vector in profiles:
         score = similarity(embedding, vector)
         scores[person] = max(scores.get(person, -1), score)
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    if not ranked or ranked[0][1] < threshold: return None, "unresolved"
-    if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < margin: return None, "ambiguous"
-    return ranked[0][0], "candidate"
+    score = ranked[0][1] if ranked else None
+    gap = ranked[0][1] - ranked[1][1] if len(ranked) > 1 else None
+    reason = "no_profiles" if not ranked else "below_threshold" if score < threshold else "ambiguous" if gap is not None and gap < margin else "candidate"
+    return {"person":ranked[0][0] if reason == "candidate" else None,
+            "status":"candidate" if reason == "candidate" else "ambiguous" if reason == "ambiguous" else "unresolved",
+            "reason":reason,"score":score,"gap":gap,"threshold":threshold,"margin":margin}
+
+
+def match(embedding, profiles, *, threshold=.55, margin=.08):
+    result = match_details(embedding, profiles, threshold=threshold, margin=margin)
+    return result["person"], result["status"]
+
+
+def quality_message(report):
+    """Describe measured rejection reasons, never infer lighting from no match."""
+    detected, usable = report.get("detected",0), report.get("usable",0)
+    if usable: return f"{usable} usable face(s) detected."
+    if not detected: return "No face detected. Check the preview: face the selected camera and check framing."
+    reasons = []
+    if report.get("small"): reasons.append(f"{report['small']} face(s) smaller than 40 pixels; move closer")
+    if report.get("blurred"): reasons.append(f"{report['blurred']} face(s) blurred; hold still and check focus")
+    return "No usable face: " + "; ".join(reasons) + "."
 
 
 class LocalFaces:
@@ -94,6 +113,9 @@ class LocalFaces:
         self.health = "ready"
 
     def analyze(self, png):
+        return self.analyze_details(png)[0]
+
+    def analyze_details(self, png):
         self.progress("import_cv2")
         import cv2
         import numpy as np
@@ -106,12 +128,19 @@ class LocalFaces:
             _, detections = self._detector.detect(image)
             self.progress("detected")
             faces = []
+            report = {"detected":0,"usable":0,"small":0,"blurred":0,"width":int(image.shape[1]),"height":int(image.shape[0])}
             for detection in (() if detections is None else detections[:8]):
+                report["detected"] += 1
                 x, y, w, h = (float(v) for v in detection[:4])
-                if min(w, h) < 40: continue
+                if min(w, h) < 40:
+                    report["small"] += 1
+                    continue
                 crop = self._recognizer.alignCrop(image, detection)
                 # Reject severe blur rather than producing misleading identity evidence.
-                if cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var() < 20: continue
+                if cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var() < 20:
+                    report["blurred"] += 1
+                    continue
                 vector = normalize(self._recognizer.feature(crop).reshape(-1))
                 faces.append(Face((x/image.shape[1], y/image.shape[0], w/image.shape[1], h/image.shape[0]), vector, float(detection[-1])))
-            return tuple(faces)
+            report["usable"] = len(faces)
+            return tuple(faces), report

@@ -44,7 +44,8 @@ class SerialEnvelopeWriter:
 class SerialBodySession:
     """Bind one trusted serial body endpoint to the existing HostServer lifecycle.
 
-    ESP-IDF diagnostic lines are ignored. Only complete JSON protocol envelopes
+    ESP-IDF diagnostic lines cannot acknowledge commands. A boot/reset marker
+    revokes the old session even when USB stays open. Only JSON protocol envelopes
     are dispatched into HostServer, preserving its existing correlation,
     timeout, retirement and single-command ownership rules. Device-originated
     v1 events are also queued for the appliance runtime before their normal
@@ -135,23 +136,29 @@ class SerialBodySession:
                 self._events.get_nowait()
         self._events.put_nowait(incoming)
 
-    def _observe_diagnostic(self, text: str) -> None:
+    def _observe_diagnostic(self, text: str) -> dict | None:
         # Bound driver chatter independently of the GUI journal. Diagnostics
         # must never break the serial reader or acquire protocol authority.
-        if self._diagnostic_sink is None or self._diagnostic_count >= 128:
-            return
         data = parse_device_diagnostic(text)
-        if data is not None:
+        if data is not None and self._diagnostic_sink is not None and self._diagnostic_count < 128:
             self._diagnostic_count += 1
             with contextlib.suppress(Exception):
                 self._diagnostic_sink("device_diagnostic", data)
+        return data
 
     async def _reader_loop(self) -> None:
         try:
             while True:
                 raw = await asyncio.to_thread(self.serial_port.readline)
                 text = _decode_line(raw)
-                self._observe_diagnostic(text)
+                diagnostic = self._observe_diagnostic(text)
+                # USB UART survives an ESP reset. Waiting for the old voice ACK
+                # would leave audio/providers and the touch gate busy for 210 s.
+                # This observation can only fail work, never prove completion.
+                if diagnostic and diagnostic["reason"] in {"rebooting", "reset"}:
+                    raise ConnectionError("robot restarted; previous turn interrupted")
+                if any(marker in text for marker in ("PROBE21 status=ready", "PROBE20 status=ready", "PROBE19 status=ready")):
+                    raise ConnectionError("robot booted again; previous session interrupted")
                 if not text or not text.startswith("{"):
                     continue
                 try:

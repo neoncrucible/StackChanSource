@@ -7,6 +7,47 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
+### Reboot recovery and face review — host 0.4.8
+
+Latest owner evidence: 0.4.7 screenshot shows one profile with 3/3 compatible
+samples. Diagnostics show a CPU0 StoreProhibited at STT start, then an in-place
+reboot without a USB disconnect. The host kept waiting for the old voice ACK,
+blocking subsequent touches and perception. No lighting measurement was recorded.
+
+0.4.8 implements active serial-session invalidation on reboot/reset/new boot-ready
+markers, independent of diagnostic quota. Existing recovery cancels providers,
+audio and the old turn, discards unfinished history and accepts a new session.
+The actual crash maps to the firmware I2C receive interrupt. All executable ELF
+sections were verified against the accepted binary. See
+`FIRMWARE_CRASH_2026-09-26.md` for exact artifacts and mapping. Firmware remains
+0.21.6: **this host update does not prevent the underlying I2C crash**.
+
+Face check is a fifth Vision tab showing the actual explicit test/enrollment
+frame, source/time and usable-face boxes. Feedback distinguishes no detection,
+small/blurred faces, absent enabled profiles, low cosine score, ambiguity and
+cross-frame disagreement. Similarity thresholds remain unchanged. The exact
+phrase “switch to extra camera” now selects UnitV2 directly without model planning.
+
+Profiles adds opt-in local review photos (off by default), three bounded crops
+linked through existing schema-v4 `reference_media_id`/`media` metadata. PNGs live
+under `media/face-profiles`. Existing embeddings cannot recreate old photos: use
+Replace Samples with the checkbox on. Replacement is atomic for the samples and
+photo links, failed replacement preserves old files/data, and replacement/delete
+removes old references. Failed unlink is reported and retried on refresh; orphan
+files after a process kill are cleaned after a one-hour grace period on profile
+access. Database-only backups do not include the photo files. A rollback to 0.4.7
+can read samples but cannot manage this new photo gallery/cleanup.
+
+Temporary preview is explicit-only and clears on interruption/privacy/reset/close;
+no automatic frames are retained. Photos, embeddings and names remain excluded
+from diagnostic export. The accepted voice transport/output and UnitV2 service
+are unchanged. No firmware flash or SQL migration is required for this package.
+
+Local regression: 291 passed / 103 subtests, four expected platform/model skips.
+Windows packaging and the final release link are pending at this checkpoint.
+The frozen gate now verifies a large three-photo response and actual photo deletion.
+Physical face matching, greetings and recovery still require the owner's device.
+
 ### Authorized full console / voice update — host 0.4.7
 
 The owner explicitly approved implementation after reporting that greetings were

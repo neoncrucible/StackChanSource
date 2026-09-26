@@ -1,16 +1,27 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.7 — Vision console, saved profiles and camera voice controls.
+Current update: 0.4.8 — reboot recovery, face-test preview and optional profile photos.
 Firmware remains 0.21.6; no flash. The accepted 0.4.3 voice transport and output
 pipeline are retained. This update includes the 0.4.6 UnitV2 setup permission repair.
 An already working paired UnitV2 service does not need reinstalling.
 
-Vision now has Camera, Perception, Profiles and Activity tabs. Profiles reads your
+Vision has Camera, Perception, Profiles, Activity and Face check tabs. Profiles reads your
 existing SQLite database, shows saved sample counts/dates and offers rename,
 replacement, delete, recognition tests and a database backup button. Enrollment
 shows accepted samples and an explicit Saved or failure message beside the controls.
 The Perception tab shows whether automatic looks are enabled, why they are blocked,
 what the last look found and whether a greeting was delivered.
+
+Face check shows the actual image/source and distinguishes no face, small/blurred
+faces and failed identity matching. Lighting is no longer blamed without evidence.
+In Profiles, optionally check Keep 3 local review photos before Enroll or Replace
+Samples. Select a saved profile to review its photos. Existing embeddings cannot
+recreate old pictures; use replacement to add new ones. Photos stay on this PC.
+
+The server now detects robot reboots even when USB remains connected, cancels the
+interrupted voice turn and reconnects. This clears the stale Preparing audio state.
+The captured firmware 0.21.6 I2C interrupt crash itself remains unresolved; this
+host-only package does not claim to prevent that reboot.
 
 Say "What can you see?", "Camera status", "Use the extra camera", "Enable automatic
 perception", "Enable greetings" or "Turn privacy on". These phrases are direct

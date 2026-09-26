@@ -1,15 +1,15 @@
-# Vision console, profiles and voice — host 0.4.7
+# Vision console, face review and reboot recovery — host 0.4.8
 
 Branch: `kadence/functionality`. Firmware stays at **0.21.6**; **no flash**.
 The accepted 0.4.3 voice transport/output pipeline and head alignment are retained.
-0.4.7 includes the 0.4.6 UnitV2 setup repair and the existing lifecycle service.
+0.4.8 includes the 0.4.7 console/voice controls and 0.4.6 UnitV2 setup repair.
 The owner has reported start/stop and Privacy working. Recognition, greetings,
 voice camera commands and this new console still need physical acceptance.
 
 ## Start here
 
 Install using `Install-Kadence.cmd`, open the normal shortcut and check the console
-shows **0.4.7**. Start the server and select **Vision**. It now has four tabs:
+shows **0.4.8**. Start the server and select **Vision**. It has five tabs:
 
 - **Camera**: choose UnitV2, StackChan or AUTO; Apply and Save. Capture checks the
   actual view. Setup, start/stop test, mode and confirmed producer state are here.
@@ -19,9 +19,13 @@ shows **0.4.7**. Start the server and select **Vision**. It now has four tabs:
 - **Profiles**: the real saved names, compatible/total sample counts, recognition
   and greeting eligibility, and sample dates. Enrollment progress stays here.
   Rename, disable recognition/greeting for one profile, replace samples or delete.
+  Optional review photos appear when you select a profile that retained them.
 - **Activity**: live sensor proposals, accepted/deferred/suppressed decisions,
   recognition/greeting results and producer stop confirmation. Refresh History
   reads recent saved event/action metadata, including previous sessions.
+- **Face check**: the most recent explicit test/enrollment frame, actual source,
+  capture time and green boxes for usable faces. Tests report detection, quality,
+  similarity and two-frame agreement separately. The preview is not a live stream.
 
 Camera source/address apply to manual capture, voice looks, enrollment and local
 perception. After editing source/address, use **Apply and Save**. Capture, enrollment
@@ -37,10 +41,12 @@ pairing and service version. No daily PowerShell commands are needed.
 1. In Camera, select UnitV2 and Capture to check framing and lighting.
 2. In Profiles, inspect the saved list first: an earlier successful enrollment
    appears with **3 / 3 compatible** samples. Enter a new name only for a new person.
-3. Face the selected camera alone and click **Enroll 3 Samples**. Each accepted
+3. Optionally check **Keep 3 local review photos with these new samples**. Face
+   the selected camera alone and click **Enroll 3 Samples**. Each accepted
    sample advances the progress bar. Success says **Saved: name** and refreshes
    the list. A failure remains beside the enrollment controls.
-4. Click **Test Recognition**. It takes two fresh frames for local matching,
+4. Click **Test & Preview** (or Test Recognition). Face check shows the actual
+   image and result. It takes two fresh frames for local matching,
    works with automatic perception off, and never creates a visit or greeting.
    Privacy still blocks it. It names someone only when both frames agree.
 5. Restart Kadence and reopen Profiles to verify persistence. Saved rows are read
@@ -49,13 +55,31 @@ pairing and service version. No daily PowerShell commands are needed.
 Select a saved row to rename it or change its Recognise/Greet switches, then
 **Save Profile**. **Replace Samples** keeps the same person ID and eligibility;
 old samples stay saved until all three replacements validate and commit together.
-**Delete** removes current biometric samples and anonymizes the name/history.
+**Delete** removes current biometric samples and local review photos and anonymizes the name/history.
 Existing database backups retain their copies.
 
-Enrollment stores a name and three normalized 128-dimensional embeddings, not
-photographs. The packaged YuNet/SFace models perform recognition on this PC.
+Enrollment stores a name and three normalized 128-dimensional embeddings. These
+cannot reconstruct the original pictures, so old profiles have no review photos.
+To add photos, select the profile, check the photo option and **Replace Samples**.
+The packaged YuNet/SFace models perform recognition on this PC.
 Factory UnitV2 face-tracking identities are separate and are not automatically
 imported. This is local presence recognition, not an authentication mechanism.
+
+Opt-in photos are bounded face crops, up to 256 x 256 pixels, saved only during
+explicit enrollment. SQLite links each sample to its photo metadata; PNG files
+are in `%LOCALAPPDATA%\Kadence\media\face-profiles`. The gallery identifies source
+and date. Replacement commits all samples/references together and removes the
+superseded photos; choosing embedding-only replacement also removes old photos.
+Failed replacement preserves the previous samples/photos. Failed file deletion
+is reported and retried on profile refresh. Stored gallery images remain viewable
+with camera Privacy on. Temporary test/enrollment previews clear on interruption,
+Privacy, configuration change or shutdown and never enter diagnostic exports.
+
+No-match is not evidence of poor lighting. Face check distinguishes no detection,
+faces smaller than 40 pixels, blur, no compatible enabled profiles, a cosine score
+below 0.55, insufficient separation between profiles, and disagreement between
+frames. Similarity is a score, not a percentage of facial dimensions or a calibrated
+probability. Thresholds are unchanged; use the preview to check the selected view.
 
 The existing **SQLite schema v4** is reused; no SQL server setup or migration is
 needed. The default database is `%LOCALAPPDATA%\Kadence\database\kadence.sqlite3`
@@ -94,7 +118,7 @@ These common phrases run directly without waiting for a reasoning-model tool cho
 | --- | --- |
 | What can you see? / What am I holding? / Read this | Take a fresh selected-camera snapshot and describe it with Gemini. |
 | Camera status / Which camera are you using? / Are you looking? | Report saved source, privacy, producer state, automatic gate and last local result. This is not a fresh image. |
-| Use the extra camera / Use the Unit V2 camera | Save explicit UnitV2 selection. |
+| Use the extra camera / Switch to extra camera / Use the Unit V2 camera | Save explicit UnitV2 selection. |
 | Use the robot camera | Save built-in StackChan selection. |
 | Enable / disable automatic perception | Save opt-in; enabling from OFF chooses EVENT ONLY. Lifecycle checks still apply. |
 | Enable / disable greetings | Save greeting preference; tell you if automatic perception is still off. |
@@ -131,6 +155,14 @@ faces are processed per frame; enrollment is capped at 32 people with three samp
 These thresholds still require testing with the actual camera placement and light.
 
 ## Runtime contracts and limits
+
+An in-place robot reboot now invalidates the old serial session even if USB stays
+connected. Outstanding command waits fail, providers/audio are cancelled, and the
+normal reconnect path accepts a new session. Interrupted replies never commit to
+history. This fixes the observed stale "Preparing audio"/voice-busy state after a
+reboot; it does **not** fix the underlying firmware 0.21.6 I2C interrupt fault.
+See `FIRMWARE_CRASH_2026-09-26.md` for the verified symbol mapping and remaining
+investigation. No firmware changes are included in this host package.
 
 ReflexController still only proposes events and cannot access cameras, servos,
 speech or an LLM. PerceptionController independently enforces the explicit opt-in,

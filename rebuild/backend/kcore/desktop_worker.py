@@ -241,16 +241,21 @@ class DesktopController:
                 self.emit("unitv2_check", {"cycle":cycle+1,"state":"passed"})
             camera.unitv2.record_verified(self.services.paths.root)
             return {"message":"UnitV2 lifecycle PASS: two fresh captures, two confirmed stops. Producer is stopped."}
-        if action in {"face_profiles", "face_forget", "face_enroll", "face_update", "vision_activity", "database_backup", "recognition_test", "perception_test"}:
+        if action in {"face_profiles", "face_photos", "face_preview_clear", "face_forget", "face_enroll", "face_update", "vision_activity", "database_backup", "recognition_test", "perception_test"}:
             from .perception_store import PerceptionStore
             from .camera_manager import settled_thread
             store = PerceptionStore(self.services.paths.database)
+            if action == "face_preview_clear":
+                self.emit("face_preview",{})
+                return {"message":"Face preview cleared."}
+            if action == "face_photos":
+                return {"person_id":args.get("person_id"),"photos":await settled_thread(lambda:store.call("photos",person=args.get("person_id")))}
             if action == "database_backup":
                 from .storage import backup_sqlite
                 import uuid
                 destination=self.services.paths.backups_dir / f"kadence-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.sqlite3"
                 await settled_thread(backup_sqlite,self.services.paths.database,destination)
-                return {"message":f"Database backup saved: {destination}","path":str(destination)}
+                return {"message":f"Database backup saved: {destination}. Review photos are separate files in the Kadence media folder.","path":str(destination)}
             if action == "vision_activity":
                 return {"items":await settled_thread(lambda:store.call("activity"))}
             if action in {"face_forget","face_update"}:
@@ -277,7 +282,7 @@ class DesktopController:
                         return {"message":"Automatic event finished. " + pc.last_result + " " + pc.last_greeting}
                     operation=event_test()
                 elif action == "recognition_test": operation=pc.test_recognition()
-                else: operation=pc.enroll(args.get("name"),args.get("person_id"))
+                else: operation=pc.enroll(args.get("name"),args.get("person_id"),keep_photos=args.get("keep_photos",False))
                 self._network_media = True
                 self._media = asyncio.create_task(operation)
                 try: return await self._media
@@ -343,6 +348,7 @@ class DesktopController:
                 if action != "server_stop": return await self.start_server(args)
                 return {"message": "Server stopped. Local reminders remain active while Kadence is open."}
         if action == "media_cancel":
+            self.emit("face_preview",{})
             app = self.app
             if self._media: self._media.cancel()
             if app and app._body and not self._network_media:
