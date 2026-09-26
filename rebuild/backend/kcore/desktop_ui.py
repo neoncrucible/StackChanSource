@@ -173,6 +173,7 @@ class MainWindow(QMainWindow):
         self._activity_owned=False
         self._diagnostic_samples={}
         self._voice_endpoint=""
+        self._audio_testing=False
         self.reflex_snapshot={}; self.reflex_events=deque(maxlen=120)
         self.perception_snapshot={}; self.perception_decisions=deque(maxlen=120)
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
@@ -1025,6 +1026,7 @@ class MainWindow(QMainWindow):
                 self.camera_state.setText("Server stopped · camera access unavailable.")
                 self._activity_owned=False; self.set_activity("idle")
                 self.voice_health.setText("Audio not checked · server stopped.")
+                self._audio_testing=False
             self.update_controls()
         elif name=="robot":
             self.robot_connected=data.get("connected") is True
@@ -1037,12 +1039,16 @@ class MainWindow(QMainWindow):
         elif name=="voice_progress":
             names={"connecting":"Connecting robot audio", "recording":"Recording your question",
                    "providers":"Processing your question", "playback":"Delivering the reply"}
-            suffix=" · wait for the recording cue; another tap cancels." if data.get("stage")=="connecting" else " · cancellation is available."
+            if self._audio_testing:
+                names={"connecting":"Connecting the audio test", "playback":"Playing the test tones"}
+            suffix=(" · microphone stays off; cancellation is available." if self._audio_testing else
+                    " · wait for the recording cue; another tap cancels." if data.get("stage")=="connecting" else " · cancellation is available.")
             self.voice_health.setText(names.get(data.get("stage"),"Voice in progress") + suffix)
         elif name=="audio_network":
             self.audio_network_status.setText(data.get("message","Network check incomplete."))
             self._voice_endpoint=f"{data.get('host','')}:{data.get('port','')}"
         elif name=="audio_link_test":
+            self._audio_testing=data.get("state")=="testing"
             messages={"testing":"Testing audio link · waiting for two tones.",
                 "passed":"Robot confirmed audio playback. Tap once and wait for the recording cue to test a question.",
                 "failed":"Audio link failed. Check the network result below.","cancelled":"Audio test cancelled."}
