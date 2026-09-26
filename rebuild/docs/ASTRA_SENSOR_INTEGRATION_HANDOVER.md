@@ -7,6 +7,42 @@ The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
 pipeline and home alignment; latency tuning is parked until camera/perception
 and then tools are complete.
 
+### Owner hardware observations and requested usability work — 26 September, 17:08 BST
+
+The owner reports camera start/stop and Privacy worked. Record those checks as
+passed at their stated scope only: the installed host version was not supplied,
+and full restart, lease-expiry, enrollment or autonomous-perception acceptance
+has not been reported. Enrollment was attempted but the owner could not tell
+whether it saved; automatic perception controls could not be located. Do not
+treat that as successful enrollment or assume a specific cause for the missing
+control. The source for 0.4.5/0.4.6 includes the enable checkbox; layout versus
+an older launched executable remains unverified.
+
+The owner requests a dedicated saved-profiles tab and asks whether to create a
+SQL database. The existing canonical SQLite schema v4 already stores persons,
+face_profiles, presence_sessions, perception_events and actions. Default path:
+`%LOCALAPPDATA%\\Kadence\\database\\kadence.sqlite3` (KADENCE_DATA_DIR can override
+the root). Enrollment persists names plus three face embeddings atomically,
+not photographs. The current UI only lists names in a dropdown and places
+progress/result messages in the shared footer. The owner's database has not
+been remotely inspected; saved profile count/success is unknown.
+
+Recommended next scope, presented for advice rather than claimed implemented:
+keep the existing SQLite database and existing data; make Vision use clear
+Camera, Perception, Profiles and Activity tabs. Profiles should read the real
+database, show name/compatible sample count/enrollment time/recognition state,
+refresh automatically, and give an explicit saved-or-failed enrollment result.
+Add a bounded explicit recognition test so validation does not require walking
+out of the sensor zone. Preserve current profile data until replacement samples
+are validated and committed. Perception needs a prominent enable control,
+policy and plain-language reason when blocked. Camera retains the accepted
+lifecycle/privacy controls. Activity should expose why an event captured,
+deferred or was suppressed, and whether producer stop was confirmed. Show the
+running build clearly and provide the database path and a consistent backup
+action. Do not introduce new photo retention, import factory UnitV2 identities,
+or switch database engines as part of this usability work. Tools/OpenClaw and
+latency tuning remain subsequent phases.
+
 ### Setup repair — host 0.4.6
 
 The owner's 0.4.5 setup reached SSH, then SCP failed with
