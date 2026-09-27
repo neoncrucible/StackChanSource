@@ -303,3 +303,15 @@ def test_keep_ready_switches_native_and_camera_without_competing_producers(nativ
         assert producer.starts==3 and producer.stops==2
         await owner.close();assert producer.status()['stop_confirmed']
     asyncio.run(run())
+
+
+def test_same_name_legacy_profile_does_not_block_native_greeting_preferences(tmp_path):
+    paths=KadencePaths.for_root(tmp_path);ensure_schema(paths)
+    store=PerceptionStore(paths.database)
+    legacy=store.call('enroll',name=NAME,vectors=[(1.0,)+(0.0,)*127]*3)
+    person=store.call('sync_native',catalog={'device_id':DEVICE,'revision':'a'*64,'profiles':[{'native_id':0,'name':NAME}]})[NAME]
+    assert person!=legacy
+    store.call('update_person',person=person,name=NAME,recognition_enabled=True,greeting_enabled=False)
+    rows={p['id']:p for p in store.call('persons')}
+    assert not rows[person]['greeting_enabled'] and rows[legacy]['greeting_enabled']
+    assert rows[person]['samples']==0 and rows[legacy]['samples']==3

@@ -129,8 +129,12 @@ class PerceptionStore:
     def _check_name(db, name, person=None):
         if not isinstance(name,str) or not 1 <= len(name.strip()) <= 80 or any(ord(c)<32 for c in name):
             raise ValueError("Enter a name of 1–80 characters.")
+        # Native imports may share the display name of a retained PC profile.
+        # Saving switches with an unchanged name must remain possible.
+        if person and db.execute('SELECT 1 FROM persons WHERE id=? AND display_name=?',(person,name.strip())).fetchone():
+            return
         if db.execute("SELECT 1 FROM persons WHERE active=1 AND lower(display_name)=lower(?) AND id!=?",(name.strip(),person or "")).fetchone():
-            raise ValueError("That name is already saved. Select its profile and use REPLACE SAMPLES.")
+            raise ValueError("That display name is already saved. Select its profile or choose a different display name.")
 
     def _profiles(self, db):
         result = []
