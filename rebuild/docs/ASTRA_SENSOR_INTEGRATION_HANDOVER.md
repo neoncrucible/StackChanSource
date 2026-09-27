@@ -9,7 +9,7 @@ The owner now explicitly accepts **0.4.11 audio** and says other functions work
 well. Fresh scene descriptions, camera start/stop and Privacy remain accepted.
 Do not re-open voice latency or change the accepted output path for this task.
 
-### Object tracking update — host 0.4.13, release verification in progress
+### Object tracking update — host 0.4.13 released, hardware acceptance pending
 
 At 21:38 BST on 27 September, the owner parked OpenClaw because laptop client
 installation is still unresolved. They requested factory UnitV2 features, voice
@@ -43,7 +43,25 @@ Local verification: **360 tests / 119 subtests passed**, six environment-depende
 skips. Final focused changes passed **30 tests**, including **18 tracking tests**.
 Runtime ownership/alignment gate passed. Tracking tab was rendered and inspected
 in the actual desktop window at 1100×820; drag-coordinate mapping also passed.
-Windows source/build/artifact evidence will be recorded after packaging.
+Windows release source: `0ab51e8aeb8b6760ab69e2cd9edacf2145f40a16`.
+Run https://github.com/neoncrucible/StackChanSource/actions/runs/36351050517,
+job `108709674710`, passed **294 tests / 81 subtests**, the runtime ownership
+gate and the packaged executable checks. `DESKTOP_TRACKING_TOOLS PASS` verifies
+the actual frozen worker's read-only tracking tool route. The first build caught
+a missing desktop allowlist entry; it was fixed and the route is now covered by
+the source test as well. Movement tools remain excluded from that read-only route.
+Frozen checks also passed vision parsing, stream decoding, Windows local speech
+(119360 PCM bytes), profile/photo/backup persistence, legacy face replay and clean
+shutdown. Online Gemini localisation and physical target/head tracking were not
+tested here. Legacy face replay is not evidence about the native target tracker.
+
+Download: https://github.com/neoncrucible/StackChanSource/actions/runs/36351050517/artifacts/10942477072
+Artifact `Kadence-Desktop-Windows`, **182637924 bytes**. Outer artifact ZIP SHA-256:
+`8d9fcd2fade044d28d8d97e86637083045f2fd212ec2597e3526cf9a61fbd2d5`.
+The package includes OBJECT-TRACKING.txt and the service 1.2.0 installer. Install
+this host, update the UnitV2 service, test start/stop, accept on-screen target
+retention first, then explicitly arm and check small left/right/up/down movements.
+Keep accepted 0.4.12 available until those physical checks pass. No firmware flash.
 
 Colour/shape modes, item movement/removal alerts and event descriptions, and
 physical idle reflexes are still separate follow-ups. OpenClaw remains parked;
