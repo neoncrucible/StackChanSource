@@ -236,6 +236,11 @@ def test_voice_tracking_dispatch_requires_explicit_request_or_confirmation(tmp_p
         assert calls[-1]=={'action':'stop'}
         denied=await services.tools.execute('tracking_control',{'action':'follow','target':'pen'})
         assert not denied['ok'] and len(calls)==2
+        status=await services.command('local_tool',{'name':'tracking_status'})
+        assert status['ok'] and status['data']['spoken']=='Selected the test target.'
+        assert calls[-1]=={}
+        with pytest.raises(ValueError,match='Unsupported desktop tool'):
+            await services.command('local_tool',{'name':'tracking_control','arguments':{'action':'follow','target':'pen'}})
         await services.close()
     asyncio.run(run())
 

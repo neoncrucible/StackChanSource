@@ -144,7 +144,7 @@ class LocalServices:
         elif action == "resistor": return resistor_value(args["bands"])
         elif action == "local_tool":
             name = args["name"]
-            if name not in {"clock", "calculate", "recall", "task_list", "weather", "home_status", "camera_status"}:
+            if name not in {"clock", "calculate", "recall", "task_list", "weather", "home_status", "camera_status", "tracking_status"}:
                 raise ValueError("Unsupported desktop tool")
             arguments = dict(args.get("arguments", {}))
             if name == "clock": arguments.setdefault("timezone", self.reminders.timezone_name)
