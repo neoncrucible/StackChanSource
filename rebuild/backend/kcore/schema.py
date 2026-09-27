@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from .storage import KadencePaths, backup_sqlite, connect_database
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 LEGACY_V2 = (
     "CREATE TABLE reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, due REAL NOT NULL, timezone TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', kind TEXT NOT NULL DEFAULT 'reminder', extra TEXT NOT NULL DEFAULT '{}', robot TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL, request_key TEXT NOT NULL UNIQUE)",
@@ -95,6 +95,16 @@ V4 = (
     "CREATE INDEX perception_actions_pending ON perception_actions(state,expires_at)",
 )
 
+V5 = (
+    """CREATE TABLE native_face_profiles (
+        device_id TEXT NOT NULL CHECK(length(device_id)=32), native_name TEXT NOT NULL,
+        native_id INTEGER NOT NULL CHECK(native_id BETWEEN 0 AND 31),
+        person_id TEXT NOT NULL UNIQUE REFERENCES persons(id),
+        revision TEXT NOT NULL CHECK(length(revision)=64),
+        available INTEGER NOT NULL DEFAULT 1 CHECK(available IN (0,1)), synced_at REAL NOT NULL,
+        PRIMARY KEY(device_id,native_name))""",
+)
+
 # Validate historical contracts before attempting DDL; never repair by recreation.
 REQUIRED = {
     1: {'records': {'id','kind','text','created','done'}},
@@ -116,6 +126,7 @@ REQUIRED = {
         'perception_events': {'id','event_type','correlation_id','evidence_json'},
         'perception_actions': {'id','presence_session_id','kind','state','expires_at'},
     },
+    5: {'native_face_profiles': {'device_id','native_name','native_id','person_id','revision','available','synced_at'}},
 }
 
 
@@ -138,7 +149,7 @@ def _apply_migration(db: sqlite3.Connection, version: int) -> None:
     if version == 1:
         statements = ("CREATE TABLE records (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, text TEXT NOT NULL, created TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)",)
     else:
-        statements = {2: LEGACY_V2, 3: LEGACY_V3, 4: V4}[version]
+        statements = {2: LEGACY_V2, 3: LEGACY_V3, 4: V4, 5: V5}[version]
     # executescript implicitly commits in legacy sqlite3 mode: intentionally do
     # not use it. Every DDL statement and user_version belong to this transaction.
     for statement in statements:

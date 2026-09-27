@@ -26,7 +26,7 @@ class PerceptionStore:
         self.photos = ProfilePhotos(database)
 
     def call(self, operation, **args):
-        allowed = {"begin", "end", "enroll", "persons", "photos", "profiles", "update_person", "activity", "forget", "observe", "expire", "event", "claim", "complete"}
+        allowed = {"begin", "end", "enroll", "persons", "photos", "profiles", "sync_native", "update_person", "activity", "forget", "observe", "expire", "event", "claim", "complete"}
         if operation not in allowed: raise ValueError("Unknown perception operation.")
         media_operation = operation in {"enroll","forget","photos","persons"}
         with _media_lock if media_operation else nullcontext(), closing(connect_database(self.database, timeout=2)) as db:
@@ -48,7 +48,7 @@ class PerceptionStore:
                     raise RuntimeError("Profile removed; a local review photo could not be deleted. Close programs using it and refresh Profiles to retry.")
             return result
 
-    def _begin(self, db, fingerprint):
+    def _begin(self, db, fingerprint, model=FINGERPRINT):
         now = time.time()
         # A crashed attempt is deliberately never replayed.
         db.execute("UPDATE perception_actions SET state='uncertain',completed_at=?,outcome='interrupted' WHERE state='attempting'", (now,))
@@ -56,7 +56,7 @@ class PerceptionStore:
         db.execute("UPDATE presence_sessions SET ended_at=coalesce(last_visual_seen_at,checkpoint_at),end_reason='restart' WHERE ended_at IS NULL")
         db.execute("UPDATE perception_runs SET ended_at=checkpoint_at,end_reason='restart' WHERE ended_at IS NULL")
         run = ident()
-        db.execute("INSERT INTO perception_runs(id,started_at,checkpoint_at,config_fingerprint,model_fingerprint) VALUES(?,?,?,?,?)", (run,now,now,fingerprint,FINGERPRINT))
+        db.execute("INSERT INTO perception_runs(id,started_at,checkpoint_at,config_fingerprint,model_fingerprint) VALUES(?,?,?,?,?)", (run,now,now,fingerprint,model))
         return run
 
     def _end(self, db, run, reason="stopped"):
@@ -67,12 +67,37 @@ class PerceptionStore:
     def _persons(self, db):
         rows = db.execute("""SELECT p.id,p.display_name,p.recognition_enabled,p.greeting_enabled,
             p.enrolled_at,p.updated_at,count(f.id) AS samples,
+            n.device_id,n.native_name,n.native_id,n.available AS native_available,
             count(f.reference_media_id) AS photo_count,
             coalesce(sum(f.model_fingerprint=? AND f.preprocessing=? AND f.metric='cosine'
             AND f.encoding='float32-le' AND f.embedding_dimension=128),0) AS compatible_samples
             FROM persons p LEFT JOIN face_profiles f ON f.person_id=p.id AND f.active=1
-            WHERE p.active=1 GROUP BY p.id ORDER BY p.display_name LIMIT 32""", (FINGERPRINT,PREPROCESSING))
-        return [dict(r) for r in rows]
+            LEFT JOIN native_face_profiles n ON n.person_id=p.id
+            WHERE p.active=1 GROUP BY p.id ORDER BY p.display_name LIMIT 64""", (FINGERPRINT,PREPROCESSING))
+        return [dict(r, provider='unitv2-native' if r['device_id'] else 'pc-legacy') for r in rows]
+
+    def _sync_native(self, db, catalog):
+        from .native_faces import validate_catalog
+        value = validate_catalog(catalog)
+        device, revision, now = value['device_id'], value['revision'], time.time()
+        db.execute('UPDATE native_face_profiles SET available=0')
+        result = {}
+        for profile in value['profiles']:
+            name = profile['name']
+            row = db.execute('SELECT person_id FROM native_face_profiles WHERE device_id=? AND native_name=?',(device,name)).fetchone()
+            if row: person = row[0]
+            else:
+                person = ident()
+                db.execute('INSERT INTO persons(id,display_name,greeting_name,recognition_enabled,enrolled_at,created_at,updated_at) VALUES(?,?,?,1,?,?,?)',
+                    (person,name,name,now,now,now))
+                db.execute('INSERT INTO native_face_profiles(device_id,native_name,native_id,person_id,revision,available,synced_at) VALUES(?,?,?,?,?,1,?)',
+                    (device,name,profile['native_id'],person,revision,now))
+            db.execute('UPDATE native_face_profiles SET native_id=?,revision=?,available=1,synced_at=? WHERE device_id=? AND native_name=?',
+                (profile['native_id'],revision,now,device,name))
+            enabled = db.execute('SELECT recognition_enabled,active FROM persons WHERE id=?',(person,)).fetchone()
+            if enabled[0] and enabled[1]: result[name] = person
+        db.execute("UPDATE perception_actions SET state='suppressed',outcome='native_profile_removed',completed_at=? WHERE state='pending' AND person_id IN (SELECT person_id FROM native_face_profiles WHERE device_id=? AND available=0)",(now,device))
+        return result
 
     def _photos(self, db, person):
         check_id(person)
@@ -141,6 +166,8 @@ class PerceptionStore:
         return person
 
     def _forget(self, db, person):
+        if db.execute('SELECT 1 FROM native_face_profiles WHERE person_id=?',(person,)).fetchone():
+            raise ValueError('This face is stored on UnitV2. Use Recognise/Greet to disable it in Kadence; deleting a PC entry would not delete the onboard face.')
         check_id(person)
         now = time.time()
         # Remove biometric data and names; retain anonymous relational history.

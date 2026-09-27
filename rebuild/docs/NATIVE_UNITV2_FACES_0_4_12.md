@@ -1,5 +1,4 @@
-# Camera and perception — host 0.4.12
-
+# UnitV2 native faces — host 0.4.12 / camera service 1.1.0
 
 Audio in 0.4.11 and scene descriptions are accepted by the owner. This update
 changes UnitV2 recognition and enrollment; firmware stays at 0.21.6, with no flash.

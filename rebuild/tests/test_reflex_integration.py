@@ -53,7 +53,7 @@ def test_live_pipeline_observes_without_camera_cv_speech_motion_or_llm(tmp_path,
         assert sampler.reflex.counts["gestures"] == 13
         assert sampler.reflex.counts["approaches"] == 1
         with sqlite3.connect(paths.database) as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+            assert db.execute("PRAGMA user_version").fetchone()[0] == 5
             for table in ("media", "presence_sessions", "perception_actions"):
                 assert db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             rows = db.execute("SELECT evidence_json,presence_session_id FROM perception_events WHERE event_type='reflex_proposed'").fetchall()

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnitV2 · Factory face training</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#101720;color:#eef4fa}body{max-width:1100px;margin:32px auto;padding:0 24px}h1{font-size:28px;margin-bottom:8px}p{line-height:1.5;color:#b7c6d7}.layout{display:grid;grid-template-columns:minmax(300px,2fr) minmax(240px,1fr);gap:24px}.panel{padding:20px;background:#1b2633;border:1px solid #34465b;border-radius:14px}.video{position:relative;aspect-ratio:4/3;background:#080c11}canvas{width:100%;height:100%}button,input{font:inherit;border:1px solid #52677c;border-radius:7px;padding:10px;margin:4px;background:#27384a;color:#fff}button{cursor:pointer}button:disabled{opacity:.45;cursor:wait}.primary{background:#156e64}.trainning-input{display:flex;align-items:center}.trainning-input input{width:calc(100% - 58px)}.btn-trainning{width:22px;height:22px;padding:0;border-radius:50%}.train_active{background:#62e4ba}#feedback{white-space:pre-line;min-height:54px}#saved{border-left:3px solid #62e4ba;padding-left:12px}.muted{font-size:14px}#score{font-variant-numeric:tabular-nums}#finish{float:right}@media(max-width:700px){.layout{grid-template-columns:1fr}#finish{float:none}}
+</style>
+<button id="finish">FINISH &amp; RETURN TO KADENCE</button><h1>UnitV2 · Factory face training</h1>
+<p>M5Stack’s onboard recognition and factory Train / Stop / Save controls. Your existing UnitV2 profiles appear below.</p>
+<div class="layout"><section class="panel"><div class="video"><canvas id="preview" width="640" height="480"></canvas></div><p id="feedback" role="status">Starting the live feed…</p><p id="score">Waiting for native recognition.</p></section>
+<section class="panel"><h2>Onboard profiles</h2><div id="dynamic_func_area"></div><div>
+<button id="add" onclick="face_recognition_btn_add_cb()">ADD</button>
+<button id="face_recognition_train" class="primary" onclick="face_recognition_btn_train_cb()">train</button>
+<button id="save" onclick="face_recognition_btn_save_cb()">SAVE ON UNITV2</button></div>
+<p id="saved" role="status">Reading saved profiles…</p>
+<p>1. Select a profile, or Add and enter a name.<br>2. Train with one person in view. Move gently through your usual seated and standing angles.<br>3. Stop training, then Save on UnitV2.<br>4. Finish, then run Kadence’s Live Recognition Check.</p>
+<p class="muted">No 20-sample target or compulsory chin-up pose. Recognition scores come from the UnitV2; they are similarity scores, not a certainty percentage.</p>
+<p class="muted">Factory profiles contain names and face features, not stored photos. Saving is confirmed only after both native files are verified. Finishing without Save discards this session’s unsaved training.</p>
+<p class="muted">Keep Kadence running. Privacy, Stop, voice activity or loss of connection ends this camera session. Existing saved profiles remain onboard.</p></section></div>
+<script src="/static/js/jquery.min.js"></script>
+<script src="/static/js/bin/face_recognition.js"></script>
+<script src="/static/js/core/post.server.js"></script>
+<script src="/native/faces.js"></script></html>

@@ -1,10 +1,10 @@
-# UnitV2 start / stop — hosts 0.4.4 through 0.4.6
+# UnitV2 start / stop — service 1.1.0 / host 0.4.12
 
-This release controls the actual `camera_stream` process on UnitV2. It keeps
-the accepted 0.4.3 voice path and firmware 0.21.6. No robot firmware flash.
-Automatic perception remains paused in 0.4.4. In 0.4.5 it is a separate opt-in;
-leave it unchecked until this lifecycle acceptance pass succeeds. No second
-camera-service installation is needed when updating from 0.4.4 to 0.4.5.
+Service 1.1.0 controls either the original camera_stream or face_recognition
+producer under the same lease. Upgrade using SET UP UNITV2 even if service 1.0.0
+already works, then power-cycle UnitV2 and repeat TEST START / STOP. Existing
+native profiles are preserved. Audio 0.4.11 and firmware 0.21.6 are retained.
+See NATIVE-UNITV2-FACES.txt for the factory enrollment and greeting sequence.
 
 ## One-time setup
 
@@ -26,11 +26,12 @@ against the exact M5Stack 7 September 2021 recovery image before replacing
 any camera-service files. Unknown builds are refused. The original entry is backed up at
 `/home/m5stack/payload/server_core.kadence-original.py`.
 
-The new service replaces the factory recognition web application while
-installed. Its original supervisor, camera executable, Wi-Fi settings, Linux
-image and SD card contents are retained. The old browser preview is not used.
-The original web application can be restored through **SET UP UNITV2**, option
-**R**, followed by another UnitV2 power cycle. Restore does not undo Wi-Fi.
+The bridge replaces the factory server while retaining its original camera and
+face recognition executables, saved profiles and web-control files. Open the
+focused native training page from Kadence Profiles. It uses factory face controls
+under paired ownership; an old browser tab cannot start capture after Privacy.
+The full original application can still be restored using SET UP UNITV2, option R,
+then a UnitV2 power cycle. Restore does not erase profiles, backups or Wi-Fi.
 
 If 0.4.4/0.4.5 setup fails with `Couldn't open /dev/null: Permission denied`,
 the file copy failed before the service installer ran. Either use 0.4.6 or run

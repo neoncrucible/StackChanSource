@@ -305,7 +305,14 @@ def test_reversible_install_rejects_unknown_files_before_writing(tmp_path,monkey
     original=b'original factory entry\r\n';binary=b'factory-camera'
     (root/'server_core.py').write_bytes(original);(root/'bin/camera_stream').write_bytes(binary)
     code=b'def main(): pass\n';(source/'kadence_unitv2.py').write_bytes(code)
-    (source/'manifest.json').write_text(json.dumps({'kadence_unitv2.py':hashlib.sha256(code).hexdigest()}))
+    for name in installer.BUNDLE:
+        if name != 'kadence_unitv2.py': (source/name).write_bytes(b'' if name.endswith('.py') else b'fixture')
+    (source/'manifest.json').write_text(json.dumps({name:hashlib.sha256((source/name).read_bytes()).hexdigest() for name in installer.BUNDLE}))
+    (root/'bin/face_recognition').write_bytes(b'factory-face')
+    monkeypatch.setattr(installer,'FACE_SHA256',hashlib.sha256(b'factory-face').hexdigest())
+    for name in ('js/jquery.min.js','js/bin/face_recognition.js','js/core/post.server.js'):
+        path=root/'static'/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('fixture')
+    (root/'data').mkdir();(root/'data/face_recognition_features.dat').write_bytes(b'keep-original-features')
     (source/'kadence-camera.key').write_text(KEY)
     monkeypatch.setattr(installer,'CAMERA_SHA256',hashlib.sha256(binary).hexdigest())
     with pytest.raises(RuntimeError,match='Factory service has changed'):installer.install(root,source)
@@ -314,7 +321,10 @@ def test_reversible_install_rejects_unknown_files_before_writing(tmp_path,monkey
     assert installer.install(root,source)['result']=='installed'
     assert (root/'server_core.py').read_bytes()==installer.SHIM
     assert (root/'server_core.kadence-original.py').read_bytes()==original
+    identity=(root/'kadence-device.id').read_bytes()
     assert installer.install(root,source)['result']=='installed'  # Update preserves first backup.
+    assert (root/'kadence-device.id').read_bytes()==identity
+    assert (root/'data/face_recognition_features.dat').read_bytes()==b'keep-original-features'
     assert installer.install(root,source,restore=True)['result']=='restored'
     assert (root/'server_core.py').read_bytes()==original
     (root/'server_core.kadence-original.py').chmod(0o644)

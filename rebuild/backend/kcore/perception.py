@@ -32,6 +32,7 @@ def diagnostic_decision(value):
 
 def diagnostic_state(value):
     allowed={"gate":REASONS,"health":{"idle","processing","ready","unavailable","storage_unavailable","models_missing","models_invalid"},
+             "recognition_provider":{'unitv2-native','pc-legacy'},
              "model_health":{"not_loaded","ready","models_missing","models_invalid"},
              "occupancy":{"UNKNOWN","CLEAR","ARRIVAL_CANDIDATE","OCCUPIED","DEPARTURE_CANDIDATE"},
              "sensor_health":{"ready","unavailable","invalid_or_stale","stale"},"policy":{"OFF","EVENT_ONLY","AWARE"}}
@@ -65,6 +66,7 @@ class PerceptionController:
         self.camera, self.paths, self.emit = camera, paths, emit
         self.deliver, self.busy, self.clock = deliver, busy, clock
         self.faces = faces or LocalFaces(paths.root)
+        self._native_provider = faces is None
         self.store = PerceptionStore(paths.database)
         self.sampler = sampler or SensorSampler(emit, clock=clock)
         self.budget = CaptureBudget()
@@ -119,6 +121,29 @@ class PerceptionController:
         if self.task and not self.task.done():
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception): await self.task
+        if getattr(self.camera.unitv2,'web_session',False): await self.camera.unitv2.stop()
+
+    @property
+    def native_selected(self):
+        return self._native_provider and self.camera.config.source != 'robot-camera'
+
+    async def sync_native_profiles(self):
+        value = await self.camera.unitv2.native_profiles(self.camera.config.address)
+        profiles = await self.db('sync_native',catalog=value)
+        return value, profiles
+
+    async def open_native_training(self):
+        await self.interrupt()
+        self.camera.check()
+        if self.busy(): raise RuntimeError('Wait for voice to finish before opening UnitV2 training.')
+        generation = self.camera.generation
+        url = await self.camera.unitv2.open_training(self.camera.config.address)
+        try: self.camera.check(generation)
+        except BaseException:
+            await self.camera.unitv2.stop()
+            raise
+        self.publish()
+        return {'url':url,'message':'UnitV2 training is open. Train and Save in its web page, then Finish & Return. Existing onboard profiles are used directly.'}
 
     async def reset(self, reason):
         async with self._reset_lock:
@@ -142,7 +167,8 @@ class PerceptionController:
         await self._record_reflex(self.sampler.reset(reason))
         if self.run: await self.db("end", run=self.run, reason=reason)
         fingerprint = hashlib.sha256(json.dumps(asdict(self.camera.config),sort_keys=True).encode()).hexdigest()
-        self.run = await self.db("begin", fingerprint=fingerprint)
+        from .local_faces import FINGERPRINT
+        self.run = await self.db("begin", fingerprint=fingerprint,model='unitv2-factory-arcface-09072021' if self.native_selected else FINGERPRINT)
         self._tracks.clear()
         self.subjects = 0
         self.health = "idle"
@@ -256,7 +282,7 @@ class PerceptionController:
         if self.camera.config.policy == "OFF": return "policy_off"
         if self.camera.unitv2.mode == "STOPPED": return "stopped"
         if self.camera.config.source != "robot-camera" and not self.camera.unitv2.verified: return "lifecycle_check_required"
-        if self._enrolling or (self._explicit_task and not self._explicit_task.done()): return "enrolling"
+        if self._enrolling or getattr(self.camera.unitv2,'web_session',False) or (self._explicit_task and not self._explicit_task.done()): return "enrolling"
         return "ready"
 
     def _decision(self, trigger, decision, reason):
@@ -329,7 +355,7 @@ class PerceptionController:
             # One later attempt respects the same budget and occupancy session.
             if (trigger == 'arrival' and self.camera.config.greetings and self.occupancy.state == 'OCCUPIED'
                     and not self._arrival_retried and not any(t['person'] and t.get('observed') for t in self._tracks)
-                    and await self.db('profiles')):
+                    and any(p['recognition_enabled'] and (p.get('native_available') if self.native_selected else p.get('compatible_samples')) for p in await self.db('persons'))):
                 self._arrival_retried = True
                 now = self.clock()
                 self._arrival_retry = {'after':now+max(3,self.budget.delay(now)), 'expires':now+35,
@@ -351,6 +377,7 @@ class PerceptionController:
             if not terminal: self._decision(trigger,"failed",reason)
         finally:
             if self.health == "processing": self.health = "idle"
+            if self.native_selected: self.camera.publish('IDLE')
             self.publish()
 
     def _recognition_event(self, kind, sequence, report, frame, frames, *, reason=None):
@@ -368,8 +395,14 @@ class PerceptionController:
 
     async def _recognize(self, *, kind, trigger=None, live=False):
         generation = self.camera.generation
-        profiles = await self.db("profiles")
-        sequence = FaceSequence(profiles)
+        native = self.native_selected
+        if native:
+            from .native_faces import NativeSequence, native_frame
+            catalog, profiles = await self.sync_native_profiles()
+            sequence = NativeSequence(profiles)
+        else:
+            profiles = await self.db("profiles")
+            sequence = FaceSequence(profiles)
         reports, match_reports, source = [], [], None
         names_seen = set()
         # Automatic work gets up to six frames. Explicit live testing keeps going
@@ -382,11 +415,20 @@ class PerceptionController:
             if kind == 'automatic':
                 if self.gate() != 'ready': raise LookInterrupted('cancelled')
                 if trigger != 'gesture' and self.occupancy.state == 'CLEAR': raise LookInterrupted('zone_clear')
-            frame = await self.camera.acquire(purpose='automatic' if kind=='automatic' else 'manual', source=source, timeout=8)
+            if native:
+                self.camera.publish('CAPTURING')
+                frame, faces, report = await native_frame(self.camera,catalog)
+                if kind=='test':
+                    encoded = await settled_thread(preview,frame.png,faces)
+                    self.camera.check(generation)
+                    self.emit('face_preview',{'png_base64':encoded,'source':frame.source,'captured_at':frame.captured_at,
+                        'message':f"UnitV2 native recognition · {len(faces)} face(s)."})
+            else:
+                frame = await self.camera.acquire(purpose='automatic' if kind=='automatic' else 'manual', source=source, timeout=8)
+                faces, report = await self._face_evidence(frame,show=kind=='test')
             if source is not None and frame.source != source:
                 raise RuntimeError('Camera source changed during recognition. Choose a specific camera and retry.')
             source = frame.source
-            faces, report = await self._face_evidence(frame,show=kind=='test')
             self.camera.check(generation)
             tracks = sequence.update(faces)
             reports.append(report)
@@ -396,7 +438,8 @@ class PerceptionController:
             self._last_capture = self.clock()
             if kind == 'test':
                 text = f"Live check {index+1}/{limit}: {report['usable']} usable face(s); {len(sequence.confirmed)} confirmed now."
-                if evidence.get('score') is not None: text += f" Similarity {evidence['score']:.3f}; required 0.55."
+                if evidence.get('score') is not None:
+                    text += f" UnitV2 native match {evidence['score']*100:.1f}%; factory threshold >50%." if native else f" Similarity {evidence['score']:.3f}; required 0.55."
                 self.emit('vision_activity',{'kind':'recognition_test','message':text,'source':source})
             if not live and index >= 1:
                 if faces and len(sequence.confirmed)==len(faces): break
@@ -413,7 +456,7 @@ class PerceptionController:
             # A single candidate is not evidence that this is an unknown person.
             if not confirmed and track['match']['person']: identity = 'ambiguous'
             existing = next((t for t in self._tracks if confirmed and t['person']==confirmed),None)
-            if not confirmed:
+            if not confirmed and face.embedding:
                 used_sessions = {t['session'] for t in present}
                 possible = sorted(((similarity(t['embedding'],face.embedding),t) for t in self._tracks
                     if t['person'] is None and self.clock()-t['seen'] < 10 and t['session'] not in used_sessions), key=lambda item:item[0], reverse=True)
@@ -484,6 +527,8 @@ class PerceptionController:
         return faces,report
 
     async def enroll(self, name, person=None, *, keep_photos=False):
+        if self.native_selected:
+            raise RuntimeError('Use OPEN UNITV2 TRAINING in Profiles. Face training and saved features now stay on the UnitV2.')
         if type(keep_photos) is not bool: raise ValueError("Choose whether to keep local review photos.")
         if not isinstance(name,str) or not 1<=len(name.strip())<=80 or any(ord(c)<32 for c in name): raise ValueError('Enter a name of 1–80 characters.')
         await self.interrupt()
@@ -562,10 +607,15 @@ class PerceptionController:
             message = 'Recognised now: '+', '.join(names)+'.' if names else 'No enrolled identity confirmed in the latest frame.'
             if live and seen_names: message += ' Confirmed during this live check: '+', '.join(seen_names)+'.'
             if not sequence.current: message += ' '+quality_message(reports[-1])
-            elif not sequence.profiles: message = 'A face was seen, but there are no enabled compatible profiles. Enrol a profile first.'
+            elif not sequence.profiles:
+                message = ('A face was seen, but no enabled onboard profiles are available. Open UnitV2 Training, Train and Save, then Refresh Profiles.'
+                    if self.native_selected else 'A face was seen, but there are no enabled compatible profiles. Enrol a profile first.')
             elif not names:
                 best = max(matches[-1],key=lambda m:m['score'] if m['score'] is not None else -2)
-                if best['reason']=='below_threshold': message += f" Best similarity {best['score']:.3f}; required {best['threshold']:.2f}. Use live training to cover this camera and viewing angle."
+                if best['reason']=='below_threshold':
+                    if self.native_selected:
+                        message += ' UnitV2 returned no enabled native match above its factory threshold. Train and Save on the UnitV2 website.'
+                    else: message += f" Best similarity {best['score']:.3f}; required {best['threshold']:.2f}. Use live training to cover this camera and viewing angle."
                 elif best['reason'] in {'ambiguous','duplicate_identity'}: message += ' Competing face/profile evidence; no identity assigned.'
                 else: message += ' More agreeing evidence is needed; no greeting was attempted.'
             message = frame.source+': '+message+' Usable faces by frame: '+' / '.join(str(r['usable']) for r in reports)+'.'
@@ -577,11 +627,13 @@ class PerceptionController:
         finally:
             self._enrolling = False
             self._explicit_task = None
+            if self.native_selected: self.camera.publish('IDLE')
             self.publish()
 
     def publish(self):
         data = {"occupancy":self.occupancy.state,"sensor_health":self.occupancy.health,
-            "distance_mm":self.occupancy.distance,"health":self.health,"model_health":self.faces.health,
+            "distance_mm":self.occupancy.distance,"health":self.health,"model_health":('ready' if self.camera.unitv2.status.get('native_faces') else 'not_loaded') if self.native_selected else self.faces.health,
+            "recognition_provider":'unitv2-native' if self.native_selected else 'pc-legacy',
             "subjects":self.subjects,"confirmed_persons":[t["person"] for t in self._tracks if t["person"]],"policy":self.camera.config.policy,"privacy":self.camera.config.privacy,
             "gate":self.gate(),"bursts":self._burst_number,"completed_bursts":self._completed_bursts,"pending":self.pending["trigger"] if self.pending else 'arrival' if self._arrival_retry else None,
             "ambiguous":sum(t.get("identity")=="ambiguous" and t.get("observed",False) for t in self._tracks),

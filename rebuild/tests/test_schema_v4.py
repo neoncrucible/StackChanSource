@@ -46,7 +46,7 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(self.snapshot(backup), before)
         self.assert_preserved(before)
         with closing(connect_database(self.paths.database)) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 4)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 5)
             self.assertEqual(db.execute('SELECT purpose,pinned,expires_at,deleted_at FROM media').fetchone(),
                              ('manual_capture', 1, None, None))
             for table in NEW_TABLES:
@@ -73,7 +73,7 @@ class SchemaTests(unittest.TestCase):
         with closing(connect_database(self.paths.database)) as db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 3)
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='persons'").fetchone())
-        first_backup = next(self.paths.backups_dir.glob('schema-v3-before-v4-*'))
+        first_backup = next(self.paths.backups_dir.glob('schema-v3-before-v5-*'))
         self.assertEqual(self.snapshot(first_backup), before)
         second_backup = schema.ensure_schema(self.paths)
         self.assertNotEqual(first_backup, second_backup)
@@ -122,7 +122,7 @@ class SchemaTests(unittest.TestCase):
                 backup = schema.ensure_schema(paths)
                 with closing(connect_database(paths.database)) as db:
                     schema.check_integrity(db)
-                    self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 4)
+                    self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 5)
                     if version:
                         self.assertEqual(db.execute('SELECT count(*) FROM records').fetchone()[0], 2)
                         self.assertTrue(backup.exists())
@@ -208,7 +208,7 @@ class StorageOperatorTests(unittest.TestCase):
             paths.desktop_lock.unlink()
             result = subprocess.run(command+['--upgrade'], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout)
-            self.assertIn('schema=4', result.stdout)
+            self.assertIn('schema=5', result.stdout)
             self.assertIn('Rollback backup:', result.stdout)
             result = subprocess.run(command+['--upgrade'], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout)

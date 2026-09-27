@@ -10,9 +10,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import uuid
 
 FACTORY_SHA256 = "4cbdcc26903effc52638e0a85e7c463991087235e8b4e70d64b35e150ba05d74"
 CAMERA_SHA256 = "a2203a4700445ee62feec8e5c645cf6ae05211e01ba2153ce555519f62f20b92"
+FACE_SHA256 = "00012bd3cda05f4fc482542830822f9bb15fe3c1a23794a106edf206ec13fd99"
+BUNDLE = ('kadence_unitv2.py', 'kadence_native.py', 'native_faces.html', 'native_faces.js')
 SHIM = b"# Kadence UnitV2 lifecycle service; factory entry is backed up.\nfrom kadence_unitv2 import main\nif __name__ == '__main__': main()\n"
 
 
@@ -49,16 +52,28 @@ def install(root, source, *, restore=False):
         return {"result": "restored", "restart": "power_cycle_unitv2"}
     # Validate the complete bundle before changing a single installed file.
     manifest = json.loads((source/"manifest.json").read_text())
-    code = source/"kadence_unitv2.py"
-    if manifest != {"kadence_unitv2.py": digest(code)}: raise RuntimeError("Service bundle checksum mismatch")
-    compile(code.read_bytes(), str(code), "exec")
+    if manifest != {name: digest(source/name) for name in BUNDLE}: raise RuntimeError("Service bundle checksum mismatch")
+    for name in BUNDLE:
+        if name.endswith('.py'): compile((source/name).read_bytes(), name, "exec")
+    face = root/'bin'/'face_recognition'
+    if face.is_symlink() or digest(face) != FACE_SHA256: raise RuntimeError('Unsupported factory recognition binary; no changes made')
+    for name in ('js/jquery.min.js', 'js/bin/face_recognition.js', 'js/core/post.server.js'):
+        asset = root/'static'/name
+        if not asset.is_file() or asset.is_symlink(): raise RuntimeError('Factory training web files are missing; no changes made')
     key = (source/"kadence-camera.key").read_text().strip()
     if not re.fullmatch(r"[0-9a-f]{64}", key): raise RuntimeError("Invalid pairing key; no changes made")
-    for target in (root/"kadence_unitv2.py", root/"kadence-camera.key"):
+    for target in [root/name for name in BUNDLE] + [root/"kadence-camera.key",root/'kadence-device.id']:
         if target.is_symlink(): raise RuntimeError("Unexpected symlink; no changes made")
+    identity = root/'kadence-device.id'
+    if identity.exists() and not re.fullmatch(r'[0-9a-f]{32}',identity.read_text().strip()):
+        raise RuntimeError('UnitV2 identity differs; no changes made')
     if not backup.exists(): atomic(backup, current, 0o444)
-    atomic(root/"kadence_unitv2.py", code.read_bytes(), 0o644)
+    if not identity.exists(): atomic(identity,(uuid.uuid4().hex+'\n').encode(),0o600)
     atomic(root/"kadence-camera.key", (key+"\n").encode(), 0o600)
+    # Existing installations already import kadence_unitv2 at boot. Install all
+    # of its new dependencies before replacing that live entry module.
+    for name in BUNDLE[1:]: atomic(root/name,(source/name).read_bytes(),0o644)
+    atomic(root/BUNDLE[0],(source/BUNDLE[0]).read_bytes(),0o644)
     # Switch entry point last. Original supervisor and network setup are intact.
     atomic(entry, SHIM, 0o644)
     return {"result": "installed", "restart": "power_cycle_unitv2", "original_sha256": FACTORY_SHA256}

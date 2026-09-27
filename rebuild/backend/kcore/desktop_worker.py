@@ -242,6 +242,14 @@ class DesktopController:
                 self.emit("unitv2_check", {"cycle":cycle+1,"state":"passed"})
             camera.unitv2.record_verified(self.services.paths.root)
             return {"message":"UnitV2 lifecycle PASS: two fresh captures, two confirmed stops. Producer is stopped."}
+        if action in {'unitv2_train_open','unitv2_train_finish'}:
+            if not self.app or not self.app.perception: raise RuntimeError('Start the server before opening UnitV2 training.')
+            if action == 'unitv2_train_open':
+                if self._media and not self._media.done(): raise RuntimeError('Camera is busy. Cancel the current check first.')
+                return await self.app.perception.open_native_training()
+            await self.app.camera.unitv2.stop()
+            await self.app.perception.sync_native_profiles()
+            return {'message':'UnitV2 camera stopped. Saved onboard profiles have been refreshed.'}
         if action in {"face_profiles", "face_photos", "face_preview_clear", "face_forget", "face_enroll", "face_update", "vision_activity", "database_backup", "recognition_test", "perception_test"}:
             from .perception_store import PerceptionStore
             from .camera_manager import settled_thread
@@ -288,7 +296,16 @@ class DesktopController:
                 self._media = asyncio.create_task(operation)
                 try: return await self._media
                 finally: self._media = None; self._network_media = False
-            return {"persons":await settled_thread(lambda: store.call("persons")),"database":str(self.services.paths.database),"message":"Local face profiles loaded." if action=="face_profiles" else "Profile changes saved."}
+            message = 'Profile changes saved.'
+            if action == 'face_profiles':
+                message = 'Start the server and Refresh to read saved profiles from UnitV2. Listed entries are cached metadata.'
+                if self.app and self.app.perception:
+                    try:
+                        await self.app.perception.sync_native_profiles()
+                        message = 'Onboard UnitV2 profiles refreshed. Kadence uses native recognition; SQLite stores greeting preferences.'
+                    except Exception as exc:
+                        message = 'Onboard refresh did not complete; listed entries are cached. '+str(exc)
+            return {"persons":await settled_thread(lambda: store.call("persons")),"database":str(self.services.paths.database),"message":message}
         if action == "ollama_models":
             if args: raise ValueError("Model discovery takes no arguments.")
             return {"models": await installed_models()}

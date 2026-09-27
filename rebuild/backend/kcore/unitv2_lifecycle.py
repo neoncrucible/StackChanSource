@@ -25,8 +25,9 @@ def diagnostic_status(value):
     if not isinstance(value, dict) or value.get("mode") not in {"ON_DEMAND", "KEEP_READY", "STOPPED"}: return None
     if value.get("state") not in STATES | {"UNKNOWN", "UNAVAILABLE", "SETUP_REQUIRED", "STOP_UNCONFIRMED"}: return None
     safe={"mode":value["mode"], "state":value["state"]}
-    for field in ("stop_confirmed", "producer_running"):
+    for field in ("stop_confirmed", "producer_running", "native_faces", "training_open"):
         if type(value.get(field)) is bool: safe[field]=value[field]
+    if value.get('producer_mode') in {'camera','faces'}: safe['producer_mode']=value['producer_mode']
     for field in ("sequence", "starts", "stops", "expirations", "lease_remaining_ms"):
         item=value.get(field)
         if type(item) is int and 0 <= item <= 10**12: safe[field]=item
@@ -104,7 +105,7 @@ class Client:
             response.begin()
             length = response.getheader("Content-Length", "")
             jpeg = response.getheader("Content-Type", "").split(";")[0].strip() == "image/jpeg"
-            if not length.isdigit() or not 0 < int(length) <= (MAX_JPEG if jpeg else 8192):
+            if not length.isdigit() or not 0 < int(length) <= (MAX_JPEG if jpeg else 4*MAX_JPEG//3+65536):
                 raise LifecycleError("Invalid UnitV2 service response")
             data = bytearray()
             while len(data) < int(length):
@@ -115,6 +116,14 @@ class Client:
                 if not chunk: raise LifecycleError("Truncated UnitV2 response")
                 data.extend(chunk)
             if response.status != 200:
+                try: reason = json.loads(data).get('error')
+                except (ValueError,AttributeError): reason = None
+                messages = {'native_profiles_invalid':'The UnitV2 native profile files could not be verified. Existing files were preserved.',
+                    'native_session_ended':'The UnitV2 training session ended. Reopen training from Profiles.',
+                    'native_setup_required':'Upgrade the UnitV2 service using SET UP UNITV2, then power-cycle the camera.',
+                    'invalid_operation':'Upgrade the UnitV2 service using SET UP UNITV2, then power-cycle the camera.',
+                    'native_result_timeout':'The UnitV2 did not produce a fresh recognition result in time.'}
+                if reason in messages: raise LifecycleError(messages[reason])
                 if response.status == 401: raise LifecycleError("UnitV2 pairing rejected. Run UnitV2 setup again.")
                 if response.status in {404, 410}: raise LifecycleError("UnitV2 lifecycle service is not installed. Run UnitV2 setup and power-cycle the camera.")
                 raise LifecycleError("UnitV2 lifecycle request failed; check status and retry.")
@@ -169,6 +178,8 @@ class UnitV2Owner:
         self._cancel_epoch = 0
         self.verification_root = None
         self.verified = False
+        self.web_session = False
+        self.face_sequence = 0
 
     def publish(self, result=None):
         if result is not None: self.status = result
@@ -176,6 +187,9 @@ class UnitV2Owner:
                 "stop_confirmed":self.status.get("stop_confirmed") is True,
                 "producer_running":self.status.get("producer_running") is True,
                 "verified":self.verified,
+                "native_faces":self.status.get("native_faces") is True,
+                "training_open":self.web_session,
+                "producer_mode":self.status.get('producer_mode','camera'),
                 "sensor_power":"unverified"}
         for field in ("sequence", "starts", "stops", "expirations", "lease_remaining_ms"):
             value = self.status.get(field)
@@ -190,7 +204,7 @@ class UnitV2Owner:
             cancelled.set()
             self.client.interrupt()
         result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout, cancel=cancelled),on_cancel=interrupt)
-        if operation != "frame": self.publish(result)
+        if operation not in {"frame", "face_frame"}: self.publish(result)
         return result
 
     async def _select(self, address):
@@ -208,7 +222,7 @@ class UnitV2Owner:
         if self.verification_root:
             try:
                 data=json.loads((Path(self.verification_root)/"unitv2-verification.json").read_text())
-                self.verified=data=={"format":1,"service_version":"1.0.0","key_id":hashlib.sha256(bytes.fromhex(key)).hexdigest()}
+                self.verified=data=={"format":1,"service_version":"1.1.0","key_id":hashlib.sha256(bytes.fromhex(key)).hexdigest()}
             except (ValueError,OSError,TypeError): pass
         self.sequence = 0
         return True
@@ -217,17 +231,22 @@ class UnitV2Owner:
         if not self.client: return
         lease = self.lease
         self.lease = None
+        self.web_session = False
         try:
             await self._call("stop", lease=None if all_leases else lease, timeout=7)
         except BaseException:
             self.publish({"state":"STOP_UNCONFIRMED", "stop_confirmed":False})
             raise
 
-    async def _start(self):
+    async def _start(self, *, native=False):
         if self.closed: raise LifecycleError("Camera owner is closed")
+        mode = 'faces' if native else 'camera'
+        if self.web_session: raise LifecycleError('Finish UnitV2 training before using the camera.')
+        if self.lease and self.status.get('producer_mode','camera') != mode: await self._stop()
         if self.lease is None:
             self.lease, self.sequence = uuid.uuid4().hex, 0
-        await self._call("start", lease=self.lease)
+            self.face_sequence = 0
+        await self._call("face_start" if native else "start", lease=self.lease)
 
     async def capture(self, address, *, timeout=12):
         from .camera_manager import decode_jpeg, settled_thread
@@ -256,6 +275,7 @@ class UnitV2Owner:
     def _stop_sync(self):
         # Called while lock is retained; publication stays on the event loop.
         lease, self.lease = self.lease, None
+        self.web_session = False
         try: result = self.client.call("stop", lease, timeout=7)
         except Exception:
             self.status = {"state":"STOP_UNCONFIRMED", "stop_confirmed":False}
@@ -297,10 +317,10 @@ class UnitV2Owner:
         self.publish()
 
     def record_verified(self, root):
-        if not self.client or not self.status.get("stop_confirmed") or self.status.get("version") != "1.0.0":
+        if not self.client or not self.status.get("stop_confirmed") or self.status.get("version") != "1.1.0":
             raise LifecycleError("Camera lifecycle verification did not complete")
         path=Path(root)/"unitv2-verification.json"
-        data={"format":1,"service_version":"1.0.0","key_id":hashlib.sha256(self.client.key).hexdigest()}
+        data={"format":1,"service_version":"1.1.0","key_id":hashlib.sha256(self.client.key).hexdigest()}
         temp=path.with_suffix(".tmp")
         temp.write_text(json.dumps(data),encoding="utf-8");temp.replace(path)
         self.verification_root=root
@@ -321,14 +341,63 @@ class UnitV2Owner:
             while True:
                 await asyncio.sleep(8)
                 async with self.lock:
-                    if self.mode != "KEEP_READY" or not self.lease: return
-                    await self._call("start", lease=self.lease)
+                    if (self.mode != "KEEP_READY" and not self.web_session) or not self.lease: return
+                    operation = 'web_renew' if self.web_session else 'face_start' if self.status.get('producer_mode')=='faces' else 'start'
+                    await self._call(operation, lease=self.lease)
         except asyncio.CancelledError: raise
         except Exception:
-            self.mode = "STOPPED"
+            self.mode = "ON_DEMAND" if self.web_session else "STOPPED"
+            self.web_session = False
             self.publish({"state":"STOP_UNCONFIRMED", "stop_confirmed":False})
             with contextlib.suppress(Exception):
                 async with self.lock: await self._stop()
+
+    async def native_profiles(self, address):
+        async with self.lock:
+            if not await self._select(address): raise LifecycleError('Run SET UP UNITV2 to enable native face recognition.')
+            return await self._call('face_profiles')
+
+    async def native_observe(self, address):
+        from .camera_manager import settled_thread
+        async with self.lock:
+            if not await self._select(address): raise LifecycleError('Run SET UP UNITV2 to enable native face recognition.')
+            epoch, succeeded = self._cancel_epoch, False
+            try:
+                await self._start(native=True)
+                result = await self._call('face_frame',lease=self.lease,timeout=10)
+                sequence = result.get('result_sequence')
+                if type(sequence) is not int or sequence <= self.face_sequence:
+                    raise LifecycleError('UnitV2 repeated an old recognition result.')
+                self.face_sequence = sequence
+                succeeded = True
+                return result
+            finally:
+                if (self.mode != 'KEEP_READY' and not self._holds) or epoch != self._cancel_epoch or not succeeded:
+                    cancelled = isinstance(sys.exception(),asyncio.CancelledError)
+                    try: await settled_thread(self._stop_sync)
+                    except Exception:
+                        if not cancelled: raise
+                    finally: self.publish()
+
+    async def open_training(self, address):
+        await self.stop(address)
+        async with self.lock:
+            if self.closed: raise LifecycleError('Camera owner is closed.')
+            if not await self._select(address): raise LifecycleError('Run SET UP UNITV2 first.')
+            self.lease = uuid.uuid4().hex
+            try:
+                result = await self._call('web_open',lease=self.lease)
+                ticket = result.get('ticket')
+                if not isinstance(ticket,str) or not re.fullmatch('[0-9a-f]{32}',ticket): raise LifecycleError('Invalid training session.')
+                self.web_session = True
+                self.mode = 'ON_DEMAND'
+                self.heartbeat = asyncio.create_task(self._renew(),name='kadence-native-training-lease')
+                self.publish()
+                port = getattr(self.client,'port',80)
+                return 'http://'+self.client.address+(':'+str(port) if port!=80 else '')+'/native/open#'+ticket
+            except BaseException:
+                await self._stop()
+                raise
 
     @contextlib.asynccontextmanager
     async def burst(self):

@@ -56,13 +56,15 @@ def main(address="192.168.40.175"):
     if window: ctypes.windll.user32.ShowWindow(window, 5)
     print("KADENCE / UNITV2 SETUP\n")
     print("Close the Kadence server and any UnitV2 browser preview first.")
-    print("This backs up the original service and installs camera start/stop control.")
+    print("This installs camera lifecycle control and the original UnitV2 face training bridge.")
+    print("Existing onboard face profiles and the original service backup are preserved.")
     print("It does not flash firmware or change Wi-Fi. Enter R to restore the original instead.\n")
     operation = input("Install [Enter] or restore [R]: ").strip().upper()
     if operation not in {"", "R"}: return 1
     address = str(ipaddress.IPv4Address(input("UnitV2 address ["+address+"]: ").strip() or address))
     source = bundle_directory()
-    for name in ("kadence_unitv2.py", "install_unitv2.py"):
+    bundle = ("kadence_unitv2.py", "kadence_native.py", "native_faces.html", "native_faces.js")
+    for name in (*bundle, "install_unitv2.py"):
         if not (source/name).is_file(): raise RuntimeError("UnitV2 setup files are missing. Extract the complete desktop ZIP.")
     for tool in ("ssh", "scp"):
         if not shutil.which(tool): raise RuntimeError("Install the Windows OpenSSH Client optional feature, then retry.")
@@ -81,8 +83,8 @@ def main(address="192.168.40.175"):
         subprocess.run(["ssh", "-t", *options, remote, preparation_command(destination)], check=True)
         with tempfile.TemporaryDirectory(prefix="kadence-unitv2-") as folder:
             temporary = Path(folder)
-            for name in ("kadence_unitv2.py", "install_unitv2.py"): shutil.copyfile(source/name,temporary/name)
-            (temporary/"manifest.json").write_text(json.dumps({"kadence_unitv2.py":hashlib.sha256((temporary/"kadence_unitv2.py").read_bytes()).hexdigest()}))
+            for name in (*bundle, "install_unitv2.py"): shutil.copyfile(source/name,temporary/name)
+            (temporary/"manifest.json").write_text(json.dumps({name:hashlib.sha256((temporary/name).read_bytes()).hexdigest() for name in bundle}))
             (temporary/"kadence-camera.key").write_text(key+"\n")
             subprocess.run(["scp", "-O", *options, *[str(p) for p in temporary.iterdir()], remote+":"+destination+"/"], check=True)
         command = "sudo python3 "+destination+"/install_unitv2.py"+(" --restore" if operation == "R" else "")
@@ -90,6 +92,7 @@ def main(address="192.168.40.175"):
         if operation == "R": vault.forget()
         print("\nSETUP COMPLETE. Unplug UnitV2 power, reconnect it, then start Kadence.")
         print("In Vision select ON DEMAND and click TEST START / STOP. No robot firmware flash is needed.")
+        print("Then Profiles > OPEN UNITV2 TRAINING uses the onboard factory recognition and saved profiles.")
         return 0
     finally:
         # Fixed generated path only. Never remove the factory backup.

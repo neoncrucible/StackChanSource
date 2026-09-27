@@ -8,6 +8,7 @@ import base64
 from collections import OrderedDict
 import hashlib
 import hmac
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -20,7 +21,7 @@ import time
 import uuid
 
 API = 1
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 CAMERA_SHA256 = "a2203a4700445ee62feec8e5c645cf6ae05211e01ba2153ce555519f62f20b92"
 MAX_JPEG = 2 * 1024 * 1024
 MAX_LINE = 4 * MAX_JPEG // 3 + 4096
@@ -50,6 +51,8 @@ class Producer:
         self.starts = self.stops = self.expirations = 0
         self.revoked = OrderedDict()
         self.closed = threading.Event()
+        self.native = None
+        self.mode = "camera"
 
     def status(self):
         with self.lock:
@@ -63,7 +66,8 @@ class Producer:
                     "lease": self.lease, "lease_remaining_ms": max(0, int((self.expires-self.clock())*1000)) if self.lease else 0,
                     "sequence": self.sequence, "starts": self.starts, "stops": self.stops,
                     "expirations": self.expirations, "reason": self.reason,
-                    "sensor_power": "unverified"}
+                    "sensor_power": "unverified", "producer_mode": self.mode,
+                    "native_faces": self.native is not None}
 
     def _revoke(self, lease):
         if lease:
@@ -71,7 +75,7 @@ class Producer:
             while len(self.revoked) > 128:
                 self.revoked.popitem(last=False)
 
-    def start(self, lease):
+    def start(self, lease, mode="camera"):
         if not isinstance(lease, str) or not re.fullmatch(r"[0-9a-f]{32}", lease):
             raise CameraError("invalid_lease", 400)
         with self.control, self.lock:
@@ -80,6 +84,7 @@ class Producer:
             if lease in self.revoked: raise CameraError("lease_revoked")
             if self.process is not None:
                 if self.lease != lease: raise CameraError("camera_owned")
+                if self.mode != mode: raise CameraError("producer_mode_conflict")
                 if self.process.poll() is not None: raise CameraError("producer_exited", 503)
                 if self.clock() >= self.expires: raise CameraError("lease_expired")
                 self.expires = self.clock() + LEASE_SECONDS
@@ -87,7 +92,13 @@ class Producer:
             self.state, self.reason = "STARTING", "starting"
             self.frame = None
             try:
-                self.process = self.popen(self.command, cwd=self.cwd, stdin=subprocess.PIPE,
+                command = self.command
+                if mode == "faces":
+                    if self.native is None: raise CameraError("native_setup_required", 503)
+                    command = self.native.prepare()
+                elif mode != "camera": raise CameraError("invalid_mode", 400)
+                self.mode = mode
+                self.process = self.popen(command, cwd=self.cwd, stdin=subprocess.PIPE,
                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                           bufsize=65536, close_fds=True)
                 self.lease, self.expires = lease, self.clock()+LEASE_SECONDS
@@ -97,6 +108,9 @@ class Producer:
                 # Vendor UnitV2Framework system command: turn on JPEG transmission.
                 self.process.stdin.write(b'_{"stream":1}\r\n')
                 self.process.stdin.flush()
+            except CameraError as exc:
+                self.state, self.reason = "FAULT", exc.reason
+                raise
             except Exception:
                 self.state, self.reason = "FAULT", "start_failed"
                 raise CameraError("start_failed", 503)
@@ -110,7 +124,11 @@ class Producer:
                 if len(line) > MAX_LINE: raise ValueError("oversize")
                 try: doc = json.loads(line)
                 except (ValueError, UnicodeError): continue
-                if not isinstance(doc, dict) or "img" not in doc: continue
+                if not isinstance(doc, dict): continue
+                with self.changed:
+                    if self.process is not process or self.state == "STOPPING": return
+                    if self.native and self.mode == "faces": self.native.receive(doc)
+                if "img" not in doc: continue
                 encoded = doc["img"]
                 if not isinstance(encoded, str) or len(encoded) > 4*MAX_JPEG//3+4: raise ValueError("oversize")
                 jpeg = base64.b64decode(encoded, validate=True)
@@ -121,6 +139,7 @@ class Producer:
                     self.frame, self.frame_at = jpeg, self.clock()
                     self.sequence += 1
                     self.state, self.reason = "RUNNING", "frame_ready"
+                    if self.native and self.mode == "faces": self.native.image_ready()
                     self.changed.notify_all()
         except Exception:
             pass
@@ -178,6 +197,7 @@ class Producer:
                 if process is not None: self.stops += 1
                 if reason == "lease_expired": self.expirations += 1
                 self.process = self.reader = None
+                if self.native: self.native.stopped()
                 self.state = "STOPPED"
                 result = self.status()
                 if not result["stop_confirmed"]: raise CameraError("other_camera_producer", 503)
@@ -185,7 +205,8 @@ class Producer:
 
     def watchdog_once(self):
         with self.lock:
-            expired = self.process is not None and (self.clock() >= self.expires or self.state == "FAULT")
+            expired = self.process is not None and (self.clock() >= self.expires or self.state == "FAULT"
+                or (self.native and self.native.browser_expired()))
             lease = self.lease
         if expired:
             try: self.stop(lease, "lease_expired")
@@ -263,14 +284,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args): pass
 
-    def reply(self, value, status=200, sequence=None):
+    def reply(self, value, status=200, sequence=None, content_type=None, cookie=None):
         jpeg = isinstance(value, bytes)
         payload = value if jpeg else json.dumps(value, separators=(",", ":")).encode()
         self.send_response(status)
-        self.send_header("Content-Type", "image/jpeg" if jpeg else "application/json")
+        self.send_header("Content-Type", content_type or ("image/jpeg" if jpeg else "application/json"))
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        if cookie: self.send_header("Set-Cookie", "kadence_native="+cookie+"; HttpOnly; SameSite=Strict; Path=/")
         if sequence is not None: self.send_header("X-Kadence-Sequence", str(sequence))
         self.end_headers()
         self.wfile.write(payload)
@@ -279,18 +304,66 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             if self.path == "/kadence/v1/challenge": self.reply(self.server.service.challenge())
-            elif self.path == "/": self.reply({"service": "Kadence UnitV2", "message": "Use Kadence Vision to start or stop the camera. The factory service is backed up; use Restore UnitV2 to restore it."})
+            elif self.path in {"/", "/native/open"}:
+                self.reply(b'<!doctype html><meta charset="utf-8"><title>UnitV2</title><p id="status">Open UnitV2 training from Kadence: Vision, Profiles, OPEN UNITV2 TRAINING.</p><script>const ticket=location.hash.slice(1);history.replaceState(null,"","/native/open");if(ticket)fetch("/native/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticket})}).then(async r=>{if(!r.ok)throw Error();location.replace("/native/faces")}).catch(()=>document.getElementById("status").textContent="Session ended. Reopen training from Kadence.");</script>', content_type="text/html; charset=utf-8")
+            elif self.server.service.producer.native:
+                self.web_get()
             else: self.reply({"error": "not_found"}, 404)
         except CameraError as exc: self.reply({"error": exc.reason}, exc.status)
 
+    def native_cookie(self):
+        raw = self.headers.get("Cookie", "")
+        if len(raw)>2048: raise CameraError("invalid_cookie",400)
+        cookie = SimpleCookie(raw)
+        return cookie['kadence_native'].value if 'kadence_native' in cookie else None
+
+    def web_get(self):
+        from kadence_native import ASSETS
+        native = self.server.service.producer.native
+        native.authorize(self.native_cookie())
+        if self.path == '/native/faces':
+            self.reply((native.root/'native_faces.html').read_bytes(),content_type='text/html; charset=utf-8')
+        elif self.path == '/native/faces.js':
+            self.reply((native.root/'native_faces.js').read_bytes(),content_type='text/javascript; charset=utf-8')
+        elif self.path in ASSETS:
+            path = native.root/self.path.lstrip('/')
+            if path.is_symlink() or path.stat().st_size > 1024*1024: raise CameraError('invalid_asset',503)
+            self.reply(path.read_bytes(),content_type='text/javascript; charset=utf-8')
+        elif self.path == '/native/frame':
+            # Browser reads never extend the host lease.
+            with native.p.changed:
+                if not native.p.frame: raise CameraError('frame_pending',503)
+                self.reply(native.p.frame)
+        else: raise CameraError('not_found',404)
+
+    def web_post(self, raw):
+        native = self.server.service.producer.native
+        if not native: raise CameraError('native_setup_required',503)
+        if self.headers.get('Origin') != 'http://'+self.headers.get('Host',''):
+            raise CameraError('same_origin_required',403)
+        if self.headers.get('Content-Type','').split(';')[0] != 'application/json': raise CameraError('invalid_request',400)
+        try: req = json.loads(raw)
+        except (ValueError,UnicodeError): raise CameraError('invalid_request',400)
+        if not isinstance(req,dict): raise CameraError('invalid_request',400)
+        if self.path == '/native/session':
+            return self.reply({'ok':True},cookie=native.exchange(req.get('ticket')))
+        cookie = self.native_cookie()
+        lease = native.authorize(cookie)
+        if self.path == '/native/state': self.reply(native.web_state(cookie))
+        elif self.path == '/data_from_device':
+            self.reply({'running':'Face Recognition','faces':[{'name':name} for name in native.memory_names]})
+        elif self.path == '/data_to_device': self.reply(native.web_command(cookie,req))
+        elif self.path == '/native/finish': self.reply(native.p.stop(lease))
+        else: raise CameraError('not_found',404)
+
     def do_POST(self):
         try:
-            if self.path != "/kadence/v1/control": raise CameraError("not_found", 404)
             length = self.headers.get("Content-Length", "")
             if not length.isdigit() or not 0 < int(length) <= 4096 or self.headers.get("Transfer-Encoding"):
                 raise CameraError("invalid_request", 400)
             raw = self.rfile.read(int(length))
             if len(raw) != int(length): raise CameraError("invalid_request", 400)
+            if self.path != "/kadence/v1/control": return self.web_post(raw)
             req = self.server.service.authenticate(raw, self.headers.get("X-Kadence-Signature"))
             operation, lease = req.get("operation"), req.get("lease")
             if lease is not None and (not isinstance(lease, str) or not re.fullmatch(r"[0-9a-f]{32}", lease)):
@@ -302,6 +375,14 @@ class Handler(BaseHTTPRequestHandler):
             elif operation == "frame":
                 jpeg, sequence = camera.snapshot(lease)
                 self.reply(jpeg, sequence=sequence)
+            elif camera.native:
+                native = camera.native
+                if operation == 'face_profiles': self.reply(dict(camera.status(), **native.profiles()))
+                elif operation == 'face_start': self.reply(camera.start(lease, 'faces'))
+                elif operation == 'face_frame': self.reply(native.observation(lease))
+                elif operation == 'web_open': self.reply(native.open_web(lease))
+                elif operation == 'web_renew': self.reply(native.renew(lease))
+                else: raise CameraError('invalid_operation',400)
             else: raise CameraError("invalid_operation", 400)
         except CameraError as exc: self.reply({"error": exc.reason}, exc.status)
 
@@ -312,16 +393,23 @@ def main():
     if hashlib.sha256(binary.read_bytes()).hexdigest() != CAMERA_SHA256:
         raise RuntimeError("Camera executable differs from the verified factory image")
     key = (root / "kadence-camera.key").read_text().strip()
+    from kadence_native import NativeBridge, FACE_SHA256, recover_save
+    face_binary = root / 'bin' / 'face_recognition'
+    if hashlib.sha256(face_binary.read_bytes()).hexdigest() != FACE_SHA256:
+        raise RuntimeError('Face executable differs from the verified factory image')
     def foreign(owned):
         # A factory supervisor restart can leave an old camera child behind.
         # Report the conflict; never claim it stopped or signal an unowned PID.
         for entry in Path("/proc").iterdir():
             if not entry.name.isdigit() or int(entry.name) == owned: continue
             try:
-                if (entry/"exe").resolve() == binary: return True
+                if (entry/"exe").resolve() in {binary, face_binary}: return True
             except (FileNotFoundError, PermissionError, OSError): continue
         return False
     producer = Producer([str(binary)], str(root), foreign=foreign)
+    if foreign(None): raise RuntimeError('Another factory camera process is running; power-cycle UnitV2')
+    recover_save(root)
+    NativeBridge(producer, CameraError, root, (root/'kadence-device.id').read_text().strip())
     service = CameraService(producer, key)
     server = Server(("0.0.0.0", 80), service)
     watcher = threading.Thread(target=producer.watchdog, daemon=True)

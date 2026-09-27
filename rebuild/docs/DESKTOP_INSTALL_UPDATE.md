@@ -1,52 +1,37 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.11 — robot audio connection checks and Windows access repair.
-Firmware remains 0.21.6; no flash. The accepted 0.4.3 voice transport and output
-pipeline are retained. This update includes the 0.4.6 UnitV2 setup permission repair.
-An already working paired UnitV2 service does not need reinstalling.
+Current update: 0.4.12 — native UnitV2 face training and recognition.
+Audio in 0.4.11 and fresh scene descriptions are confirmed working by the owner.
+Firmware stays at 0.21.6; no flash or audio reconfiguration is required.
 
-Scene descriptions in 0.4.9 are physically accepted by the owner.
-For this update, START SERVER, then use Overview → CHECK NETWORK.
-If an allowance is missing, select ALLOW ROBOT AUDIO and approve the Windows
-administrator prompt. The allowance covers this executable on Private local
-networks only. TEST AUDIO LINK plays two tones without recording or calling AI.
-After it passes, tap once, wait for the recording cue, then ask a question.
-Read VOICE-CONNECTION.txt for exact behavior and remaining network checks.
-Live face enrollment/greetings remain unaccepted: the latest training attempt
-did not save a profile. This voice repair does not claim to resolve that issue.
+This update requires SET UP UNITV2 once to install camera service 1.1.0, followed
+by a UnitV2 power cycle and TEST START / STOP. Existing onboard face profiles,
+the pairing key and the original service backup are preserved. Do not flash the
+factory recovery image; that would erase device data.
 
-Vision → Camera starts with LOOK & DESCRIBE: one fresh image, with the actual
-view and description side by side. The outdated Gemini response parser is fixed.
-Errors distinguish credentials, quota, timeout and missing/invalid descriptions.
-Voice failures release the old turn. TCP access failures show network guidance;
-Wi-Fi/device stalls retain bounded supervisor recovery. No question is replayed.
-Ambient presence no longer claims to be preparing audio. Overview shows the
-active audio endpoint, cancellation and the last voice/recovery result.
-Read PRODUCTION-HARDENING.txt for the evidence, limits and short acceptance check.
+Vision → Profiles → REFRESH FROM UNITV2 reads the profiles already trained on the
+camera. OPEN UNITV2 TRAINING opens its native live training with the factory
+Train / Stop / Save controls. There is no 20-pose requirement. Wait for saved and
+verified, then Finish & Return. Kadence consumes native matches and uses SQLite
+for greeting preferences and history, without importing native face vectors.
+Read NATIVE-UNITV2-FACES.txt for the exact training and greeting check sequence.
+Factory profiles store names and face features, not a photo gallery. Existing
+PC review photos remain accessible under their legacy profiles.
 
-Vision has Camera, Perception, Profiles, Activity, Face check and Live training tabs. Profiles reads your
-existing SQLite database, shows saved sample counts/dates and offers rename,
-replacement, delete, recognition tests and a database backup button. Enrollment
-shows accepted samples and an explicit Saved or failure message beside the controls.
-The Perception tab shows whether automatic looks are enabled, why they are blocked,
-what the last look found and whether a greeting was delivered.
+Vision has Camera, Perception, Profiles, Activity, Face check and UnitV2 training.
+Automatic Perception and Greetings are separate switches. LIVE RECOGNITION CHECK
+never greets; TEST AUTOMATIC EVENT follows the real gates and can greet. Stop and
+Privacy still terminate the owned camera process, including a browser session.
+Save before starting voice activity, which ends training to release the camera.
 
-Face check shows the actual image/source and distinguishes no face, small/blurred
-faces and failed identity matching. Lighting is no longer blamed without evidence.
-In Profiles, optionally check Keep 3 local review photos before Enroll or Replace
-Samples. Select a saved profile to review its photos. Existing embeddings cannot
-recreate old pictures; use replacement to add new ones. Photos stay on this PC.
+The accepted LOOK & DESCRIBE flow and voice camera commands are retained. Audio
+network tools remain in Overview; VOICE-CONNECTION.txt is reference material if
+needed. No new robot firmware crash fix is claimed by this host-only update.
 
-The server now detects robot reboots even when USB remains connected, cancels the
-interrupted voice turn and reconnects. Additional stage deadlines cover lost ACKs.
-The captured firmware 0.21.6 I2C interrupt crash itself remains unresolved; this
-host-only package does not claim to prevent that reboot.
-
-Say "What can you see?", "Camera status", "Use the extra camera", "Enable automatic
-perception", "Enable greetings" or "Turn privacy on". These phrases are direct
-commands. Image descriptions require the Gemini key, including with Ollama reasoning.
-Local recognition needs no cloud image request. Enabling greetings alone does not
-enable automatic perception. Read CAMERA-PERCEPTION.txt for the short test sequence.
+SQLite migrates from schema 4 to 5 after creating a verified backup. Older hosts
+that reject schema 5 need that pre-upgrade backup for rollback. Do not downgrade
+against the live database. PC database backup does not include native UnitV2
+features; the camera keeps its own pre-training profile backups.
 
 1. Quit Kadence completely, including its tray icon. Close any source host too.
 2. Extract the entire desktop ZIP to a new folder. Do not run inside the ZIP.

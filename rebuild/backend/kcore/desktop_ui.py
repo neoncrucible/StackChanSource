@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from PySide6.QtCore import Qt, QTimer, QRectF
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QAction
+from PySide6.QtCore import Qt, QTimer, QRectF, QUrl
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox,
@@ -325,7 +325,7 @@ class MainWindow(QMainWindow):
         return page
 
     def vision_page(self):
-        page,layout=self.page("Vision & presence", "Camera controls, local profiles and recognition · host " + build_info()['host_version'])
+        page,layout=self.page("Vision & presence", "Camera controls, UnitV2 profiles and greetings · host " + build_info()['host_version'])
         layout.setSpacing(8); layout.setContentsMargins(0,0,0,0)
         self.camera_policy=QComboBox()
         for text,value in (("OFF · manual only","OFF"),("EVENT ONLY · arrival / gesture","EVENT_ONLY"),("AWARE · events + sparse checks","AWARE")):
@@ -391,18 +391,19 @@ class MainWindow(QMainWindow):
         self.perception_test_result=label("Test event follows the real automatic gates and may greet. Recognition test works with automatic perception off and never greets.","muted"); perception.addWidget(self.perception_test_result)
         commands=QGroupBox("SAY IT TO KADENCE"); box=QVBoxLayout(commands)
         box.addWidget(label('“What can you see?”  ·  “Camera status”\n“Use the extra camera”  ·  “Use the robot camera”\n“Enable automatic perception”  ·  “Enable greetings”\n“Turn privacy on”  ·  “Turn privacy off”\n“Stop the camera”  ·  “Start the camera”',"muted"))
-        box.addWidget(label("Voice looks take a fresh image and use Gemini to describe it. Local face recognition stays on this PC.","muted")); perception.addWidget(commands); perception.addStretch()
+        box.addWidget(label("Voice looks take a fresh image and use Gemini to describe it. Face recognition uses saved profiles on the UnitV2.","muted")); perception.addWidget(commands); perception.addStretch()
         profiles=tab("Profiles")
         self.profile_summary=label("Loading saved profiles…","status"); profiles.addWidget(self.profile_summary)
-        self.profiles_table=table(["Name","Samples","Recognition","Greeting","Samples saved"])
+        self.profiles_table=table(["Name","Stored on","Recognition","Greeting","Added to Kadence"])
         self.profiles_table.setFixedHeight(110)
         self.profiles_table.itemSelectionChanged.connect(self.select_profile); profiles.addWidget(self.profiles_table)
         self.face_profiles=QComboBox(); self.face_profiles.hide()  # Stable selected-ID adapter.
         self.profile_rows=[]
-        self.profile_name=line("Selected profile name",80)
+        self.profile_name=line("Kadence display / greeting name",80)
         self.profile_recognition=QCheckBox("Recognise"); self.profile_greeting=QCheckBox("Greet")
         profiles.addWidget(row(self.profile_name,self.profile_recognition,self.profile_greeting))
-        profiles.addWidget(row(button("SAVE PROFILE",self.update_profile),button("REPLACE SAMPLES",self.replace_face),button("DELETE",self.forget_face),button("REFRESH",self.refresh_faces)))
+        self.profile_delete=button("DELETE PC PROFILE",self.forget_face)
+        profiles.addWidget(row(button("SAVE PREFERENCES",self.update_profile),self.profile_delete,button("REFRESH FROM UNITV2",self.refresh_faces)))
         self.photo_status=label("Select a profile to review its saved photos.","muted"); profiles.addWidget(self.photo_status)
         gallery=QWidget(); gallery_row=QHBoxLayout(gallery); gallery_row.setContentsMargins(0,0,0,0)
         self.profile_photo_labels=[]; self.profile_photo_captions=[]
@@ -414,18 +415,19 @@ class MainWindow(QMainWindow):
             gallery_row.addWidget(card,1); self.profile_photo_labels.append(photo); self.profile_photo_captions.append(caption)
         self.profile_gallery=gallery; gallery.hide(); profiles.addWidget(gallery)
         self.face_name=line("New profile name · one person in view",80)
-        self.enroll_button=button("START LIVE TRAINING",self.enroll_face,primary=True)
-        profiles.addWidget(row(self.face_name,self.enroll_button))
+        self.face_name.hide()
+        self.enroll_button=button("OPEN UNITV2 TRAINING",self.open_native_training,primary=True)
+        profiles.insertWidget(0,row(self.enroll_button,button("FINISH TRAINING",self.finish_native_training)))
         self.keep_face_photos=QCheckBox("Keep 3 local review photos with these new samples")
-        profiles.insertWidget(3,self.keep_face_photos)
+        self.keep_face_photos.hide()
         self.enrollment_progress=QProgressBar(); self.enrollment_progress.setRange(0,20); self.enrollment_progress.setValue(0); self.enrollment_progress.setFormat("%v / %m samples accepted")
-        profiles.addWidget(self.enrollment_progress)
-        self.enrollment_result=label("Live training guides 20 samples across five views. Three-sample profiles still work; Replace Samples improves their angle coverage. Review photos are optional.","muted"); profiles.addWidget(self.enrollment_result)
+        self.enrollment_progress.hide()
+        self.enrollment_result=label("Train using the UnitV2 factory controls in your browser. Existing onboard profiles work directly; no PC re-enrollment or fixed pose count is needed.","muted"); profiles.addWidget(self.enrollment_result)
         self.enrollment_result.setTextInteractionFlags(Qt.TextSelectableByMouse)
         profiles.addWidget(row(button("LIVE RECOGNITION CHECK",lambda:self.run_vision_test("recognition_test")),button("CANCEL",lambda:self.control.send("media_cancel")),button("BACK UP DATABASE",self.backup_database)))
         self.profile_test_result=label("Recognition has not been tested.","status"); profiles.addWidget(self.profile_test_result)
         self.database_location=label("Database: loading…","muted"); self.database_location.setTextInteractionFlags(Qt.TextSelectableByMouse); profiles.addWidget(self.database_location)
-        profiles.addWidget(label("Kadence compares numerical face embeddings, not percentages of facial dimensions. Factory UnitV2 profiles are separate. Delete removes current samples, review photos and names. Existing backups retain their copies.","muted")); profiles.addStretch()
+        profiles.addWidget(label("UnitV2 stores native names and face features. SQLite stores profile links, greeting preferences and history. PC legacy profiles and review photos remain available here, but are not used for UnitV2 recognition. Database backups do not include onboard face features.","muted")); profiles.addStretch()
         activity=tab("Activity")
         self.reflex_state=label("Waiting for sensor evidence.","muted"); self.reflex_counts=label("Proposals 0 · background 0 · cooldowns 0","muted")
         activity.addWidget(self.reflex_state); activity.addWidget(self.reflex_counts)
@@ -441,18 +443,17 @@ class MainWindow(QMainWindow):
         self.face_check_preview=label("NO FACE CHECK IMAGE","muted"); self.face_check_preview.setAlignment(Qt.AlignCenter); self.face_check_preview.setFixedHeight(220)
         self.face_check_preview.setStyleSheet("border: 1px solid #293c2f;"); face_check.addWidget(self.face_check_preview)
         face_check.addWidget(label("The preview updates throughout the live check. Turn your head and try your normal seated distance. Green boxes mark usable faces. Similarity is a score, not a percentage probability. Test images are temporary; the camera is released when the check ends.","muted")); face_check.addStretch()
-        training=tab("Live training")
-        training.addWidget(label("FIVE VIEWS · 20 DISTINCT SAMPLES","status"))
-        training.addWidget(label("Use Profiles to start or replace training. Keep one person in view and follow each prompt. The camera stays running during the session; all analysis is local.","muted"))
-        self.training_prompt=label("Select a profile and choose REPLACE SAMPLES, or enter a new name and START LIVE TRAINING.","status")
-        training_body=QWidget(); training_row=QHBoxLayout(training_body); training_row.setContentsMargins(0,0,0,0)
-        training_guidance=QWidget(); guidance=QVBoxLayout(training_guidance); guidance.setContentsMargins(0,0,0,0); guidance.addWidget(self.training_prompt)
-        self.training_preview=label("LIVE PREVIEW APPEARS HERE","muted"); self.training_preview.setAlignment(Qt.AlignCenter); self.training_preview.setFixedHeight(180); self.training_preview.setMinimumWidth(260)
-        self.training_preview.setStyleSheet("border: 1px solid #293c2f;"); training_row.addWidget(self.training_preview,1); training_row.addWidget(training_guidance,1); training.addWidget(training_body)
-        self.training_progress=QProgressBar(); self.training_progress.setRange(0,20); self.training_progress.setFormat("%v / %m accepted · five views"); guidance.addWidget(self.training_progress)
-        self.training_coverage=label("Front → one side → other side → chin tilt → distance","muted"); guidance.addWidget(self.training_coverage); guidance.addStretch()
-        training.addWidget(row(button("CANCEL TRAINING",lambda:self.control.send("media_cancel")),button("REVIEW PROFILES",lambda:self.vision_tabs.setCurrentIndex(2)),button("LIVE RECOGNITION CHECK",lambda:self.run_vision_test("recognition_test"))))
-        training.addWidget(label("Training saves only after all five views pass. Cancel or failure keeps your previous samples. The optional photo setting saves three representative views; the other samples are numerical face features.","muted")); training.addStretch()
+        training=tab("UnitV2 training")
+        training.addWidget(label("FACTORY TRAINING · SAVED ON UNITV2","status"))
+        self.training_prompt=label("Open the UnitV2 website, select or add a profile, Train, Stop, then Save on UnitV2. Finish to return camera control to Kadence.","status")
+        training.addWidget(self.training_prompt)
+        training.addWidget(row(button("OPEN UNITV2 TRAINING",self.open_native_training,primary=True),button("FINISH TRAINING",self.finish_native_training),button("REVIEW PROFILES",lambda:self.vision_tabs.setCurrentIndex(2))))
+        training.addWidget(label("The live feed and native match scores appear in your browser. Move through comfortable everyday angles; there is no compulsory chin-up pose or 20-sample target. Save confirms the actual onboard files.","muted"))
+        training.addWidget(label("Privacy, Stop, voice activity or a lost connection ends training. Save first to keep new training. Previously saved onboard profiles remain available. Factory profiles contain features, not a photo gallery.","muted"))
+        self.training_preview=label("Native preview opens in the UnitV2 website.","muted"); training.addWidget(self.training_preview)
+        self.training_progress=QProgressBar(); self.training_progress.hide()
+        self.training_coverage=label("UnitV2 recognition uses M5Stack’s original executable and saved profiles.","muted"); training.addWidget(self.training_coverage)
+        training.addStretch()
         self._training_active=False
         self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
@@ -501,14 +502,15 @@ class MainWindow(QMainWindow):
             self.face_profiles.addItem(person["display_name"],person["id"])
             if person["id"]==previous: selected=index
             stamp=datetime.fromtimestamp(person.get("enrolled_at") or 0).strftime("%d %b %Y %H:%M") if person.get("enrolled_at") else "Unknown"
-            values=(person["display_name"],f"{person.get('compatible_samples',0)} / {person.get('samples',0)} compatible","On" if person.get("recognition_enabled") else "Off","On" if person.get("greeting_enabled") else "Off",stamp)
+            values=(person["display_name"],("UnitV2" if person.get("native_available") else "UnitV2 · unavailable") if person.get("provider")=="unitv2-native" else f"PC legacy · {person.get('samples',0)} samples","On" if person.get("recognition_enabled") else "Off","On" if person.get("greeting_enabled") else "Off",stamp)
             for col,value in enumerate(values): self.profiles_table.setItem(index,col,QTableWidgetItem(value))
         self.profiles_table.blockSignals(False)
         if self.profile_rows:
             self.profiles_table.blockSignals(True); self.profiles_table.selectRow(selected); self.profiles_table.blockSignals(False); self.select_profile()
         else:
             self.profile_name.clear(); self.face_profiles.setCurrentIndex(-1); self.clear_profile_photos()
-        self.profile_summary.setText(f"{len(self.profile_rows)} saved profile(s) · {sum(p.get('compatible_samples',0) for p in self.profile_rows)} compatible face samples")
+        native_count=sum(p.get("provider")=="unitv2-native" and p.get("native_available")==1 for p in self.profile_rows)
+        self.profile_summary.setText(f"{native_count} onboard UnitV2 profile(s) · {len(self.profile_rows)} total saved metadata entries")
         if result.get("database"): self.database_location.setText("SQLite database: " + result["database"])
         if result.get("message") and result["message"]!="Local face profiles loaded.": self.enrollment_result.setText(result["message"])
 
@@ -520,8 +522,13 @@ class MainWindow(QMainWindow):
         self.profile_recognition.setChecked(bool(person.get("recognition_enabled")))
         self.profile_greeting.setChecked(bool(person.get("greeting_enabled")))
         self.clear_profile_photos()
+        native=person.get("provider")=="unitv2-native"
+        self.profile_delete.setEnabled(not native)
+        if native:
+            self.photo_status.setText("Saved on UnitV2: native name and face features, not review photos. Use OPEN UNITV2 TRAINING for the live native preview.")
+            return
         if not person.get("photo_count"):
-            self.photo_status.setText("No photos were retained. Check ‘Keep 3 local review photos’ and Replace Samples to add them.")
+            self.photo_status.setText("No review photos were retained for this legacy PC profile. New training uses the UnitV2 website.")
             return
         self.photo_status.setText("Loading saved review photos…")
         self.profile_gallery.show()
@@ -557,32 +564,28 @@ class MainWindow(QMainWindow):
         if not person: self.enrollment_result.setText("Select a saved profile first."); return
         self.control.send("face_update",{"person_id":person,"name":self.profile_name.text().strip(),"recognition_enabled":self.profile_recognition.isChecked(),"greeting_enabled":self.profile_greeting.isChecked()},self.faces_result)
 
-    def enroll_face(self):
-        self.start_enrollment(self.face_name.text().strip())
-
-    def replace_face(self):
-        index=self.face_profiles.currentIndex()
-        if index<0: self.enrollment_result.setText("Select a saved profile first."); return
-        person=self.profile_rows[index]
-        self.start_enrollment(person["display_name"],person["id"])
-
-    def start_enrollment(self,name,person=None):
-        if not name: self.enrollment_result.setText("Enter the name of the person facing the camera."); return
-        self.enrollment_progress.setValue(0); self.training_progress.setValue(0); self.enrollment_result.setText("Preparing live training…"); self.enroll_button.setEnabled(False)
-        self._training_active=True; self.training_prompt.setText("Preparing camera…"); self.vision_tabs.setCurrentIndex(5)
-        def finished(response):
-            self._training_active=False; self.enroll_button.setEnabled(True); self.faces_result(response)
-            if response.get("ok"):
-                count=response.get("result",{}).get("samples",20)
-                self.enrollment_progress.setValue(count); self.training_progress.setValue(count)
-                self.training_prompt.setText(response.get("result",{}).get("message","Training saved."))
-            else: self.training_prompt.setText(response.get("message","Training failed. Previous samples were kept."))
+    def open_native_training(self):
+        def opened(response):
+            self.enroll_button.setEnabled(True)
+            if not response.get('ok'):
+                self.enrollment_result.setText(response.get('message','Could not open UnitV2 training.')); return
+            result=response.get('result',{})
+            if not QDesktopServices.openUrl(QUrl(result.get('url',''))):
+                self.control.send('unitv2_train_finish')
+                self.enrollment_result.setText('The browser could not open. Camera released; check your default browser and retry.'); return
+            self.enrollment_result.setText(result.get('message','UnitV2 training opened.'))
+            self.training_prompt.setText(result.get('message','UnitV2 training opened.'))
         def configured(response):
-            if not response.get("ok"): finished(response); return
-            args={"name":name,"keep_photos":self.keep_face_photos.isChecked()}
-            if person: args["person_id"]=person
-            self.control.send("face_enroll",args,finished,timeout=140)
-        self.control.send("camera_settings",self.camera_policy_values(),configured)
+            if response.get('ok'): self.control.send('unitv2_train_open',{},opened,timeout=20)
+            else: opened(response)
+        self.enroll_button.setEnabled(False)
+        self.control.send('camera_settings',self.camera_policy_values(),configured)
+
+    def finish_native_training(self):
+        def finished(response):
+            self.enrollment_result.setText(response.get('result',{}).get('message') or response.get('message','Training ended.'))
+            self.refresh_faces()
+        self.control.send('unitv2_train_finish',{},finished,timeout=15)
 
     def forget_face(self):
         person=self.face_profiles.currentData()
@@ -973,13 +976,17 @@ class MainWindow(QMainWindow):
             if current!=getattr(self,'_last_producer',None):
                 self._last_producer=current
                 self.reflex_log.appendPlainText(datetime.now().strftime("%H:%M:%S") + f"  UNITV2 {current[0]} · {confirmed}")
+            was_open=getattr(self,'_native_training_open',False)
+            self._native_training_open=bool(data.get('training_open'))
+            if self._native_training_open: self.enrollment_result.setText('Native training is open in the UnitV2 website. Save there, then Finish Training.')
+            elif was_open: self.refresh_faces()
             self.unitv2_mode.setCurrentIndex(max(0,self.unitv2_mode.findData(data.get("mode"))))
         elif name=="unitv2_check":
             self.unitv2_state.setText(f"Lifecycle check {data.get('cycle',0)}/2 passed · capture and producer stop confirmed.")
             self.message.setText(f"UnitV2 start / capture / stop check {data.get('cycle',0)} of 2 passed.")
         elif name=="perception":
             distance=f" · {data['distance_mm']} mm" if data.get("distance_mm") is not None else ""
-            self.perception_state.setText(f"Zone {data.get('occupancy','UNKNOWN')}{distance} · sensor {data.get('sensor_health','unavailable')}\nLocal vision {data.get('health','idle')} · models {data.get('model_health','not_loaded')} · recent subjects {data.get('subjects',0)} · confirmed {len(data.get('confirmed_persons',[]))}")
+            self.perception_state.setText(f"Zone {data.get('occupancy','UNKNOWN')}{distance} · sensor {data.get('sensor_health','unavailable')}\nVision {data.get('health','idle')} · {data.get('recognition_provider','pc-legacy')} · recent subjects {data.get('subjects',0)} · confirmed {len(data.get('confirmed_persons',[]))}")
             gate=data.get('gate','observation_only')
             meanings={'ready':'Automatic perception enabled','observation_only':'Observing proposals · automatic perception not enabled',
                       'policy_off':'Automatic policy OFF','privacy':'Privacy active','stopped':'Automatic capture paused',

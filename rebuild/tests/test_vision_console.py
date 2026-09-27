@@ -186,7 +186,8 @@ def test_vision_tabs_and_saved_feedback_exclude_names_from_diagnostics(tmp_path)
         assert [window.vision_tabs.tabText(i) for i in range(4)]==['Camera','Perception','Profiles','Activity']
         window.faces_result({'ok':True,'result':{'database':'test/database/kadence.sqlite3','persons':[{'id':'sample','display_name':'Private name','samples':3,'compatible_samples':3,'recognition_enabled':1,'greeting_enabled':1,'enrolled_at':1}]}})
         assert window.profiles_table.rowCount()==1 and window.profile_name.text()=='Private name'
-        assert '3 compatible' in window.profile_summary.text()
+        assert '0 onboard UnitV2' in window.profile_summary.text()
+        assert 'PC legacy' in window.profiles_table.item(0,1).text()
         window.on_event('enrollment',{'state':'accepted','sample':2})
         assert window.enrollment_progress.value()==2
         window.on_event('enrollment',{'state':'failed','message':'Exactly one clear face required.'})

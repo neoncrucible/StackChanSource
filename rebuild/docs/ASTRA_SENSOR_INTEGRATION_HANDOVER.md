@@ -1,11 +1,64 @@
 # Kadence integration handover for Astra
 
-## Current continuation — 26 September 2026
+## Current continuation — 27 September 2026
 
-Active work is on `kadence/functionality`, firmware **0.21.6**, schema **4**.
-The owner accepted host **0.4.3** voice responsiveness. Preserve that voice
-pipeline and home alignment; latency tuning is parked until camera/perception
-and then tools are complete.
+Active branch: `kadence/functionality`; firmware **0.21.6**, host **0.4.12**,
+SQLite schema **5**, UnitV2 service **1.1.0**. No robot firmware flash.
+
+The owner now explicitly accepts **0.4.11 audio** and says other functions work
+well. Fresh scene descriptions, camera start/stop and Privacy remain accepted.
+Do not re-open voice latency or change the accepted output path for this task.
+
+### Native UnitV2 faces — implemented, release checks in progress
+
+The two 27 September screenshots show PC training stalled at **12/20, tilt**,
+then a live test with usable faces but **no enabled compatible profiles**. That
+establishes a failed enrollment workflow, not a beard/lighting diagnosis. The
+owner explicitly requests native factory UnitV2 training and onboard profiles.
+
+0.4.12 replaces the UnitV2 recognition path with the verified factory
+`bin/face_recognition` process and native JSON identities. The focused browser
+page uses original onboard face-control JavaScript and Train / Stop / Save
+commands. The 20-sample PC enrollment UI is removed. Existing native profiles
+are loaded directly; native face vectors never leave UnitV2 or enter SQLite.
+SQLite schema 5 retains device/name links, display/greeting preferences, visits
+and delivery outcomes. Legacy PC profiles/photos remain available for review.
+An explicit robot-camera selection still uses its legacy PC recognition path.
+
+Native profile files are `data/face_recognition_info.json` and
+`data/face_recognition_features.dat`: names plus 128 float features each,
+**not a photo gallery**. Original source and recovered binary/assets were
+inspected. Factory executable hash:
+`00012bd3cda05f4fc482542830822f9bb15fe3c1a23794a106edf206ec13fd99`.
+The recovery archive matches the previously recorded SHA-256. It was extracted
+for analysis only, never flashed to hardware.
+
+Single producer ownership covers plain capture, native recognition and browser
+training. The desktop issues one-use browser tickets; both browser presence and
+host lease are required. Browser reads cannot extend host permission. Privacy,
+Stop, voice interruption, browser close or lease expiry revoke training. Save
+checks actual flushed native files because the factory acknowledges before its
+write. Onboard backups and a journal restore the previous pair after an
+interrupted write. No factory reset or unrelated web functions are exposed.
+Native scores retain the factory >0.5 rule; two agreeing fresh results are needed
+for a greeting, and render:0 clears disappeared identities. No SFace re-match.
+
+**Required upgrade:** run SET UP UNITV2 once, power-cycle UnitV2, then TEST START /
+STOP. Profiles → REFRESH FROM UNITV2 lists existing saved identities. OPEN UNITV2
+TRAINING opens the native page. Save and verify, Finish, then Live Recognition
+Check and Test Automatic Event. Automatic Perception and Greetings remain
+separate settings. Read `NATIVE_UNITV2_FACES_0_4_12.md` for exact instructions,
+backup/rollback behavior and hardware acceptance limits.
+
+Local validation: **344 tests / 119 subtests passed**, four Windows-only skips,
+including **14 native integration tests** using actual child processes, HTTP,
+save-file recovery, schema migration, cancellation and native-match-to-greeting
+execution without loading the PC model. Ownership/alignment gate passed. Desktop
+Profiles and UnitV2 training layouts were rendered and inspected. Chromium browser
+QA ran the actual recovered factory control scripts: Add, Train, Stop, Save
+verified two onboard fixture profiles; Finish confirmed camera stop; zero page
+errors. Windows release evidence will be recorded below after completion. Hardware/native
+recognition accuracy on the owner's face remains untested in this environment.
 
 ### Released — audio connection repair, host 0.4.11
 
