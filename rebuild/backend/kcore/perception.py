@@ -276,6 +276,8 @@ class PerceptionController:
         self.publish()
 
     def gate(self):
+        tracker=getattr(self.camera,"tracking",None)
+        if tracker and (tracker.active or tracker.operation is not None or tracker.move is not None): return "camera_busy"
         if self._closing or self._resetting: return "stopped"
         if self.camera.config.privacy: return "privacy"
         if not self.camera.config.perception_enabled: return "observation_only"

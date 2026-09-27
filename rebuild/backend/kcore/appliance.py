@@ -91,6 +91,8 @@ class KadenceAppliance:
         self.camera = CameraManager(self._capture_robot_raw, emit=self.emit)
         self.vision.guard = self.camera.check
         self.perception = None
+        from .object_tracking import ObjectTracking
+        self.tracking = ObjectTracking(self)
         from .sensor_sampler import SensorSampler
         self.sensor_sampler = SensorSampler(self.emit)
         self._utility_task = None
@@ -99,6 +101,7 @@ class KadenceAppliance:
         self._alert_pcm = b""
         self._capture_in_voice = None
         self._last_device_status = {}
+        self._last_device_status_at = 0.0
         self._server: asyncio.AbstractServer | None = None
         self._server_port = 0
         self._body: RuntimeBody | None = None
@@ -176,6 +179,8 @@ class KadenceAppliance:
                     )
                     if self.perception:
                         await self.perception.reset("device_reconnected")
+                    self._last_device_status = {}
+                    self._last_device_status_at = 0.0
                     self._body = body
                     self._reconnect_requested.clear()
                     self.emit("robot", {"connected": True})
@@ -194,6 +199,7 @@ class KadenceAppliance:
                             f"reason={type(exc).__name__}:{_safe_message(exc)}"
                         )
                 finally:
+                    await self.tracking.stop("Robot disconnected; tracking stopped.",disarm=True)
                     self.emit("robot", {"connected": False})
                     self._turn_token = None
                     await self._cancel_active_provider()
@@ -234,6 +240,7 @@ class KadenceAppliance:
 
     async def close(self) -> None:
         self._stop.set()
+        await self.tracking.stop(disarm=True)
         if self._network_check_task is not None:
             self._network_check_task.cancel()
             await asyncio.gather(self._network_check_task, return_exceptions=True)
@@ -311,6 +318,7 @@ class KadenceAppliance:
                 try:
                     ack = await request_device(body.host, "device.status")
                     self._last_device_status = ack.payload
+                    self._last_device_status_at = time.monotonic()
                     self.emit("device", ack.payload)
                     if self.perception and not ack.payload.get("media_busy"):
                         await self._sample_sensors(body)
@@ -364,6 +372,7 @@ class KadenceAppliance:
         finally: self._alert_pcm = b""
 
     async def _run_media(self, body, name):
+        await self.tracking.stop("Tracking stopped for audio or camera work.")
         self._media_mode = "alert" if name == "voice.alert" else "camera"
         self._turn_token = secrets.token_hex(16)
         self._wire_claimed = False
@@ -471,6 +480,7 @@ class KadenceAppliance:
         return await self.capture_camera(source="robot-camera")
 
     async def capture_camera(self, source=None, address=None):
+        if getattr(self,"tracking",None): await self.tracking.stop("Tracking stopped for a camera snapshot.")
         if getattr(self, "perception", None): await self.perception.interrupt()
         generation = self.vision.generation
         frame = await self.camera.acquire(source=source, address=address)
@@ -643,6 +653,7 @@ class KadenceAppliance:
             task.result()
 
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
+        await self.tracking.stop("Tracking stopped for voice. Select a fresh target to follow again.")
         self._media_mode = "voice"
         self._turn_token = secrets.token_hex(16)
         self._wire_claimed = False
@@ -749,6 +760,7 @@ class KadenceAppliance:
     async def _handle_touch_cancel(self, body: RuntimeBody, event: Envelope) -> None:
         if event.payload.get("trigger") != "touch":
             return
+        await self.tracking.stop("Tracking cancelled.")
 
         self._turn_token = None
         self._wire_result = None

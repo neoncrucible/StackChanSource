@@ -15,7 +15,8 @@ import uuid
 FACTORY_SHA256 = "4cbdcc26903effc52638e0a85e7c463991087235e8b4e70d64b35e150ba05d74"
 CAMERA_SHA256 = "a2203a4700445ee62feec8e5c645cf6ae05211e01ba2153ce555519f62f20b92"
 FACE_SHA256 = "00012bd3cda05f4fc482542830822f9bb15fe3c1a23794a106edf206ec13fd99"
-BUNDLE = ('kadence_unitv2.py', 'kadence_native.py', 'native_faces.html', 'native_faces.js')
+TRACKER_SHA256 = '0cec301c02f8ab75bccedeedafef38758f3bf1ff931624683609b3cf315ed112'
+BUNDLE = ('kadence_unitv2.py', 'kadence_native.py', 'native_faces.html', 'native_faces.js', 'kadence_tracking.py')
 SHIM = b"# Kadence UnitV2 lifecycle service; factory entry is backed up.\nfrom kadence_unitv2 import main\nif __name__ == '__main__': main()\n"
 
 
@@ -60,6 +61,9 @@ def install(root, source, *, restore=False):
     for name in ('js/jquery.min.js', 'js/bin/face_recognition.js', 'js/core/post.server.js'):
         asset = root/'static'/name
         if not asset.is_file() or asset.is_symlink(): raise RuntimeError('Factory training web files are missing; no changes made')
+    tracker = root/'bin'/'target_tracker'
+    if tracker.is_symlink() or digest(tracker) != TRACKER_SHA256:
+        raise RuntimeError('Unsupported factory target tracker; no changes made')
     key = (source/"kadence-camera.key").read_text().strip()
     if not re.fullmatch(r"[0-9a-f]{64}", key): raise RuntimeError("Invalid pairing key; no changes made")
     for target in [root/name for name in BUNDLE] + [root/"kadence-camera.key",root/'kadence-device.id']:

@@ -63,6 +63,22 @@ class DesktopController:
         self._network_media = False
         self._camera_settings_lock = asyncio.Lock()
         self.services.camera_handler = self.camera_voice
+        self.services.tracking_handler = self.tracking_voice
+
+    async def tracking_voice(self, args):
+        if not self.app: return {'spoken':'Start the server to use object tracking.'}
+        action=args.get('action','status')
+        tracker=self.app.tracking
+        if action=='status': return {'spoken':tracker.message}
+        if action=='stop':
+            await tracker.stop(disarm=True)
+            return {'spoken':'Object tracking stopped and head following disarmed.'}
+        if action=='follow':
+            if self._media and not self._media.done(): return {'spoken':'Finish the current camera check before tracking an object.'}
+            if not args.get('target'): return {'spoken':'Name one object to follow, or draw a box in Tracking.'}
+            try: return await tracker.select(target=args['target'])
+            except RuntimeError as exc: return {'spoken':str(exc) if type(exc) is RuntimeError else 'Tracking is unavailable. Check the Tracking tab.'}
+        raise ValueError('Unsupported tracking action.')
 
     async def camera_voice(self, command):
         from dataclasses import asdict
@@ -167,6 +183,29 @@ class DesktopController:
                 self.emit("server", {"state": "stopped", "error": failure})
 
     async def command(self, action, args):
+        if action.startswith('tracking_'):
+            if not self.app: raise RuntimeError('Start the server for object tracking.')
+            tracker=self.app.tracking
+            if action=='tracking_stop':
+                await tracker.stop(disarm=True)
+                return {'message':'Tracking stopped and head following disarmed.'}
+            if action=='tracking_status': return tracker.publish()
+            if self._media and not self._media.done(): raise RuntimeError('Finish the current camera check first.')
+            if tracker.busy(): raise RuntimeError('Wait for voice to finish before changing tracking in the desktop.')
+            if action=='tracking_preview': return await tracker.preview()
+            if action=='tracking_select': return await tracker.select(region=args.get('region'),sequence=args.get('sequence'))
+            if action=='tracking_find': return await tracker.select(target=args.get('target'))
+            if action=='tracking_arm': return await tracker.arm(args)
+            if action=='tracking_home': return await tracker.home_head()
+            raise ValueError('Unsupported tracking control.')
+        if self.app and getattr(self.app,'tracking',None) and action in {'camera_settings','camera_patch','unitv2_mode','unitv2_check','unitv2_train_open',
+                'recognition_test','perception_test','face_enroll','camera_capture','camera_look','media_cancel'}:
+            if action in {'camera_patch','camera_settings'} and args.get('privacy') is True:
+                from dataclasses import replace
+                self.app.camera.configure(replace(self.app.camera.config,privacy=True))
+                self.emit('tracking_preview',{})
+            # Stop the camera/motor session before any other owner takes it.
+            await self.app.tracking.stop('Tracking ended for another camera action.',disarm=action in {'camera_settings','camera_patch','unitv2_mode'})
         if action == "face_model_check":
             from .local_faces import LocalFaces
             from .camera_manager import settled_thread

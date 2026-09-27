@@ -308,6 +308,8 @@ def test_reversible_install_rejects_unknown_files_before_writing(tmp_path,monkey
     for name in installer.BUNDLE:
         if name != 'kadence_unitv2.py': (source/name).write_bytes(b'' if name.endswith('.py') else b'fixture')
     (source/'manifest.json').write_text(json.dumps({name:hashlib.sha256((source/name).read_bytes()).hexdigest() for name in installer.BUNDLE}))
+    (root/'bin/target_tracker').write_bytes(b'factory-target')
+    monkeypatch.setattr(installer,'TRACKER_SHA256',hashlib.sha256(b'factory-target').hexdigest())
     (root/'bin/face_recognition').write_bytes(b'factory-face')
     monkeypatch.setattr(installer,'FACE_SHA256',hashlib.sha256(b'factory-face').hexdigest())
     for name in ('js/jquery.min.js','js/bin/face_recognition.js','js/core/post.server.js'):

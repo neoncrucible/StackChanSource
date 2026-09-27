@@ -174,6 +174,7 @@ class MainWindow(QMainWindow):
         self._diagnostic_samples={}
         self._voice_endpoint=""
         self._audio_testing=False
+        self.tracking_snapshot={}
         self.reflex_snapshot={}; self.reflex_events=deque(maxlen=120)
         self.perception_snapshot={}; self.perception_decisions=deque(maxlen=120)
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
@@ -454,6 +455,9 @@ class MainWindow(QMainWindow):
         self.training_progress=QProgressBar(); self.training_progress.hide()
         self.training_coverage=label("UnitV2 recognition uses M5Stack’s original executable and saved profiles.","muted"); training.addWidget(self.training_coverage)
         training.addStretch()
+        from .tracking_ui import TrackingPanel
+        self.tracking_panel=TrackingPanel(self.control.send)
+        tab("Tracking").addWidget(self.tracking_panel)
         self._training_active=False
         self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
@@ -945,6 +949,12 @@ class MainWindow(QMainWindow):
         self.control.send("device.settings",values)
 
     def on_event(self,name,data):
+        if name=="tracking_status":
+            self.tracking_panel.update_status(data)
+            return
+        if name=="tracking_preview":
+            self.tracking_panel.preview.frame(data)
+            return
         if name=="face_preview":
             self.face_check_preview.clear()
             if not data: self.training_preview.clear(); self.training_preview.setText("TEMPORARY PREVIEW CLEARED")
@@ -1224,6 +1234,13 @@ class MainWindow(QMainWindow):
                 self.perception_decisions.append(safe)
                 self.reflex_log.appendPlainText(f"{safe['at'][11:19]}Z  VISION {safe['trigger'].upper()} · {safe['decision']} · {safe['reason']}")
             return
+        if name=='tracking_status':
+            from .object_tracking import diagnostic_status
+            safe=diagnostic_status(data)
+            if safe is not None:
+                self.tracking_snapshot=safe
+                self._append_diagnostic({'at':datetime.now(timezone.utc).isoformat(timespec='seconds'),'event':name,**safe})
+            return
         if name=="unitv2_lifecycle":
             from .unitv2_lifecycle import diagnostic_status
             safe=diagnostic_status(data)
@@ -1311,6 +1328,7 @@ class MainWindow(QMainWindow):
         if filename:
             Path(filename).write_text(json.dumps({"format":"kadence-diagnostics-v1","build":build_info(),"events":list(self.diagnostic),
                 "important_events":list(self.important_diagnostics),
+                "tracking":self.tracking_snapshot,
                 "reflex":{"status":self.reflex_snapshot,"events":list(self.reflex_events)},
                 "perception":{"status":self.perception_snapshot,"decisions":list(self.perception_decisions)}},indent=2)+"\n","utf-8")
             self.message.setText("Sanitised diagnostic report exported.")

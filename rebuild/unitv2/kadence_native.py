@@ -18,7 +18,7 @@ FACE_SHA256 = '00012bd3cda05f4fc482542830822f9bb15fe3c1a23794a106edf206ec13fd99'
 INFO = 'face_recognition_info.json'
 FEATURES = 'face_recognition_features.dat'
 JOURNAL = 'kadence-native-save.json'
-BUNDLE = ('kadence_unitv2.py', 'kadence_native.py', 'native_faces.html', 'native_faces.js')
+BUNDLE = ('kadence_unitv2.py', 'kadence_native.py', 'native_faces.html', 'native_faces.js', 'kadence_tracking.py')
 ASSETS = {'/static/js/jquery.min.js', '/static/js/bin/face_recognition.js', '/static/js/core/post.server.js'}
 
 

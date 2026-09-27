@@ -87,6 +87,9 @@ def check(executable, expected_commit, *, offline=False):
             assert all(base64.b64decode(item['png_base64'])==photo.getvalue() for item in photos['result']['photos'])
             send(14,'face_forget',{'person_id':person}); assert until('result',14)['ok']
             assert not list((Path(tmp)/'media'/'face-profiles').glob('*.png'))
+            send(15,'local_tool',{'name':'tracking_status'}); tracking=until('result',15)
+            assert tracking['ok'] and tracking['result']['ok'] and 'Start the server' in tracking['result']['data']['spoken'],tracking
+            print('DESKTOP_TRACKING_TOOLS PASS',flush=True)
             send(6,'quit',{})
             assert until('closed')['clean'] is True
             assert process.wait(timeout=15)==0

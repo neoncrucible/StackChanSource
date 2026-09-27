@@ -63,7 +63,7 @@ def main(address="192.168.40.175"):
     if operation not in {"", "R"}: return 1
     address = str(ipaddress.IPv4Address(input("UnitV2 address ["+address+"]: ").strip() or address))
     source = bundle_directory()
-    bundle = ("kadence_unitv2.py", "kadence_native.py", "native_faces.html", "native_faces.js")
+    bundle = ("kadence_unitv2.py", "kadence_native.py", "native_faces.html", "native_faces.js", "kadence_tracking.py")
     for name in (*bundle, "install_unitv2.py"):
         if not (source/name).is_file(): raise RuntimeError("UnitV2 setup files are missing. Extract the complete desktop ZIP.")
     for tool in ("ssh", "scp"):

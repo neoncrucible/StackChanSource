@@ -2,12 +2,52 @@
 
 ## Current continuation — 27 September 2026
 
-Active branch: `kadence/functionality`; firmware **0.21.6**, host **0.4.12**,
-SQLite schema **5**, UnitV2 service **1.1.0**. No robot firmware flash.
+Active branch: `kadence/functionality`; firmware **0.21.6**, host **0.4.13**,
+SQLite schema **5**, UnitV2 service **1.2.0**. No robot firmware flash.
 
 The owner now explicitly accepts **0.4.11 audio** and says other functions work
 well. Fresh scene descriptions, camera start/stop and Privacy remain accepted.
 Do not re-open voice latency or change the accepted output path for this task.
+
+### Object tracking update — host 0.4.13, release verification in progress
+
+At 21:38 BST on 27 September, the owner parked OpenClaw because laptop client
+installation is still unresolved. They requested factory UnitV2 features, voice
+object following, later movement/removal alerts with descriptive context, and
+idle reflex movement. They explicitly authorized object tracking first if a
+combined update could not be cleanly validated. This release takes that path.
+
+Host 0.4.13 / UnitV2 service 1.2.0 adds a dedicated Tracking tab, local ROI
+selection, optional Gemini localisation for explicit “follow this pen” requests,
+original onboard MOSSE tracking and opt-in bounded physical head following.
+The native tracker emits no lost event: each coordinate report is attached to
+one JPEG only, preventing stale boxes from moving the head. No automatic target
+reacquisition, identity inference or object-alert claim is made.
+
+Following needs UnitV2 on the moving head, explicit per-server arming and an
+operator-selected home/direction check. It uses existing firmware 0.21.6 body.pose,
+max 2° steps, ±18° yaw / ±15° pitch around home and one acknowledged command at a
+time. Firmware verifies torque release. An in-flight move drains before voice;
+there is no instantaneous firmware tracking-stop primitive. Privacy is applied
+before waiting. No servo zero writes, idle movements or automatic post-voice
+home pose. Accepted audio/camera/face behavior is the regression baseline.
+
+Tracking exclusively owns the camera; automatic face looks wait. Stop, another
+camera action, voice, disconnect, privacy or a 15-minute session limit ends it.
+On-device lease expiry remains 30 seconds. Face profiles and metadata are retained.
+Required upgrade: install desktop, SET UP UNITV2, power-cycle UnitV2, TEST START /
+STOP, then Vision → Tracking. Read OBJECT_TRACKING_0_4_13.md for actual controls,
+cloud/local boundary, limits and the hardware acceptance sequence.
+
+Local verification: **360 tests / 119 subtests passed**, six environment-dependent
+skips. Final focused changes passed **30 tests**, including **18 tracking tests**.
+Runtime ownership/alignment gate passed. Tracking tab was rendered and inspected
+in the actual desktop window at 1100×820; drag-coordinate mapping also passed.
+Windows source/build/artifact evidence will be recorded after packaging.
+
+Colour/shape modes, item movement/removal alerts and event descriptions, and
+physical idle reflexes are still separate follow-ups. OpenClaw remains parked;
+voice latency remains last. No physical object/head tracking sign-off exists yet.
 
 ### Physically accepted — native UnitV2 faces and greetings, host 0.4.12
 
@@ -34,9 +74,8 @@ recognition/greeting delivery, not that a physical arrival sensor triggered that
 burst. Keep sensor-trigger provenance separate from this facial recognition
 sign-off. No further recognition rewrite is requested.
 
-The agreed roadmap after this acceptance is tools, possibly OpenClaw, then voice
-response latency last. This sign-off records the checkpoint only; it does not
-start those implementation changes.
+The later 21:38 BST request above supersedes the next-work ordering: OpenClaw
+is parked, native object tracking comes next, and voice latency remains last.
 
 The earlier 12:03 screenshots from 27 September show PC training stalled at **12/20, tilt**,
 then a live test with usable faces but **no enabled compatible profiles**. That

@@ -107,7 +107,7 @@ class Companion:
         rejection = self.tools.validate(name, arguments)
         if rejection:
             return self._format_result(rejection)
-        if explicit_local and name in {"remember", "task_add", "camera_control"}:
+        if explicit_local and name in {"remember", "task_add", "camera_control", "tracking_control"}:
             return await self._execute(name, arguments, state_sink, confirmed=True)
         if self.tools.requires_confirmation(name):
             description = await self._describe_change(name, arguments)
@@ -167,6 +167,10 @@ class Companion:
         return None
 
     async def _describe_change(self, name: str, arguments: dict) -> str | None:
+        if name == 'tracking_control':
+            if arguments['action']=='stop': return 'Shall I stop object tracking?'
+            if not arguments.get('target'): return None
+            return 'Shall I select and follow '+arguments['target']+'?'
         if name == "camera_control":
             from .camera_voice import CAMERA_CHANGES
             return f"Shall I {CAMERA_CHANGES[arguments['command']]}?"
@@ -211,7 +215,7 @@ class Companion:
                 return "I can't carry out that request through my available tools."
             return "That service isn't available just now. We can carry on talking."
         data, name = result["data"], result["tool"]
-        if name in {"convert_units", "ohms_law", "resistor_bands", "desk_look", "camera_status", "camera_control"}:
+        if name in {"convert_units", "ohms_law", "resistor_bands", "desk_look", "camera_status", "camera_control", "tracking_status", "tracking_control"}:
             return data["spoken"]
         if name in {"project_create", "project_note", "project_step"}:
             return f"Saved as {data['id']}: {data.get('name', data.get('text', ''))}"

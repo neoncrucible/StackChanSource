@@ -1,5 +1,7 @@
-# Camera and perception — host 0.4.12
+# Camera and perception — host 0.4.13
 
+The new Tracking tab is documented in OBJECT-TRACKING.txt. It uses camera service
+1.2.0 and retains the physically accepted 0.4.12 native face/greeting baseline.
 
 Audio in 0.4.11 and scene descriptions are accepted by the owner. This update
 changes UnitV2 recognition and enrollment; firmware stays at 0.21.6, with no flash.
@@ -13,7 +15,7 @@ changes UnitV2 recognition and enrollment; firmware stays at 0.21.6, with no fla
    preserves native face files, the pairing key and the original service backup.
    SSH user is `m5stack`; its factory password is `12345678` unless changed.
 3. Start Kadence. Select **ON DEMAND**, leave Privacy off and pass
-   **TEST START / STOP**. Service verification is tied to version 1.1.0.
+   **TEST START / STOP**. Service verification is tied to the installed service version.
 4. **Profiles → REFRESH FROM UNITV2** loads the profiles already saved there.
    Existing native profiles need no PC enrollment. Check each profile's
    **Recognise** and **Greet** switches and save preferences as needed.
@@ -81,7 +83,7 @@ or Greet does not erase a native profile; PC Delete cannot pretend to erase it.
   is an explicit choice to retain a producer; switching between plain capture and
   native recognition stops the previous owned child before launching the next.
 
-## Evidence and remaining hardware check
+## Evidence and physical acceptance
 
 Verified factory recovery archive SHA-256:
 `c36022a56f101608625571115a9c0165f9a203151b58f69e1379ee53483f88da`.
@@ -97,5 +99,13 @@ Primary protocol and persistence references:
 Automated tests use real subprocesses, HTTP, native protocol fixtures, database
 migration and the actual greeting scheduler. They prove integration, lifecycle,
 save recovery and cancellation behavior; they do not measure accuracy on the
-owner's face. Hardware acceptance still requires the short sequence above with
-the existing onboard profiles, then a greeting after a real arrival.
+owner's face.
+
+**Physically accepted by the owner on 27 September 2026 at 21:28 BST.** All tests
+were reported passed, native recognition scores improved after training, and
+greetings worked well. Supplied screenshots confirm current native recognition,
+an 85.7% native similarity score and a completed perception burst with greeting
+delivered. Host 0.4.12 is the accepted native recognition/greeting baseline.
+The manual stop/start step is accepted as minor workflow polish for later.
+The evidence does not establish which physical sensor triggered the greeting;
+that is separate from the facial recognition sign-off.

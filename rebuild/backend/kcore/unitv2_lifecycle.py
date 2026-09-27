@@ -25,9 +25,9 @@ def diagnostic_status(value):
     if not isinstance(value, dict) or value.get("mode") not in {"ON_DEMAND", "KEEP_READY", "STOPPED"}: return None
     if value.get("state") not in STATES | {"UNKNOWN", "UNAVAILABLE", "SETUP_REQUIRED", "STOP_UNCONFIRMED"}: return None
     safe={"mode":value["mode"], "state":value["state"]}
-    for field in ("stop_confirmed", "producer_running", "native_faces", "training_open"):
+    for field in ("stop_confirmed", "producer_running", "native_faces", "training_open", "native_tracking"):
         if type(value.get(field)) is bool: safe[field]=value[field]
-    if value.get('producer_mode') in {'camera','faces'}: safe['producer_mode']=value['producer_mode']
+    if value.get('producer_mode') in {'camera','faces','tracking'}: safe['producer_mode']=value['producer_mode']
     for field in ("sequence", "starts", "stops", "expirations", "lease_remaining_ms"):
         item=value.get(field)
         if type(item) is int and 0 <= item <= 10**12: safe[field]=item
@@ -139,7 +139,7 @@ class Client:
             if response is not None: response.close()
             connection.close()
 
-    def call(self, operation, lease=None, *, timeout=5, cancel=None):
+    def call(self, operation, lease=None, *, timeout=5, cancel=None, roi=None):
         deadline = time.monotonic()+timeout
         challenge = self._http("GET", "/kadence/v1/challenge", deadline, cancel=cancel)
         if (not isinstance(challenge, dict) or challenge.get("service") != "kadence-unitv2" or challenge.get("api") != 1
@@ -147,6 +147,7 @@ class Client:
             raise LifecycleError("UnitV2 lifecycle service is not compatible")
         data = {"operation":operation, "nonce":challenge["nonce"]}
         if lease is not None: data["lease"] = lease
+        if roi is not None: data["roi"] = roi
         body = json.dumps(data, separators=(",", ":")).encode()
         signature = hmac.new(self.key, body, hashlib.sha256).hexdigest()
         result = self._http("POST", "/kadence/v1/control", deadline, body=body, signature=signature, cancel=cancel)
@@ -188,6 +189,7 @@ class UnitV2Owner:
                 "producer_running":self.status.get("producer_running") is True,
                 "verified":self.verified,
                 "native_faces":self.status.get("native_faces") is True,
+                "native_tracking":self.status.get("native_tracking") is True,
                 "training_open":self.web_session,
                 "producer_mode":self.status.get('producer_mode','camera'),
                 "sensor_power":"unverified"}
@@ -197,14 +199,15 @@ class UnitV2Owner:
         self.emit("unitv2_lifecycle", data)
         return data
 
-    async def _call(self, operation, *, lease=None, timeout=5):
+    async def _call(self, operation, *, lease=None, timeout=5, roi=None):
         from .camera_manager import settled_thread
         cancelled=threading.Event()
         def interrupt():
             cancelled.set()
             self.client.interrupt()
-        result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout, cancel=cancelled),on_cancel=interrupt)
-        if operation not in {"frame", "face_frame"}: self.publish(result)
+        extra = {"roi":roi} if roi is not None else {}
+        result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout, cancel=cancelled, **extra),on_cancel=interrupt)
+        if operation not in {"frame", "face_frame", "track_frame"}: self.publish(result)
         return result
 
     async def _select(self, address):
@@ -222,7 +225,7 @@ class UnitV2Owner:
         if self.verification_root:
             try:
                 data=json.loads((Path(self.verification_root)/"unitv2-verification.json").read_text())
-                self.verified=data=={"format":1,"service_version":"1.1.0","key_id":hashlib.sha256(bytes.fromhex(key)).hexdigest()}
+                self.verified=data in [{"format":1,"service_version":v,"key_id":hashlib.sha256(bytes.fromhex(key)).hexdigest()} for v in ("1.1.0","1.2.0")]
             except (ValueError,OSError,TypeError): pass
         self.sequence = 0
         return True
@@ -238,15 +241,15 @@ class UnitV2Owner:
             self.publish({"state":"STOP_UNCONFIRMED", "stop_confirmed":False})
             raise
 
-    async def _start(self, *, native=False):
+    async def _start(self, *, native=False, tracking=False):
         if self.closed: raise LifecycleError("Camera owner is closed")
-        mode = 'faces' if native else 'camera'
+        mode = 'tracking' if tracking else 'faces' if native else 'camera'
         if self.web_session: raise LifecycleError('Finish UnitV2 training before using the camera.')
         if self.lease and self.status.get('producer_mode','camera') != mode: await self._stop()
         if self.lease is None:
             self.lease, self.sequence = uuid.uuid4().hex, 0
             self.face_sequence = 0
-        await self._call("face_start" if native else "start", lease=self.lease)
+        await self._call("track_start" if tracking else "face_start" if native else "start", lease=self.lease)
 
     async def capture(self, address, *, timeout=12):
         from .camera_manager import decode_jpeg, settled_thread
@@ -317,10 +320,10 @@ class UnitV2Owner:
         self.publish()
 
     def record_verified(self, root):
-        if not self.client or not self.status.get("stop_confirmed") or self.status.get("version") != "1.1.0":
+        if not self.client or not self.status.get("stop_confirmed") or self.status.get("version") not in {"1.1.0","1.2.0"}:
             raise LifecycleError("Camera lifecycle verification did not complete")
         path=Path(root)/"unitv2-verification.json"
-        data={"format":1,"service_version":"1.1.0","key_id":hashlib.sha256(self.client.key).hexdigest()}
+        data={"format":1,"service_version":self.status["version"],"key_id":hashlib.sha256(self.client.key).hexdigest()}
         temp=path.with_suffix(".tmp")
         temp.write_text(json.dumps(data),encoding="utf-8");temp.replace(path)
         self.verification_root=root
@@ -342,7 +345,7 @@ class UnitV2Owner:
                 await asyncio.sleep(8)
                 async with self.lock:
                     if (self.mode != "KEEP_READY" and not self.web_session) or not self.lease: return
-                    operation = 'web_renew' if self.web_session else 'face_start' if self.status.get('producer_mode')=='faces' else 'start'
+                    operation = 'track_start' if self.status.get('producer_mode')=='tracking' else 'web_renew' if self.web_session else 'face_start' if self.status.get('producer_mode')=='faces' else 'start'
                     await self._call(operation, lease=self.lease)
         except asyncio.CancelledError: raise
         except Exception:
@@ -378,6 +381,14 @@ class UnitV2Owner:
                     except Exception:
                         if not cancelled: raise
                     finally: self.publish()
+
+    async def tracking_frame(self, address, roi=None):
+        async with self.lock:
+            if not await self._select(address): raise LifecycleError('Run SET UP UNITV2 for object tracking.')
+            if not self.lease or self.status.get('producer_mode')!='tracking': await self._start(tracking=True)
+            if roi is not None:
+                return await self._call('track_select',lease=self.lease,roi=roi,timeout=6)
+            return await self._call('track_frame',lease=self.lease,timeout=6)
 
     async def open_training(self, address):
         await self.stop(address)

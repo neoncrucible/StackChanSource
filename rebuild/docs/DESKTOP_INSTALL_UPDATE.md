@@ -1,37 +1,32 @@
 Kadence Desktop — install and update
 
-Current update: 0.4.12 — native UnitV2 face training and recognition.
-Audio in 0.4.11 and fresh scene descriptions are confirmed working by the owner.
-Firmware stays at 0.21.6; no flash or audio reconfiguration is required.
+Current update: 0.4.13 — native object tracking and optional head following.
 
-This update requires SET UP UNITV2 once to install camera service 1.1.0, followed
-by a UnitV2 power cycle and TEST START / STOP. Existing onboard face profiles,
-the pairing key and the original service backup are preserved. Do not flash the
-factory recovery image; that would erase device data.
+Face recognition/greetings in 0.4.12, audio in 0.4.11, scene descriptions,
+start/stop and Privacy are physically accepted. This update adds a Tracking tab
+and retains those baselines. Firmware stays at 0.21.6 and SQLite at schema 5.
+No robot firmware flash, audio reconfiguration or new face training is required.
 
-Vision → Profiles → REFRESH FROM UNITV2 reads the profiles already trained on the
-camera. OPEN UNITV2 TRAINING opens its native live training with the factory
-Train / Stop / Save controls. There is no 20-pose requirement. Wait for saved and
-verified, then Finish & Return. Kadence consumes native matches and uses SQLite
-for greeting preferences and history, without importing native face vectors.
-Read NATIVE-UNITV2-FACES.txt for the exact training and greeting check sequence.
-Factory profiles store names and face features, not a photo gallery. Existing
-PC review photos remain accessible under their legacy profiles.
+Run SET UP UNITV2 once to install camera service 1.2.0, power-cycle UnitV2, then
+TEST START / STOP. Native face profiles, pairing and the original service backup
+are preserved. Read OBJECT-TRACKING.txt for target selection and head setup.
 
-Vision has Camera, Perception, Profiles, Activity, Face check and UnitV2 training.
-Automatic Perception and Greetings are separate switches. LIVE RECOGNITION CHECK
-never greets; TEST AUTOMATIC EVENT follows the real gates and can greet. Stop and
-Privacy still terminate the owned camera process, including a browser session.
-Save before starting voice activity, which ends training to release the camera.
+Vision → Tracking → OPEN PREVIEW lets you draw a box around an object locally.
+FIND & TRACK or “Kadence, follow this pen” uses the existing Gemini key to locate
+one target, then the UnitV2 factory tracker follows it locally. Hold it still
+while it is selected. Head following is OFF until explicitly armed in the tab;
+UnitV2 must be attached to the moving head. Follow the slow direction check in
+OBJECT-TRACKING.txt before normal use. Stop, Privacy and voice prevent new motor
+steps; an already-issued bounded step finishes and releases torque first.
 
-The accepted LOOK & DESCRIBE flow and voice camera commands are retained. Audio
-network tools remain in Overview; VOICE-CONNECTION.txt is reference material if
-needed. No new robot firmware crash fix is claimed by this host-only update.
+OpenClaw, other native vision modes, object movement alerts and physical idle
+reflexes remain separate work. This build does not monitor theft. Tracking
+occupies the camera until stopped; automatic face perception resumes eligibility
+when it is released. Sessions expire after 15 minutes and are not auto-restored.
 
-SQLite migrates from schema 4 to 5 after creating a verified backup. Older hosts
-that reject schema 5 need that pre-upgrade backup for rollback. Do not downgrade
-against the live database. PC database backup does not include native UnitV2
-features; the camera keeps its own pre-training profile backups.
+NATIVE-UNITV2-FACES.txt remains the face-training reference. Native files contain
+features, not photographs. Existing PC review photos remain available. Earlier
+schema 4→5 upgrade backup rules still apply; 0.4.12→0.4.13 adds no schema migration.
 
 1. Quit Kadence completely, including its tray icon. Close any source host too.
 2. Extract the entire desktop ZIP to a new folder. Do not run inside the ZIP.

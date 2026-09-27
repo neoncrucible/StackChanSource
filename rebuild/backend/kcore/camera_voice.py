@@ -20,6 +20,13 @@ def camera_plan(text):
         return {"tool":"desk_look","arguments":{"question":text}}
     if normal in {"camera status", "which camera are you using", "what cameras do you have", "do you have a camera", "is your camera on", "are you looking", "can you use the extra camera", "do you have an extra camera", "is automatic perception on", "why aren't you greeting me"}:
         return {"tool":"camera_status","arguments":{}}
+    if normal in {'tracking status','are you tracking','what are you tracking'}:
+        return {'tool':'tracking_status','arguments':{}}
+    if normal in {'stop tracking','stop following','stop following the object','stop object tracking'}:
+        return {'tool':'tracking_control','arguments':{'action':'stop'}}
+    match=re.fullmatch(r'(?:follow|track) (.{1,80})',normal)
+    if match:
+        return {'tool':'tracking_control','arguments':{'action':'follow','target':match[1]}}
     phrases = {
         "privacy_on": {"turn privacy on","enable camera privacy","turn camera privacy on","stop looking"},
         "privacy_off": {"turn privacy off","disable camera privacy","turn camera privacy off"},

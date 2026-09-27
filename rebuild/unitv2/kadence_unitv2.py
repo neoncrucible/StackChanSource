@@ -21,7 +21,7 @@ import time
 import uuid
 
 API = 1
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 CAMERA_SHA256 = "a2203a4700445ee62feec8e5c645cf6ae05211e01ba2153ce555519f62f20b92"
 MAX_JPEG = 2 * 1024 * 1024
 MAX_LINE = 4 * MAX_JPEG // 3 + 4096
@@ -52,6 +52,7 @@ class Producer:
         self.revoked = OrderedDict()
         self.closed = threading.Event()
         self.native = None
+        self.tracking = None
         self.mode = "camera"
 
     def status(self):
@@ -67,7 +68,7 @@ class Producer:
                     "sequence": self.sequence, "starts": self.starts, "stops": self.stops,
                     "expirations": self.expirations, "reason": self.reason,
                     "sensor_power": "unverified", "producer_mode": self.mode,
-                    "native_faces": self.native is not None}
+                    "native_faces": self.native is not None, "native_tracking": self.tracking is not None}
 
     def _revoke(self, lease):
         if lease:
@@ -96,6 +97,9 @@ class Producer:
                 if mode == "faces":
                     if self.native is None: raise CameraError("native_setup_required", 503)
                     command = self.native.prepare()
+                elif mode == "tracking":
+                    if self.tracking is None: raise CameraError("tracking_setup_required", 503)
+                    command = self.tracking.prepare()
                 elif mode != "camera": raise CameraError("invalid_mode", 400)
                 self.mode = mode
                 self.process = self.popen(command, cwd=self.cwd, stdin=subprocess.PIPE,
@@ -128,6 +132,7 @@ class Producer:
                 with self.changed:
                     if self.process is not process or self.state == "STOPPING": return
                     if self.native and self.mode == "faces": self.native.receive(doc)
+                    if self.tracking and self.mode == "tracking": self.tracking.receive(doc)
                 if "img" not in doc: continue
                 encoded = doc["img"]
                 if not isinstance(encoded, str) or len(encoded) > 4*MAX_JPEG//3+4: raise ValueError("oversize")
@@ -140,6 +145,7 @@ class Producer:
                     self.sequence += 1
                     self.state, self.reason = "RUNNING", "frame_ready"
                     if self.native and self.mode == "faces": self.native.image_ready()
+                    if self.tracking and self.mode == "tracking": self.tracking.image_ready()
                     self.changed.notify_all()
         except Exception:
             pass
@@ -198,6 +204,7 @@ class Producer:
                 if reason == "lease_expired": self.expirations += 1
                 self.process = self.reader = None
                 if self.native: self.native.stopped()
+                if self.tracking: self.tracking.stopped()
                 self.state = "STOPPED"
                 result = self.status()
                 if not result["stop_confirmed"]: raise CameraError("other_camera_producer", 503)
@@ -246,7 +253,8 @@ class CameraService:
         with self.lock:
             issued = self.challenges.pop(request["nonce"], None)
         if issued is None or self.clock()-issued >= 10: raise CameraError("challenge_expired", 401)
-        if set(request)-{"nonce", "operation", "lease"}: raise CameraError("invalid_request", 400)
+        if set(request)-{"nonce", "operation", "lease", "roi"}: raise CameraError("invalid_request", 400)
+        if "roi" in request and request.get("operation") != "track_select": raise CameraError("invalid_request",400)
         return request
 
 
@@ -375,6 +383,12 @@ class Handler(BaseHTTPRequestHandler):
             elif operation == "frame":
                 jpeg, sequence = camera.snapshot(lease)
                 self.reply(jpeg, sequence=sequence)
+            elif isinstance(operation,str) and operation.startswith('track_'):
+                if not camera.tracking: raise CameraError('tracking_setup_required',503)
+                if operation == 'track_start': self.reply(camera.start(lease,'tracking'))
+                elif operation == 'track_select': self.reply(camera.tracking.select(lease,req.get('roi')))
+                elif operation == 'track_frame': self.reply(camera.tracking.observation(lease))
+                else: raise CameraError('invalid_operation',400)
             elif camera.native:
                 native = camera.native
                 if operation == 'face_profiles': self.reply(dict(camera.status(), **native.profiles()))
@@ -397,19 +411,24 @@ def main():
     face_binary = root / 'bin' / 'face_recognition'
     if hashlib.sha256(face_binary.read_bytes()).hexdigest() != FACE_SHA256:
         raise RuntimeError('Face executable differs from the verified factory image')
+    from kadence_tracking import TrackingBridge, TRACKER_SHA256
+    track_binary = root/'bin'/'target_tracker'
+    if hashlib.sha256(track_binary.read_bytes()).hexdigest() != TRACKER_SHA256:
+        raise RuntimeError('Tracker executable differs from the verified factory image')
     def foreign(owned):
         # A factory supervisor restart can leave an old camera child behind.
         # Report the conflict; never claim it stopped or signal an unowned PID.
         for entry in Path("/proc").iterdir():
             if not entry.name.isdigit() or int(entry.name) == owned: continue
             try:
-                if (entry/"exe").resolve() in {binary, face_binary}: return True
+                if (entry/"exe").resolve() in {binary, face_binary, track_binary}: return True
             except (FileNotFoundError, PermissionError, OSError): continue
         return False
     producer = Producer([str(binary)], str(root), foreign=foreign)
     if foreign(None): raise RuntimeError('Another factory camera process is running; power-cycle UnitV2')
     recover_save(root)
     NativeBridge(producer, CameraError, root, (root/'kadence-device.id').read_text().strip())
+    TrackingBridge(producer, CameraError, root)
     service = CameraService(producer, key)
     server = Server(("0.0.0.0", 80), service)
     watcher = threading.Thread(target=producer.watchdog, daemon=True)
