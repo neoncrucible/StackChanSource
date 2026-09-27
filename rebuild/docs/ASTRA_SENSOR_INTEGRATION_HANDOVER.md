@@ -9,7 +9,7 @@ The owner now explicitly accepts **0.4.11 audio** and says other functions work
 well. Fresh scene descriptions, camera start/stop and Privacy remain accepted.
 Do not re-open voice latency or change the accepted output path for this task.
 
-### Native UnitV2 faces — implemented, release checks in progress
+### Released — native UnitV2 faces, host 0.4.12
 
 The two 27 September screenshots show PC training stalled at **12/20, tilt**,
 then a live test with usable faces but **no enabled compatible profiles**. That
@@ -50,15 +50,40 @@ Check and Test Automatic Event. Automatic Perception and Greetings remain
 separate settings. Read `NATIVE_UNITV2_FACES_0_4_12.md` for exact instructions,
 backup/rollback behavior and hardware acceptance limits.
 
-Local validation: **344 tests / 119 subtests passed**, four Windows-only skips,
-including **14 native integration tests** using actual child processes, HTTP,
+Full local validation before the profile-name follow-up: **344 tests / 119
+subtests passed**, four Windows-only skips, including **14 native integration
+tests** using actual child processes, HTTP,
 save-file recovery, schema migration, cancellation and native-match-to-greeting
 execution without loading the PC model. Ownership/alignment gate passed. Desktop
 Profiles and UnitV2 training layouts were rendered and inspected. Chromium browser
 QA ran the actual recovered factory control scripts: Add, Train, Stop, Save
 verified two onboard fixture profiles; Finish confirmed camera stop; zero page
-errors. Windows release evidence will be recorded below after completion. Hardware/native
-recognition accuracy on the owner's face remains untested in this environment.
+errors. The final profile-name follow-up passed **37 focused tests**, with one
+Windows-only skip: native and retained PC profiles may share a display name
+without blocking independent Recognise/Greet preferences. The native suite now
+contains **15 tests**, all included in the final Windows run below.
+
+Windows release evidence:
+
+- Runtime source **0fa26b7b776b7884c6fafe25fec64feb1d706c71**.
+- Run **36318147172**, job **108616665916**, conclusion **success**.
+- **276 tests / 81 subtests**: camera/perception 140/26, reflex 22, automatic 18,
+  voice/recovery/network 75/41, speech 21/14. Ownership/alignment gate passed.
+- Packaged executable passed modern vision parsing, streaming decode, Windows
+  local speech (119360 PCM bytes), retained PC face replay, profile/photo/delete/
+  backup/IPC and clean shutdown. Native integration tests use protocol fixtures;
+  the PC replay does not establish native recognition accuracy.
+- Package **Kadence-Desktop-0.4.12-0fa26b7b776b.zip** includes the complete UnitV2
+  service 1.1.0 bundle and `NATIVE-UNITV2-FACES.txt` upgrade/training guide.
+- Download (182600781 bytes):
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36318147172/artifacts/10931124069
+- Uploaded artifact SHA256:
+  `ca6ea4845569152c43fc5ca971b1be1ba6bb9f60be8093b191db435c1a8abaf5`.
+
+Hardware/native recognition accuracy on the owner's face, real arrival greetings
+and physical audio playback after this upgrade remain untested here. Accepted
+0.4.11 audio and scene-description behavior must remain the baseline. Do not
+equate the software tests or browser fixture scores with physical sign-off.
 
 ### Released — audio connection repair, host 0.4.11
 
