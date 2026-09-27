@@ -80,7 +80,7 @@ or Greet does not erase a native profile; PC Delete cannot pretend to erase it.
   is an explicit choice to retain a producer; switching between plain capture and
   native recognition stops the previous owned child before launching the next.
 
-## Evidence and remaining hardware check
+## Evidence and physical acceptance
 
 Verified factory recovery archive SHA-256:
 `c36022a56f101608625571115a9c0165f9a203151b58f69e1379ee53483f88da`.
@@ -96,5 +96,13 @@ Primary protocol and persistence references:
 Automated tests use real subprocesses, HTTP, native protocol fixtures, database
 migration and the actual greeting scheduler. They prove integration, lifecycle,
 save recovery and cancellation behavior; they do not measure accuracy on the
-owner's face. Hardware acceptance still requires the short sequence above with
-the existing onboard profiles, then a greeting after a real arrival.
+owner's face.
+
+**Physically accepted by the owner on 27 September 2026 at 21:28 BST.** All tests
+were reported passed, native recognition scores improved after training, and
+greetings worked well. Supplied screenshots confirm current native recognition,
+an 85.7% native similarity score and a completed perception burst with greeting
+delivered. Host 0.4.12 is the accepted native recognition/greeting baseline.
+The manual stop/start step is accepted as minor workflow polish for later.
+The evidence does not establish which physical sensor triggered the greeting;
+that is separate from the facial recognition sign-off.

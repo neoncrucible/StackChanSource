@@ -9,9 +9,36 @@ The owner now explicitly accepts **0.4.11 audio** and says other functions work
 well. Fresh scene descriptions, camera start/stop and Privacy remain accepted.
 Do not re-open voice latency or change the accepted output path for this task.
 
-### Released — native UnitV2 faces, host 0.4.12
+### Physically accepted — native UnitV2 faces and greetings, host 0.4.12
 
-The two 27 September screenshots show PC training stalled at **12/20, tilt**,
+**Owner sign-off: 27 September 2026, 21:28 BST.** The owner reports that the
+update works beautifully, all tests passed, native recognition scores increased
+after training, and greetings worked well. Facial recognition is explicitly
+signed off. **0.4.12 is the accepted native recognition/greeting baseline**;
+preserve it alongside accepted audio, scene descriptions, start/stop and Privacy.
+
+The three supplied screenshots were successfully inspected despite the inline
+image-read errors in the chat. The 21:22 capture shows a current native identity
+confirmation; the 21:24 capture shows host 0.4.12, automatic perception enabled,
+one burst completed out of one started, one confirmed subject, greeting delivered
+and camera IDLE; the 21:26 live check shows one current confirmation and an
+85.7% native similarity score. This is a match score, not measured accuracy.
+The live check's 14/20 is check progress, not the removed enrollment requirement.
+Profile names and face images are deliberately omitted from this repository.
+
+Known accepted rough edge: needing manual stop/start is a little fiddly but the
+owner explicitly accepts it. Record this as later workflow polish, not a failed
+recognition requirement or a reason to reopen enrollment. The 21:24 screenshot
+also contains `sensor invalid_or_stale` and a burst cooldown notice; it proves
+recognition/greeting delivery, not that a physical arrival sensor triggered that
+burst. Keep sensor-trigger provenance separate from this facial recognition
+sign-off. No further recognition rewrite is requested.
+
+The agreed roadmap after this acceptance is tools, possibly OpenClaw, then voice
+response latency last. This sign-off records the checkpoint only; it does not
+start those implementation changes.
+
+The earlier 12:03 screenshots from 27 September show PC training stalled at **12/20, tilt**,
 then a live test with usable faces but **no enabled compatible profiles**. That
 establishes a failed enrollment workflow, not a beard/lighting diagnosis. The
 owner explicitly requests native factory UnitV2 training and onboard profiles.
@@ -80,10 +107,12 @@ Windows release evidence:
 - Uploaded artifact SHA256:
   `ca6ea4845569152c43fc5ca971b1be1ba6bb9f60be8093b191db435c1a8abaf5`.
 
-Hardware/native recognition accuracy on the owner's face, real arrival greetings
-and physical audio playback after this upgrade remain untested here. Accepted
-0.4.11 audio and scene-description behavior must remain the baseline. Do not
-equate the software tests or browser fixture scores with physical sign-off.
+Release-time automated checks did not establish hardware recognition accuracy.
+The owner's later physical recognition/training/greeting sign-off above now
+supersedes that pending acceptance. Sensor-trigger provenance and exhaustive
+recognition accuracy are not established by the screenshots. Accepted 0.4.11
+audio and scene-description behavior remain the baseline; the owner also
+confirms successful greeting delivery on 0.4.12.
 
 ### Released — audio connection repair, host 0.4.11
 
