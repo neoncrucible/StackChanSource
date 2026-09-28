@@ -20,7 +20,11 @@ class Package(unittest.TestCase):
         (app/'Kadence.exe').write_bytes(b'fixture-executable-not-for-launch')
         (app/'_internal').mkdir(); (app/'_internal'/'fixture.dll').write_bytes(b'library')
         output=root/('package-'+commit[:12])
-        archive=packager.host_package(app,commit,output)
+        stick=root/('stick-'+commit[:12]);stick.mkdir()
+        image=b'fixture-stick-image-not-for-flashing'
+        (stick/'kadence-sticks3.bin').write_bytes(image)
+        (stick/'RELEASE.json').write_text(json.dumps({'device':'StickS3','source_commit':commit,'sha256':hashlib.sha256(image).hexdigest()}))
+        archive=packager.host_package(app,commit,output,stick=stick)
         return output,archive
 
     def test_host_archive_complete_and_no_firmware(self):
@@ -28,6 +32,8 @@ class Package(unittest.TestCase):
             output,archive=self.bundle(Path(tmp),'a'*40)
             with zipfile.ZipFile(archive) as z:
                 self.assertIn('Install-Kadence.cmd',z.namelist())
+                self.assertIn('Flash-StickS3.cmd',z.namelist())
+                self.assertIn('StickS3/kadence-sticks3.bin',z.namelist())
                 self.assertIn('_internal/fixture.dll',z.namelist())
                 self.assertFalse(any(name.startswith('Firmware/') for name in z.namelist()))
                 for line in z.read('SHA256SUMS').decode().splitlines():

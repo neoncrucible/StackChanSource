@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.4.13'
+HOST_VERSION='0.4.14'
 
 
 def archive_package(output: Path):
@@ -28,7 +28,7 @@ def archive_package(output: Path):
     return archive
 
 
-def host_package(desktop: Path, commit: str, output: Path):
+def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None = None):
     if not (desktop/'Kadence.exe').is_file(): raise ValueError('Windows executable is missing')
     output.mkdir(parents=True,exist_ok=False)
     shutil.copytree(desktop,output,dirs_exist_ok=True)
@@ -43,10 +43,17 @@ def host_package(desktop: Path, commit: str, output: Path):
     shutil.copyfile(ROOT/'rebuild'/'docs'/'NATIVE_UNITV2_FACES_0_4_12.md',output/'NATIVE-UNITV2-FACES.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'VOICE_CONNECTION_0_4_11.md',output/'VOICE-CONNECTION.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'OBJECT_TRACKING_0_4_13.md',output/'OBJECT-TRACKING.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'STICKS3_REMOTE_0_4_14.md',output/'STICKS3-REMOTE.txt')
+    stick=stick or ROOT/'rebuild'/'dist'/'StickS3'
+    metadata=json.loads((stick/'RELEASE.json').read_text())
+    if metadata['source_commit']!=commit:raise ValueError('Stick firmware source does not match host')
+    if hashlib.sha256((stick/'kadence-sticks3.bin').read_bytes()).hexdigest()!=metadata['sha256']:raise ValueError('Stick image checksum mismatch')
+    shutil.copytree(stick,output/'StickS3')
+    (output/'Flash-StickS3.cmd').write_text('@echo off\n"%~dp0Kadence.exe" --stick-flash\n',encoding='ascii')
     shutil.copytree(ROOT/'rebuild'/'unitv2',output/'UnitV2',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
-        'firmware_included':False,'compatible_firmware':['0.21.6'],
+        'firmware_included':False,'remote_firmware_included':True,'remote_firmware_version':'1.0.0','compatible_firmware':['0.21.6'],
         'physical_signoff':False},indent=2)+'\n')
     return archive_package(output)
 
@@ -100,7 +107,7 @@ def build(commit: str, firmware: Path | None = None):
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean',
         '--onedir','--name','Kadence','--console','--hide-console','hide-early',
         '--distpath',str(work/'app'),'--workpath',str(work/'objects'),'--specpath',str(work),
-        '--collect-submodules','kcore','--collect-data','tzdata','--collect-data','certifi',
+        '--collect-submodules','kcore','--collect-submodules','esptool','--collect-data','esptool','--collect-submodules','websockets','--collect-data','tzdata','--collect-data','certifi',
         # Let PyInstaller's maintained cv2 hook collect the OpenCV loader, extension,
         # config files, and numpy dependencies.  ``--collect-all cv2`` duplicates that
         # collection and can leave the frozen Windows loader blocked during ``import cv2``.

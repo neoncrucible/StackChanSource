@@ -227,27 +227,27 @@ async def process_wire_turn(
     progress_sink: StateSink | None = None,
     pcm_sink=None,
 ) -> VoiceWireResult:
+    ogg = build_ogg_opus(turn.packets, sample_rate=turn.sample_rate, frame_ms=turn.frame_ms)
+    async def transcribe(stt):
+        async with asyncio.timeout(15):
+            return await stt.transcribe_file(ogg, filename="kadence-turn.ogg", content_type="audio/ogg")
+    return await process_audio_turn(transcribe, settings=settings, companion=companion,
+        state_sink=state_sink, progress_sink=progress_sink, pcm_sink=pcm_sink)
+
+
+async def process_audio_turn(transcribe, *, settings=None, companion=None, state_sink=None,
+                             progress_sink=None, pcm_sink=None):
+    """Common STT -> conversation -> speech path for robot and remote capture."""
     resolved = VoiceProviderSettings.from_env() if settings is None else settings
     missing = resolved.missing_credentials()
     if missing:
         raise VoiceProviderUnavailable("missing credentials: " + ",".join(missing))
     providers = LiveVoiceProviders.from_settings(resolved)
-
-    ogg = build_ogg_opus(
-        turn.packets,
-        sample_rate=turn.sample_rate,
-        frame_ms=turn.frame_ms,
-    )
     timings = {}
     started = time.perf_counter()
     if progress_sink: await progress_sink("stt")
     try:
-        async with asyncio.timeout(15):
-            transcript = await providers.stt.transcribe_file(
-                ogg,
-                filename="kadence-turn.ogg",
-                content_type="audio/ogg",
-            )
+        transcript = await transcribe(providers.stt)
     except VoiceNoSpeechDetected:
         timings["stt"] = round((time.perf_counter()-started)*1000)
         started = time.perf_counter()

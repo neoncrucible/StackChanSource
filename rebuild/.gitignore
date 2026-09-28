@@ -8,3 +8,5 @@ firmware/dependencies.lock
 *.log
 dist/
 *.sqlite3*
+
+sticks3/.pio/

@@ -25,6 +25,9 @@ def check(executable, expected_commit, *, offline=False):
     decoded=json.loads(subprocess.check_output([str(executable),'--speech-decode-check',str(fixture)],text=True,timeout=30))
     assert decoded['before_eof'] and decoded['first_encoded_bytes']<=1152 and decoded['pcm_bytes']>128000,decoded
     print('DESKTOP_STREAM_DECODER',json.dumps(decoded),flush=True)
+    remote=json.loads(subprocess.check_output([str(executable),'--remote-protocol-check'],text=True,timeout=30))
+    assert remote=={'paired_websocket':True,'robot_link':'tethered','disconnected_ptt_rejected':True,'clean_close':True},remote
+    print('DESKTOP_REMOTE_PROTOCOL PASS',flush=True)
     with tempfile.TemporaryDirectory() as tmp:
         process=subprocess.Popen([str(executable),'--worker'],stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
@@ -90,6 +93,10 @@ def check(executable, expected_commit, *, offline=False):
             send(15,'local_tool',{'name':'tracking_status'}); tracking=until('result',15)
             assert tracking['ok'] and tracking['result']['ok'] and 'Start the server' in tracking['result']['data']['spoken'],tracking
             print('DESKTOP_TRACKING_TOOLS PASS',flush=True)
+            send(16,'remote_status',{}); remote=until('result',16)
+            assert remote['ok'] and remote['result']['enabled'] is False and remote['result']['paired'] is False,remote
+            send(17,'remote_config',{'enabled':False}); assert until('result',17)['ok']
+            print('DESKTOP_REMOTE_OFF PASS',flush=True)
             send(6,'quit',{})
             assert until('closed')['clean'] is True
             assert process.wait(timeout=15)==0

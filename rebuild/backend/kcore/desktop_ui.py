@@ -458,6 +458,9 @@ class MainWindow(QMainWindow):
         from .tracking_ui import TrackingPanel
         self.tracking_panel=TrackingPanel(self.control.send)
         tab("Tracking").addWidget(self.tracking_panel)
+        from .motion_ui import MotionPanel
+        self.motion_panel=MotionPanel(self.control.send)
+        tab("Motion").addWidget(self.motion_panel)
         self._training_active=False
         self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
@@ -642,6 +645,9 @@ class MainWindow(QMainWindow):
 
     def device_page(self):
         page,layout=self.page("Device controls","Front-screen touch still starts or cancels a voice turn.")
+        from .remote_ui import RemotePanel
+        self.remote_panel=RemotePanel(self.control.send,self.connection_settings)
+        layout.addWidget(self.remote_panel)
         audio=QGroupBox("AUDIO"); grid=QGridLayout(audio)
         self.volume=QSlider(Qt.Horizontal); self.volume.setRange(0,100); self.volume.setValue(100)
         self.volume_value=label("Awaiting device", "status"); self.volume.sliderReleased.connect(lambda:self.device_setting(volume=self.volume.value()))
@@ -949,6 +955,15 @@ class MainWindow(QMainWindow):
         self.control.send("device.settings",values)
 
     def on_event(self,name,data):
+        if name=='remote_status':
+            self.remote_panel.update_status(data)
+            self.record_diagnostic(name,data)
+            return
+        if name=='motion_status':
+            self.motion_panel.update_status(data)
+            home=data['home']
+            self.tracking_panel.home_label.setText(f"Shared home: {home['yaw']/10:g}° yaw / {home['pitch']/10:g}° pitch")
+            return
         if name=="tracking_status":
             self.tracking_panel.update_status(data)
             return
@@ -1217,6 +1232,14 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
+        if name=='remote_event':
+            if data.get('event') in {'enabled','paired','connected','disconnected','connection_lost','connection_rejected','audio_start','audio_stop','audio_failed','audio_watchdog','camera_command','command_rejected'}:
+                self._append_diagnostic({'at':datetime.now(timezone.utc).isoformat(timespec='seconds'),'event':'remote_'+data['event']})
+            return
+        if name=='remote_status':
+            self._append_diagnostic({'at':datetime.now(timezone.utc).isoformat(timespec='seconds'),'event':name,
+                **{key:data[key] for key in ('enabled','connected','paired','mic','processing','gyro','rssi') if key in data}})
+            return
         if name=="audio_network":
             from .audio_network import diagnostic
             self._append_diagnostic({"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**diagnostic(data)})

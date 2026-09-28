@@ -1,3 +1,12 @@
+# 0.4.14 amendment — shared Motion home
+
+In host 0.4.14, set the single saved home in Vision → Motion → SET HOME.
+Tracking no longer has independent yaw/pitch home fields. Its RETURN HOME and
+MOVE HOME & ARM both use Motion's saved position. Following is clipped to the
+existing absolute firmware limits as well as its relative window.
+
+The original 0.4.13 instructions below describe that historical release.
+
 # Object tracking — host 0.4.13 / UnitV2 service 1.2.0
 
 This release adds a Tracking tab, native UnitV2 target tracking, voice target

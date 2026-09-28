@@ -85,6 +85,8 @@ class KadenceAppliance:
         self._windows_audio = WindowsAudio()
         self.emit = emit or (lambda name, data: None)
         self.services = services
+        from .motion import HomeStore, Motion
+        self.motion = Motion(self, HomeStore(services.paths.root if services else default_data_dir()))
         self._owns_services = services is None
         self.vision = DeskVision(self.emit)
         from .camera_manager import CameraManager
@@ -200,6 +202,8 @@ class KadenceAppliance:
                         )
                 finally:
                     await self.tracking.stop("Robot disconnected; tracking stopped.",disarm=True)
+                    await self.motion.stop()
+                    self.motion.last_pose=None
                     self.emit("robot", {"connected": False})
                     self._turn_token = None
                     await self._cancel_active_provider()
@@ -241,6 +245,7 @@ class KadenceAppliance:
     async def close(self) -> None:
         self._stop.set()
         await self.tracking.stop(disarm=True)
+        await self.motion.stop()
         if self._network_check_task is not None:
             self._network_check_task.cancel()
             await asyncio.gather(self._network_check_task, return_exceptions=True)
@@ -371,8 +376,8 @@ class KadenceAppliance:
             self.emit("alert", {"state": "review_in_windows", "count": len(rows)})
         finally: self._alert_pcm = b""
 
-    async def _run_media(self, body, name):
-        await self.tracking.stop("Tracking stopped for audio or camera work.")
+    async def _run_media(self, body, name, *, preserve_tracking=False):
+        if not preserve_tracking: await self.tracking.stop("Tracking stopped for audio or camera work.")
         self._media_mode = "alert" if name == "voice.alert" else "camera"
         self._turn_token = secrets.token_hex(16)
         self._wire_claimed = False
@@ -654,6 +659,7 @@ class KadenceAppliance:
 
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
         await self.tracking.stop("Tracking stopped for voice. Select a fresh target to follow again.")
+        await self.motion.stop()
         self._media_mode = "voice"
         self._turn_token = secrets.token_hex(16)
         self._wire_claimed = False

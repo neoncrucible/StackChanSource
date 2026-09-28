@@ -3,6 +3,18 @@ import sys
 
 
 def main():
+    if "--remote-protocol-check" in sys.argv:
+        import asyncio,json
+        from .remote_check import check
+        print(json.dumps(asyncio.run(check())))
+        return 0
+    if "--stick-flash" in sys.argv:
+        from .stick_flash import main as flash
+        try:return flash()
+        except Exception as exc:
+            print('StickS3 flash failed: '+str(exc))
+            input('Press Enter to close. ')
+            return 1
     if "--audio-network-check" in sys.argv:
         from .audio_network import _powershell
         import asyncio, json

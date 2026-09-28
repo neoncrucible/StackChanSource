@@ -1,3 +1,12 @@
+# Current update: 0.4.14 — StickS3 Remote and shared Motion home
+
+Install the complete desktop ZIP as usual. Robot firmware remains 0.21.6 and
+UnitV2 service remains 1.2.0. No robot or camera flash is required. Read
+STICKS3-REMOTE.txt for flashing only the StickS3, USB pairing, Remote ON/OFF,
+unlimited-duration PTT and the shared Motion/Tracking Home controls.
+
+Previous release instructions follow for historical reference.
+
 Kadence Desktop — install and update
 
 Current update: 0.4.13 — native object tracking and optional head following.

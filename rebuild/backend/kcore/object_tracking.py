@@ -32,7 +32,7 @@ class ObjectTracking:
         self.expected_epoch = None
         self.started = 0
         self.armed = False
-        self.home = self.pose = (0,300)
+        self._home = self.pose = (0,300)
         self.signs = (1,1)
         self.stable = 0
         self.last_box = None
@@ -42,6 +42,15 @@ class ObjectTracking:
         self.intent = 0
         self.stop_confirmed = True
         self._last_status = None
+
+    @property
+    def home(self):
+        motion=getattr(self.app,'motion',None)
+        return motion.store.home if motion else self._home
+
+    @home.setter
+    def home(self,value):
+        self._home=value  # compatibility for isolated controller fixtures only
 
     @property
     def active(self): return self.task is not None and not self.task.done()
@@ -234,6 +243,7 @@ class ObjectTracking:
         yaw=max(self.home[0]-180,min(self.home[0]+180,self.pose[0]+self.signs[0]*step(dx)))
         pitch=max(self.home[1]-150,min(self.home[1]+150,self.pose[1]+self.signs[1]*step(dy)))
         if (yaw,pitch)==self.pose: return
+        yaw=max(-320,min(320,yaw));pitch=max(30,min(870,pitch))
         await self._move((yaw,pitch))
         if self.state=='TRACKING': self.publish('Following the selected target with bounded head steps.')
 
@@ -258,6 +268,14 @@ class ObjectTracking:
             try:
                 self.camera.check(generation)
                 if intent!=self.intent or self.busy(): raise RuntimeError('Head move superseded before dispatch.')
+                motion=getattr(self.app,'motion',None)
+                if motion:
+                    def guard():
+                        self.camera.check(generation)
+                        if intent!=self.intent: raise RuntimeError('Head move superseded.')
+                    await motion.move(pose,guard=guard)
+                    self.pose=pose
+                    return
                 ack=await body.send_body_pose(*pose,timeout=10)
                 if any(ack.payload.get(k) is not True for k in ('ok','executed','torque_released')):
                     raise RuntimeError('Head move did not confirm torque release; following disarmed.')
@@ -276,9 +294,9 @@ class ObjectTracking:
         if pc: await pc.interrupt()
         if intent!=self.intent: raise RuntimeError("Head action was superseded by Stop.")
         if args.get('mounted') is not True: raise ValueError('Head following requires UnitV2 mounted on the moving head.')
-        yaw,pitch=args.get('yaw',0),args.get('pitch',300)
-        if type(yaw) is not int or not -140<=yaw<=140 or type(pitch) is not int or not 180<=pitch<=720:
-            raise ValueError('Home must be yaw -14..14 degrees and pitch 18..72 degrees.')
+        yaw,pitch=self.home
+        if getattr(self.app,'motion',None) and not self.app.motion.store.saved:
+            raise RuntimeError('Set the shared home in Motion before arming head following.')
         sx,sy=args.get('yaw_sign',1),args.get('pitch_sign',1)
         if type(sx) is not int or sx not in (-1,1) or type(sy) is not int or sy not in (-1,1): raise ValueError('Invalid axis direction.')
         if self.app._last_device_status.get('firmware')!='0.21.6' or self.clock()-getattr(self.app,'_last_device_status_at',0)>5: raise RuntimeError('Head following requires connected firmware 0.21.6 and a fresh device status.')

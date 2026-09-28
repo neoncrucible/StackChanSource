@@ -1,6 +1,64 @@
 # Kadence integration handover for Astra
 
-## Current continuation — 27 September 2026
+## Current continuation — 28 September 2026: StickS3 remote / Motion
+
+The owner says 0.4.13 object tracking worked quite well. This is useful hardware
+feedback, not an exhaustive new sensor/voice/motor acceptance record. Colour and
+shape recognition are explicitly deferred and should reuse the factory UnitV2
+software. The uploaded StickS3 Remote Astra Spec is the active task, plus a new
+Motion tab adjacent to Tracking with one persisted home used by all Home controls.
+
+Preserved baseline branch `kadence/baseline-0.4.13` points to
+`1809efb48cfdd2356858e406486d19bccc2c03b6`. Work is isolated on
+`kadence/sticks3-remote`; do not move functionality until acceptance/merge is wanted.
+Baseline local regression: 361 tests and 119 subtests passed, six environment skips.
+
+Host 0.4.14 introduces a paired WebSocket endpoint on one selected LAN interface,
+port 8766, Remote ON/OFF and an explicit Tethered / Wireless-later display. Robot
+firmware remains 0.21.6, UnitV2 service 1.2.0, schema 5. No robot or camera flash.
+StickS3 firmware 1.0.0 has a merged image and bundled flash helper, USB provisioning,
+Wi-Fi reconnect, HMAC nonce handshake, A/B menus, camera controls, structured live
+state and PCM16 hold-to-talk. Remote begins OFF; wireless robot transport and gyro
+are unavailable. Gyro was optional in the supplied spec and is explicitly deferred
+until microphone and controls have physical acceptance. OpenClaw remains parked.
+
+PTT has no total duration timer. Temporary disk capture, ordered 40 ms frames,
+2-second audio watchdog and bounded 30-second STT chunks with half-second overlap
+feed the shared process_audio_turn path. The existing robot Opus wrapper still
+uses its own accepted capture timing and 15-second transcription timeout. Remote
+OFF/disconnect/stale or malformed audio discards an incomplete capture. Remote
+uses the same voice ownership slot and existing output selection/robot media lane.
+No partial utterance is executed on disconnect. Online STT quality and actual
+Stick audio hardware must be checked on the owner's device.
+
+Motion stores one home in motion-home.json after a successful bounded firmware
+move/torque ACK. SET HOME deliberately moves to the chosen yaw/pitch; it does not
+read a manually repositioned head or rewrite servo zeros. Motion HOME, Tracking
+RETURN HOME and MOVE HOME & ARM all use that persisted store. It is not live servo
+telemetry. No automatic startup/home motion. One motor lane drains in-flight moves;
+Stop supersedes pending Home requests. Tracking's relative limits are clipped to
+the absolute firmware envelope. Native face recognition and accepted voice remain
+the regression baseline.
+
+New modules: motion.py/motion_ui.py, remote_server.py/remote_audio.py/remote_ui.py,
+stick_setup.py/stick_flash.py, remote_check.py and rebuild/sticks3. Shared integration
+changes are limited to appliance/worker/UI, tracking's home/motor dispatch and the
+common voice processing function. Package includes STICKS3-REMOTE.txt, source/flash
+manifest, third-party notices and Stick image. Pairing keys and Wi-Fi passwords are
+not compiled into firmware or emitted to diagnostic exports. Trusted-LAN WS carries
+unencrypted audio; no WAN exposure or generic command socket is intended.
+
+Validation so far: 376 local tests / 119 subtests passed, six environment skips;
+15 remote/motion checks cover 60-second capture, shared pipeline dispatch, real
+WebSocket authentication/replay/single owner, cancellation during capture/processing,
+audio loss, camera authority, shared home persistence/failed ACK/Stop races. Runtime
+ownership gate passed. Motion and Device UI rendered and inspected at 1160x850.
+Stick firmware compiled successfully: 52404 bytes static RAM / 1106341 bytes
+application flash. Final focused checks passed 38 tests. Windows packaged checks
+are pending; release evidence will follow. Read STICKS3_REMOTE_0_4_14.md for setup, protocol, acceptance checklist
+and the next wireless phase. Hardware-only tests must not be claimed from fixtures.
+
+## Previous continuation — 27 September 2026
 
 Active branch: `kadence/functionality`; firmware **0.21.6**, host **0.4.13**,
 SQLite schema **5**, UnitV2 service **1.2.0**. No robot firmware flash.

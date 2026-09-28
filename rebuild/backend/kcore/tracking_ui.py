@@ -92,18 +92,17 @@ class TrackingPanel(QWidget):
         group=QGroupBox('OPTIONAL HEAD FOLLOWING');box=QVBoxLayout(group)
         self.mounted=QCheckBox('UnitV2 is attached to the moving head; cables have room to move')
         box.addWidget(self.mounted)
-        self.yaw=QSpinBox();self.yaw.setRange(-14,14);self.yaw.setSuffix('° yaw')
-        self.pitch=QSpinBox();self.pitch.setRange(18,72);self.pitch.setValue(30);self.pitch.setSuffix('° pitch')
+        self.home_label=text('Shared home: set it in Motion.')
         self.flip_yaw=QCheckBox('Reverse horizontal');self.flip_pitch=QCheckBox('Reverse vertical')
-        box.addWidget(row(text('Home pose'),self.yaw,self.pitch,self.flip_yaw,self.flip_pitch))
+        box.addWidget(row(self.home_label,self.flip_yaw,self.flip_pitch))
         box.addWidget(row(button('MOVE HOME && ARM','tracking_arm',self.arm_args),button('RETURN HOME','tracking_home')))
-        box.addWidget(text('Arming moves to the home pose above. Test with slow, small movements; stop and reverse an axis if it turns away. Following stays within ±18° yaw / ±15° pitch of home, in steps of at most 2°. Arming lasts only for this server session.'))
+        box.addWidget(text('Arming moves to the shared home saved in Motion. Test with slow, small movements; stop and reverse an axis if it turns away. Following stays within ±18° yaw / ±15° pitch of home, in steps of at most 2°. Arming lasts only for this server session.'))
         layout.addWidget(group)
         layout.addWidget(text('Say “Kadence, follow this pen”, “tracking status”, or “stop tracking”. Other voice work, Privacy, another camera action or disconnect ends tracking. Stop prevents further steps; an in-flight bounded step settles and releases torque first. A session lasts up to 15 minutes.'))
         layout.addWidget(text('Target loss stops head following. Select again to resume. Movement alerts, person descriptions, colour/shape modes and idle motor reflexes are separate follow-up work.'))
 
     def arm_args(self):
-        return {'mounted':self.mounted.isChecked(),'yaw':self.yaw.value()*10,'pitch':self.pitch.value()*10,
+        return {'mounted':self.mounted.isChecked(),
                 'yaw_sign':-1 if self.flip_yaw.isChecked() else 1,'pitch_sign':-1 if self.flip_pitch.isChecked() else 1}
 
     def send(self, action, args=None):

@@ -64,6 +64,8 @@ class DesktopController:
         self._camera_settings_lock = asyncio.Lock()
         self.services.camera_handler = self.camera_voice
         self.services.tracking_handler = self.tracking_voice
+        from .remote_server import RemoteServer
+        self.remote=RemoteServer(self)
 
     async def tracking_voice(self, args):
         if not self.app: return {'spoken':'Start the server to use object tracking.'}
@@ -124,9 +126,9 @@ class DesktopController:
                 message = f"UnitV2 mode is {mode.replace('_',' ').lower()}. Producer state: {status.get('state','UNKNOWN')}."
                 if mode!="KEEP_READY": message += " Stop confirmed." if status.get("stop_confirmed") else " Stop is not confirmed."
             self.emit("vision_activity",{"kind":"voice_control","message":message})
-            return {"spoken":message}
+            return {"spoken":message,"ok":True}
         except (RuntimeError,ValueError) as exc:
-            return {"spoken":str(exc) if type(exc) in {RuntimeError,ValueError} else "The camera change was not confirmed. Check Vision on the PC."}
+            return {"ok":False,"spoken":str(exc) if type(exc) in {RuntimeError,ValueError} else "The camera change was not confirmed. Check Vision on the PC."}
 
     async def start(self):
         await self.services.start()
@@ -134,13 +136,19 @@ class DesktopController:
         from dataclasses import asdict
         self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
         self.emit("ready", {"protocol": 1})
+        self.remote.status()
+        from .motion import HomeStore
+        home=HomeStore(self.services.paths.root)
+        self.emit("motion_status",{"home":dict(zip(("yaw","pitch"),home.home)),"saved":home.saved,"moving":False})
         self.emit("utilities", await self.services.snapshot())
 
     def state_event(self, name, data):
         if name == "server": self.state = data["state"]
+        if name == "activity": self.remote.state=data.get("state","idle")
         self.emit(name, data)
 
     async def stop_server(self):
+        await self.remote.close()
         self.state = "stopping"; self.emit("server", {"state": self.state})
         if self._media:
             self._media.cancel()
@@ -183,6 +191,15 @@ class DesktopController:
                 self.emit("server", {"state": "stopped", "error": failure})
 
     async def command(self, action, args):
+        if action=='remote_status':return self.remote.status()
+        if action=='remote_config':return await self.remote.configure(args)
+        if action=='remote_pair':
+            if self.app and args.get('port')==self.app.settings.port:raise ValueError('Choose the Stick USB port, not the robot port.')
+            return await self.remote.pair(args)
+        if action.startswith('motion_'):
+            if action not in {'motion_status','motion_set_home','motion_home','motion_move','motion_stop'}:raise ValueError('Unsupported motion command.')
+            if not self.app:raise RuntimeError('Start the server before moving the head.')
+            return await self.app.motion.command(action,args)
         if action.startswith('tracking_'):
             if not self.app: raise RuntimeError('Start the server for object tracking.')
             tracker=self.app.tracking
@@ -196,7 +213,7 @@ class DesktopController:
             if action=='tracking_select': return await tracker.select(region=args.get('region'),sequence=args.get('sequence'))
             if action=='tracking_find': return await tracker.select(target=args.get('target'))
             if action=='tracking_arm': return await tracker.arm(args)
-            if action=='tracking_home': return await tracker.home_head()
+            if action=='tracking_home': return await self.app.motion.command('motion_home',{})
             raise ValueError('Unsupported tracking control.')
         if self.app and getattr(self.app,'tracking',None) and action in {'camera_settings','camera_patch','unitv2_mode','unitv2_check','unitv2_train_open',
                 'recognition_test','perception_test','face_enroll','camera_capture','camera_look','media_cancel'}:
