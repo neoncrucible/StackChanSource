@@ -13,6 +13,20 @@ remain compatible; only the Stick needs flashing. Buffered display acceptance is
 pending. The DIO package-only build at source ebe4ce5eab1c978671f6b939ab2a1267ac3cefd6
 passed its Linux image gate in run 36414604133; it is superseded by this display fix.
 
+Stick-only replacement 1.0.1 / packaging revision 2 is published:
+https://github.com/neoncrucible/StackChanSource/actions/runs/36414911094/artifacts/10965818888
+Source `a6f0cee158a97ca02d3328b619559693ab699053`; firmware job 108903612423 passed,
+including STICKS3_IMAGE (DIO header and exact compiled components). Artifact ZIP
+761950 bytes, SHA-256 `52e66ee4eb4687a31d48f24e150df869cad90472971e6e17ed9b39a80218b6c0`.
+Local esptool also verified the bootloader checksum and validation hash. Eight
+focused package tests passed; one Windows-only test skipped locally. Windows
+rebundling job 108904081351 was still running when the standalone Stick artifact
+was delivered; no Windows-success claim is made for this run at delivery time.
+The existing installed 0.4.14 server is compatible and need not be replaced.
+Flash only the replacement merged binary at 0x0 with DIO / 80m / 8MB. Do not erase
+the whole flash; saved pairing remains outside the written image. Ask for visual
+display acceptance and then resume microphone/menu/Wi-Fi/remote hardware tests.
+
 At 12:12 BST the owner's console screenshot showed `rst:0x7 (TG0WDT_SYS_RST)`,
 `mode:QIO`, the first bootloader segment and `ets_loader.c 78`, repeating. Download
 mode is stable. The image merge command incorrectly forced QIO into the ROM header;
@@ -30,8 +44,9 @@ Do not recommend flashing the original artifacts below with their embedded QIO
 setting. Existing downloads can be recovered without changing host or erasing NVS:
 flash the merged image at 0x0 with explicit DIO / 80m / 8MB (115200 serial baud),
 then disconnect the flasher and press reset once. The owner has been given these
-steps. Corrected artifacts will supersede the original links. Physical boot / mic /
-remote acceptance is still pending; successful compilation did not establish it.
+steps. The corrected Stick artifact above supersedes the original Stick image.
+Boot is now accepted by the owner; mic / remote acceptance remains pending.
+Successful compilation did not establish hardware acceptance.
 
 The owner says 0.4.13 object tracking worked quite well. This is useful hardware
 feedback, not an exhaustive new sensor/voice/motor acceptance record. Colour and
