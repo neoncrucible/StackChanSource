@@ -17,8 +17,22 @@ and a retained last peak/frame count under Mic / Status. No audio or credentials
 are exposed in diagnostics. DIO boot fix and buffered screen remain intact.
 Protocol 1 / host 0.4.14 remain compatible. New packaging gate checks the actual
 driver's board callback assignment, not merely the callback definition; nine
-packaging regression cases pass. Compile/image CI and physical PTT acceptance
-will be recorded below. Do not claim a successful microphone test from this gate.
+packaging regression cases pass. Both local compilation and the CI firmware build
+passed STICKS3_MIC_DRIVER and STICKS3_IMAGE; physical PTT acceptance remains pending.
+Do not claim a successful microphone test from these gates.
+
+Deliver Stick firmware 1.0.2 from source
+`23e8a3cf2a9ad760ab7ed832b1606bea04f90ffc`:
+https://github.com/neoncrucible/StackChanSource/actions/runs/36417550373/artifacts/10968023576
+Outer artifact ZIP 764105 bytes; SHA-256
+`9bb4525b657b81d5e3ba3e3757386b4e08a73bc095b29493a075f5400cc6136e`.
+Firmware build/upload job 108912193917; Windows rebundling is separate and not
+required to use this standalone firmware with the installed 0.4.14 host. Keep
+pairing and the installed host. Flash the replacement binary at 0x0, DIO / 80m /
+8MB, no whole-flash erase. Reconnect robot and enable Remote; do not require USB
+pairing again. Check LINKED -> hold A -> LISTENING/input meter responds -> release
+-> correct reply. If recognition still fails, obtain last peak and sent-frame
+count from Mic / Status, plus server diagnostics, rather than guessing gain.
 
 ### Hardware blocker: initial Stick image ROM header, corrected in packaging revision 2
 
