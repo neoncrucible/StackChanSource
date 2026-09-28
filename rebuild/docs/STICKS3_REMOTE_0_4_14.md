@@ -1,29 +1,35 @@
-# Kadence 0.4.14 — StickS3 Remote V1 and shared Motion home
+# Kadence 0.4.15 — StickS3 Remote V1, battery and shared Motion home
 
 The robot stays on firmware 0.21.6 and its existing tether. UnitV2 stays on service
-1.2.0. Flash only the **StickS3**, using the separate remote image. Remote starts
+1.3.0. Flash only the **StickS3**, using the separate remote image. Remote starts
 OFF. Wireless robot transport and gyro control are explicitly unavailable in V1.
-Colour/shape recognition remains future work using the original UnitV2 programs.
+Factory colour and shape modes are now exposed in the desktop Factory Vision tab.
 
-## Stick microphone correction — firmware 1.0.2
+## Stick microphone and battery — firmware 1.0.3
 
 The owner confirmed boot, steady display and successful pairing, but remote PTT
 returned "Sorry, I didn't catch that." The pinned M5Unified 0.2.12 defines the
 StickS3 ES8311 microphone enable callback but never assigns it to the StickS3
 microphone configuration. I2S setup can succeed without enabling the codec ADC.
-Firmware 1.0.2 pins upstream M5Unified 0.2.13, which assigns that callback. The
+Firmware 1.0.3 pins upstream M5Unified 0.2.13, which assigns that callback. The
 packaging gate now rejects a driver that defines but does not attach the callback.
 
 While holding A, the main screen shows an **IN** level in dBFS and a bar derived
 from the exact outgoing PCM with DC offset removed. It should respond to speech;
 it measures electrical sample level, not calibrated sound pressure or recognition
 confidence. Menu -> Mic / Status retains the highest frame RMS level and sent-frame
-count from the last capture and shows firmware 1.0.2. No samples are retained for
-this meter. The protocol and installed host 0.4.14 are unchanged; flash only Stick,
+count from the last capture and shows firmware 1.0.3. No samples are retained for
+this meter. The protocol remains 1; flash only Stick,
 retain DIO settings, do not erase all flash or re-pair an already paired device.
 After flashing, hold A, wait for LISTENING, speak normally, and release. Confirm
 both a responding input meter and a correctly transcribed/replied-to utterance.
 Actual microphone/recognition acceptance remains a hardware check.
+
+The cached PM1 battery estimate is read every five seconds while idle and stays
+visible in the header on every screen, including menus and PTT. A `+` prefix
+means charging; `--%` means the power controller did not return a reading. The
+indicator is not read during a live microphone capture, so it cannot interrupt
+PTT audio.
 
 ## Stick boot-image correction — packaging revision 2
 
@@ -171,7 +177,7 @@ Host: use the existing Windows workflow. It builds the Stick first, runs host
 regressions, then bundles the matching image and installer in the desktop package.
 The executable includes its flash utility; everyday use needs no Python install.
 
-Rollback: turn Remote OFF, close 0.4.14 and install the preserved 0.4.13 package.
+Rollback: turn Remote OFF, close 0.4.15 and install the preserved 0.4.14 package.
 Robot firmware, UnitV2 native face profiles and camera service are unchanged.
 The new motion-home.json and remote-pairing.json are ignored by the old host.
 

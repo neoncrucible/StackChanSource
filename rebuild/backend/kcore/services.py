@@ -35,6 +35,7 @@ class LocalServices:
         self.look_handler = None
         self.camera_handler = None
         self.tracking_handler = None
+        self.factory_handler = None
 
     async def start(self):
         await asyncio.to_thread(self.paths.prepare)
@@ -64,6 +65,11 @@ class LocalServices:
         self.tools.register(KadenceToolSpec('tracking_status','Read actual object tracking state; never infer a target from memory.',schema({}),tracking))
         self.tools.register(KadenceToolSpec('tracking_control','Follow one explicitly requested visible object using UnitV2, or stop tracking. Head movement requires prior desktop arming. Hold the object still for initial selection. Does not monitor theft or identify people.',
             schema({'action':{'type':'string','enum':['follow','stop']},'target':string(80)},'action'),tracking,timeout=30,writes=True))
+        async def factory(args):
+            if self.factory_handler is None: return {'spoken':'Factory vision is available in the desktop server.'}
+            return await self.factory_handler(args)
+        self.tools.register(KadenceToolSpec('factory_vision','Run an allowlisted M5Stack UnitV2 factory vision mode. It uses the extra camera and never moves the robot.',
+            schema({'action':{'type':'string','enum':['start','stop','status']},'mode':string(40)},'action'),factory,timeout=30,writes=True))
         try:
             register_integrations(self.tools)
         except ValueError:

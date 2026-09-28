@@ -122,7 +122,11 @@ class Client:
                     'native_session_ended':'The UnitV2 training session ended. Reopen training from Profiles.',
                     'native_setup_required':'Upgrade the UnitV2 service using SET UP UNITV2, then power-cycle the camera.',
                     'invalid_operation':'Upgrade the UnitV2 service using SET UP UNITV2, then power-cycle the camera.',
-                    'native_result_timeout':'The UnitV2 did not produce a fresh recognition result in time.'}
+                    'native_result_timeout':'The UnitV2 did not produce a fresh recognition result in time.',
+                    'factory_binary_unavailable':'That factory mode is not present or failed its factory checksum on UnitV2.',
+                    'factory_result_timeout':'The UnitV2 factory mode did not produce a fresh result in time.',
+                    'invalid_factory_config':'The factory mode rejected that configuration.',
+                    'factory_setup_required':'Run SET UP UNITV2 and power-cycle UnitV2 before using factory vision.'}
                 if reason in messages: raise LifecycleError(messages[reason])
                 if response.status == 401: raise LifecycleError("UnitV2 pairing rejected. Run UnitV2 setup again.")
                 if response.status in {404, 410}: raise LifecycleError("UnitV2 lifecycle service is not installed. Run UnitV2 setup and power-cycle the camera.")
@@ -139,7 +143,7 @@ class Client:
             if response is not None: response.close()
             connection.close()
 
-    def call(self, operation, lease=None, *, timeout=5, cancel=None, roi=None):
+    def call(self, operation, lease=None, *, timeout=5, cancel=None, roi=None, mode=None, config=None):
         deadline = time.monotonic()+timeout
         challenge = self._http("GET", "/kadence/v1/challenge", deadline, cancel=cancel)
         if (not isinstance(challenge, dict) or challenge.get("service") != "kadence-unitv2" or challenge.get("api") != 1
@@ -148,6 +152,8 @@ class Client:
         data = {"operation":operation, "nonce":challenge["nonce"]}
         if lease is not None: data["lease"] = lease
         if roi is not None: data["roi"] = roi
+        if mode is not None: data['mode'] = mode
+        if config is not None: data['config'] = config
         body = json.dumps(data, separators=(",", ":")).encode()
         signature = hmac.new(self.key, body, hashlib.sha256).hexdigest()
         result = self._http("POST", "/kadence/v1/control", deadline, body=body, signature=signature, cancel=cancel)
@@ -199,15 +205,17 @@ class UnitV2Owner:
         self.emit("unitv2_lifecycle", data)
         return data
 
-    async def _call(self, operation, *, lease=None, timeout=5, roi=None):
+    async def _call(self, operation, *, lease=None, timeout=5, roi=None, mode=None, config=None):
         from .camera_manager import settled_thread
         cancelled=threading.Event()
         def interrupt():
             cancelled.set()
             self.client.interrupt()
         extra = {"roi":roi} if roi is not None else {}
+        if mode is not None: extra['mode']=mode
+        if config is not None: extra['config']=config
         result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout, cancel=cancelled, **extra),on_cancel=interrupt)
-        if operation not in {"frame", "face_frame", "track_frame"}: self.publish(result)
+        if operation not in {"frame", "face_frame", "track_frame", "factory_frame"}: self.publish(result)
         return result
 
     async def _select(self, address):
@@ -225,7 +233,7 @@ class UnitV2Owner:
         if self.verification_root:
             try:
                 data=json.loads((Path(self.verification_root)/"unitv2-verification.json").read_text())
-                self.verified=data in [{"format":1,"service_version":v,"key_id":hashlib.sha256(bytes.fromhex(key)).hexdigest()} for v in ("1.1.0","1.2.0")]
+                self.verified=data in [{"format":1,"service_version":v,"key_id":hashlib.sha256(bytes.fromhex(key)).hexdigest()} for v in ("1.1.0","1.2.0","1.3.0")]
             except (ValueError,OSError,TypeError): pass
         self.sequence = 0
         return True
@@ -320,7 +328,7 @@ class UnitV2Owner:
         self.publish()
 
     def record_verified(self, root):
-        if not self.client or not self.status.get("stop_confirmed") or self.status.get("version") not in {"1.1.0","1.2.0"}:
+        if not self.client or not self.status.get("stop_confirmed") or self.status.get("version") not in {"1.1.0","1.2.0","1.3.0"}:
             raise LifecycleError("Camera lifecycle verification did not complete")
         path=Path(root)/"unitv2-verification.json"
         data={"format":1,"service_version":self.status["version"],"key_id":hashlib.sha256(self.client.key).hexdigest()}
@@ -389,6 +397,19 @@ class UnitV2Owner:
             if roi is not None:
                 return await self._call('track_select',lease=self.lease,roi=roi,timeout=6)
             return await self._call('track_frame',lease=self.lease,timeout=6)
+
+    async def factory_frame(self, address, mode, config=None):
+        async with self.lock:
+            if not await self._select(address): raise LifecycleError('Run SET UP UNITV2 for factory vision.')
+            if self.closed: raise LifecycleError('Camera owner is closed.')
+            if self.web_session: raise LifecycleError('Finish face training before opening factory vision.')
+            if self.lease and self.status.get('producer_mode')!='factory:'+mode: await self._stop()
+            if self.lease is None:
+                self.lease=uuid.uuid4().hex
+                await self._call('factory_start',lease=self.lease,mode=mode)
+            if config is not None:
+                return await self._call('factory_config',lease=self.lease,config=config,timeout=10)
+            return await self._call('factory_frame',lease=self.lease,timeout=10)
 
     async def open_training(self, address):
         await self.stop(address)

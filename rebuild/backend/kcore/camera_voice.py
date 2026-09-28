@@ -27,6 +27,21 @@ def camera_plan(text):
     match=re.fullmatch(r'(?:follow|track) (.{1,80})',normal)
     if match:
         return {'tool':'tracking_control','arguments':{'action':'follow','target':match[1]}}
+    if normal in {'stop factory vision','stop factory mode','stop shape recognition','stop colour tracking','stop color tracking'}:
+        return {'tool':'factory_vision','arguments':{'action':'stop'}}
+    factory_phrases = {
+        'shape recognition':'shape_detector','shape detection':'shape_detector',
+        'colour tracking':'color_tracker','color tracking':'color_tracker',
+        'motion detection':'motion_tracker','motion tracking':'motion_tracker',
+        'code detection':'code_detector','object recognition':'object_recognition',
+        'face detection':'face_detector','lane tracking':'lane_line_tracker',
+        'online classifier':'online_classifier','audio fft':'audio_fft',
+    }
+    for phrase, mode in factory_phrases.items():
+        if normal in {'start '+phrase,'use '+phrase,'enable '+phrase}:
+            return {'tool':'factory_vision','arguments':{'action':'start','mode':mode}}
+    if normal in {'factory vision status','factory mode status','what factory mode is running'}:
+        return {'tool':'factory_vision','arguments':{'action':'status'}}
     phrases = {
         "privacy_on": {"turn privacy on","enable camera privacy","turn camera privacy on","stop looking"},
         "privacy_off": {"turn privacy off","disable camera privacy","turn camera privacy off"},

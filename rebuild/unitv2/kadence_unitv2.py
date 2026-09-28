@@ -11,6 +11,7 @@ import hmac
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -21,7 +22,7 @@ import time
 import uuid
 
 API = 1
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 CAMERA_SHA256 = "a2203a4700445ee62feec8e5c645cf6ae05211e01ba2153ce555519f62f20b92"
 MAX_JPEG = 2 * 1024 * 1024
 MAX_LINE = 4 * MAX_JPEG // 3 + 4096
@@ -53,6 +54,8 @@ class Producer:
         self.closed = threading.Event()
         self.native = None
         self.tracking = None
+        self.factory = None
+        self.process_group = False
         self.mode = "camera"
 
     def status(self):
@@ -100,11 +103,16 @@ class Producer:
                 elif mode == "tracking":
                     if self.tracking is None: raise CameraError("tracking_setup_required", 503)
                     command = self.tracking.prepare()
+                elif mode.startswith('factory:'):
+                    if self.factory is None: raise CameraError('factory_setup_required',503)
+                    command = self.factory.prepare(mode.split(':',1)[1])
                 elif mode != "camera": raise CameraError("invalid_mode", 400)
                 self.mode = mode
+                self.process_group = mode == 'factory:audio_fft' and os.name == 'posix'
                 self.process = self.popen(command, cwd=self.cwd, stdin=subprocess.PIPE,
                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                          bufsize=65536, close_fds=True)
+                                          bufsize=65536, close_fds=True,
+                                          **({'start_new_session':True} if self.process_group else {}))
                 self.lease, self.expires = lease, self.clock()+LEASE_SECONDS
                 self.starts += 1
                 self.reader = threading.Thread(target=self._read, args=(self.process,), daemon=True)
@@ -133,6 +141,7 @@ class Producer:
                     if self.process is not process or self.state == "STOPPING": return
                     if self.native and self.mode == "faces": self.native.receive(doc)
                     if self.tracking and self.mode == "tracking": self.tracking.receive(doc)
+                    if self.factory and self.mode.startswith('factory:'): self.factory.receive(doc)
                 if "img" not in doc: continue
                 encoded = doc["img"]
                 if not isinstance(encoded, str) or len(encoded) > 4*MAX_JPEG//3+4: raise ValueError("oversize")
@@ -146,6 +155,7 @@ class Producer:
                     self.state, self.reason = "RUNNING", "frame_ready"
                     if self.native and self.mode == "faces": self.native.image_ready()
                     if self.tracking and self.mode == "tracking": self.tracking.image_ready()
+                    if self.factory and self.mode.startswith('factory:'): self.factory.image_ready()
                     self.changed.notify_all()
         except Exception:
             pass
@@ -185,12 +195,19 @@ class Producer:
             if process is not None:
                 # Signal only the Popen child owned by this service. Never killall.
                 try:
+                    if self.process_group:
+                        # FFT's new session contains only our child and arecord.
+                        try: os.killpg(process.pid,signal.SIGTERM)
+                        except ProcessLookupError: pass
                     if process.poll() is None:
                         process.terminate()
                     try: process.wait(timeout=2)
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=2)
+                    if self.process_group:
+                        try: os.killpg(process.pid,signal.SIGKILL)
+                        except ProcessLookupError: pass
                     if reader: reader.join(timeout=2)
                     if reader and reader.is_alive(): raise RuntimeError("reader did not settle")
                     for pipe in (process.stdin, process.stdout):
@@ -205,6 +222,7 @@ class Producer:
                 self.process = self.reader = None
                 if self.native: self.native.stopped()
                 if self.tracking: self.tracking.stopped()
+                if self.factory: self.factory.stopped()
                 self.state = "STOPPED"
                 result = self.status()
                 if not result["stop_confirmed"]: raise CameraError("other_camera_producer", 503)
@@ -253,8 +271,10 @@ class CameraService:
         with self.lock:
             issued = self.challenges.pop(request["nonce"], None)
         if issued is None or self.clock()-issued >= 10: raise CameraError("challenge_expired", 401)
-        if set(request)-{"nonce", "operation", "lease", "roi"}: raise CameraError("invalid_request", 400)
+        if set(request)-{"nonce", "operation", "lease", "roi", "mode", "config"}: raise CameraError("invalid_request", 400)
         if "roi" in request and request.get("operation") != "track_select": raise CameraError("invalid_request",400)
+        if "mode" in request and request.get('operation') != 'factory_start': raise CameraError('invalid_request',400)
+        if 'config' in request and request.get('operation') != 'factory_config': raise CameraError('invalid_request',400)
         return request
 
 
@@ -380,6 +400,17 @@ class Handler(BaseHTTPRequestHandler):
             if operation == "status": self.reply(camera.status())
             elif operation == "start": self.reply(camera.start(lease))
             elif operation == "stop": self.reply(camera.stop(lease))
+            elif isinstance(operation,str) and operation.startswith('factory_'):
+                if not camera.factory: raise CameraError('factory_setup_required',503)
+                if operation == 'factory_catalog': self.reply(dict(camera.status(),modes=camera.factory.catalog()))
+                elif operation == 'factory_start':
+                    mode=req.get('mode')
+                    from kadence_factory import MODES
+                    if not isinstance(mode,str) or mode not in MODES: raise CameraError('invalid_factory_mode',400)
+                    self.reply(camera.start(lease,'factory:'+mode))
+                elif operation == 'factory_config': self.reply(camera.factory.configure(lease,req.get('config')))
+                elif operation == 'factory_frame': self.reply(camera.factory.observation(lease))
+                else: raise CameraError('invalid_operation',400)
             elif operation == "frame":
                 jpeg, sequence = camera.snapshot(lease)
                 self.reply(jpeg, sequence=sequence)
@@ -412,6 +443,7 @@ def main():
     if hashlib.sha256(face_binary.read_bytes()).hexdigest() != FACE_SHA256:
         raise RuntimeError('Face executable differs from the verified factory image')
     from kadence_tracking import TrackingBridge, TRACKER_SHA256
+    from kadence_factory import FactoryBridge, MODES
     track_binary = root/'bin'/'target_tracker'
     if hashlib.sha256(track_binary.read_bytes()).hexdigest() != TRACKER_SHA256:
         raise RuntimeError('Tracker executable differs from the verified factory image')
@@ -421,7 +453,7 @@ def main():
         for entry in Path("/proc").iterdir():
             if not entry.name.isdigit() or int(entry.name) == owned: continue
             try:
-                if (entry/"exe").resolve() in {binary, face_binary, track_binary}: return True
+                if (entry/"exe").resolve() in {binary, face_binary, track_binary} | {root/'bin'/name for name in MODES}: return True
             except (FileNotFoundError, PermissionError, OSError): continue
         return False
     producer = Producer([str(binary)], str(root), foreign=foreign)
@@ -429,6 +461,7 @@ def main():
     recover_save(root)
     NativeBridge(producer, CameraError, root, (root/'kadence-device.id').read_text().strip())
     TrackingBridge(producer, CameraError, root)
+    FactoryBridge(producer, CameraError, root)
     service = CameraService(producer, key)
     server = Server(("0.0.0.0", 80), service)
     watcher = threading.Thread(target=producer.watchdog, daemon=True)

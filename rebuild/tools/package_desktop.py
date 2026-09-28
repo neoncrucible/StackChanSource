@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.4.14'
+HOST_VERSION='0.4.15'
 
 
 def archive_package(output: Path):
@@ -44,6 +44,7 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     shutil.copyfile(ROOT/'rebuild'/'docs'/'VOICE_CONNECTION_0_4_11.md',output/'VOICE-CONNECTION.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'OBJECT_TRACKING_0_4_13.md',output/'OBJECT-TRACKING.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'STICKS3_REMOTE_0_4_14.md',output/'STICKS3-REMOTE.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'FACTORY_VISION_0_4_15.md',output/'FACTORY-VISION.txt')
     stick=stick or ROOT/'rebuild'/'dist'/'StickS3'
     metadata=json.loads((stick/'RELEASE.json').read_text())
     if metadata['source_commit']!=commit:raise ValueError('Stick firmware source does not match host')
@@ -53,7 +54,7 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     shutil.copytree(ROOT/'rebuild'/'unitv2',output/'UnitV2',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
-        'firmware_included':False,'remote_firmware_included':True,'remote_firmware_version':'1.0.2','compatible_firmware':['0.21.6'],
+        'firmware_included':False,'remote_firmware_included':True,'remote_firmware_version':'1.0.3','compatible_firmware':['0.21.6'],
         'physical_signoff':False},indent=2)+'\n')
     return archive_package(output)
 

@@ -64,6 +64,7 @@ class DesktopController:
         self._camera_settings_lock = asyncio.Lock()
         self.services.camera_handler = self.camera_voice
         self.services.tracking_handler = self.tracking_voice
+        self.services.factory_handler = self.factory_voice
         from .remote_server import RemoteServer
         self.remote=RemoteServer(self)
 
@@ -81,6 +82,20 @@ class DesktopController:
             try: return await tracker.select(target=args['target'])
             except RuntimeError as exc: return {'spoken':str(exc) if type(exc) is RuntimeError else 'Tracking is unavailable. Check the Tracking tab.'}
         raise ValueError('Unsupported tracking action.')
+
+    async def factory_voice(self, args):
+        if not self.app: return {'spoken':'Start the server to use UnitV2 factory vision.'}
+        action=args.get('action','status'); factory=self.app.factory
+        if action=='stop':
+            await factory.stop(); return {'spoken':'Factory vision stopped.'}
+        if action=='status': return {'spoken':factory.summary()}
+        mode=args.get('mode')
+        if action=='start':
+            if not mode: return {'spoken':'Name a factory mode: shape, colour, motion, codes, objects, faces, lane, classifier or audio.'}
+            try:
+                await factory.start(mode); return {'spoken':f'{mode.replace("_", " ")} is running on UnitV2.'}
+            except (RuntimeError,ValueError) as exc: return {'spoken':str(exc)}
+        raise ValueError('Unsupported factory vision action.')
 
     async def camera_voice(self, command):
         from dataclasses import asdict
@@ -216,7 +231,7 @@ class DesktopController:
             if action=='tracking_arm': return await tracker.arm(args)
             if action=='tracking_home': return await self.app.motion.command('motion_home',{})
             raise ValueError('Unsupported tracking control.')
-        if self.app and getattr(self.app,'tracking',None) and action in {'camera_settings','camera_patch','unitv2_mode','unitv2_check','unitv2_train_open',
+        if self.app and getattr(self.app,'tracking',None) and action in {'camera_settings','camera_patch','unitv2_mode','unitv2_check','unitv2_train_open','factory_start','factory_stop','factory_config',
                 'recognition_test','perception_test','face_enroll','camera_capture','camera_look','media_cancel'}:
             if action in {'camera_patch','camera_settings'} and args.get('privacy') is True:
                 from dataclasses import replace
@@ -224,6 +239,7 @@ class DesktopController:
                 self.emit('tracking_preview',{})
             # Stop the camera/motor session before any other owner takes it.
             await self.app.tracking.stop('Tracking ended for another camera action.',disarm=action in {'camera_settings','camera_patch','unitv2_mode'})
+            await self.app.factory.stop()
         if action == "face_model_check":
             from .local_faces import LocalFaces
             from .camera_manager import settled_thread
@@ -307,6 +323,17 @@ class DesktopController:
             await self.app.camera.unitv2.stop()
             await self.app.perception.sync_native_profiles()
             return {'message':'UnitV2 camera stopped. Saved onboard profiles have been refreshed.'}
+        if action in {'factory_catalog','factory_start','factory_stop','factory_config'}:
+            if not self.app: raise RuntimeError('Start the server before using factory vision.')
+            factory=self.app.factory
+            if action=='factory_catalog':
+                from .factory_vision import MODES
+                return {'modes':[{'mode':key,'name':name} for key,name in MODES.items()]}
+            if action=='factory_stop':
+                await factory.stop(); return {'message':'Factory vision stopped.'}
+            if action=='factory_start':
+                return await factory.start(args.get('mode'))
+            return await factory.configure(args.get('config') or {}, region=args.get('region'), sequence=args.get('sequence'))
         if action in {"face_profiles", "face_photos", "face_preview_clear", "face_forget", "face_enroll", "face_update", "vision_activity", "database_backup", "recognition_test", "perception_test"}:
             from .perception_store import PerceptionStore
             from .camera_manager import settled_thread

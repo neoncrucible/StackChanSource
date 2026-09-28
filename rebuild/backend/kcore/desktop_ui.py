@@ -461,6 +461,9 @@ class MainWindow(QMainWindow):
         from .motion_ui import MotionPanel
         self.motion_panel=MotionPanel(self.control.send)
         tab("Motion").addWidget(self.motion_panel)
+        from .factory_ui import FactoryVisionPanel
+        self.factory_panel=FactoryVisionPanel(self.control.send)
+        tab("Factory Vision").addWidget(self.factory_panel)
         self._training_active=False
         self.vision_tabs.currentChanged.connect(self.vision_tab_changed)
         return page
@@ -969,6 +972,12 @@ class MainWindow(QMainWindow):
             return
         if name=="tracking_preview":
             self.tracking_panel.preview.frame(data)
+            return
+        if name=="factory_status":
+            self.factory_panel.update_status(data)
+            return
+        if name=="factory_preview":
+            self.factory_panel.frame(data)
             return
         if name=="face_preview":
             self.face_check_preview.clear()

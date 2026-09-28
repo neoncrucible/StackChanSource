@@ -95,6 +95,8 @@ class KadenceAppliance:
         self.perception = None
         from .object_tracking import ObjectTracking
         self.tracking = ObjectTracking(self)
+        from .factory_vision import FactoryVision
+        self.factory = FactoryVision(self)
         from .sensor_sampler import SensorSampler
         self.sensor_sampler = SensorSampler(self.emit)
         self._utility_task = None
@@ -202,6 +204,7 @@ class KadenceAppliance:
                         )
                 finally:
                     await self.tracking.stop("Robot disconnected; tracking stopped.",disarm=True)
+                    await self.factory.stop()
                     await self.motion.stop()
                     self.motion.last_pose=None
                     self.emit("robot", {"connected": False})
@@ -245,6 +248,7 @@ class KadenceAppliance:
     async def close(self) -> None:
         self._stop.set()
         await self.tracking.stop(disarm=True)
+        await self.factory.stop()
         await self.motion.stop()
         if self._network_check_task is not None:
             self._network_check_task.cancel()
@@ -378,6 +382,7 @@ class KadenceAppliance:
 
     async def _run_media(self, body, name, *, preserve_tracking=False):
         if not preserve_tracking: await self.tracking.stop("Tracking stopped for audio or camera work.")
+        await self.factory.stop()
         if getattr(self,"motion",None):await self.motion.stop()
         self._media_mode = "alert" if name == "voice.alert" else "camera"
         self._turn_token = secrets.token_hex(16)
@@ -487,6 +492,7 @@ class KadenceAppliance:
 
     async def capture_camera(self, source=None, address=None):
         if getattr(self,"tracking",None): await self.tracking.stop("Tracking stopped for a camera snapshot.")
+        if getattr(self,"factory",None): await self.factory.stop()
         if getattr(self, "perception", None): await self.perception.interrupt()
         generation = self.vision.generation
         frame = await self.camera.acquire(source=source, address=address)
@@ -660,6 +666,7 @@ class KadenceAppliance:
 
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
         await self.tracking.stop("Tracking stopped for voice. Select a fresh target to follow again.")
+        await self.factory.stop()
         await self.motion.stop()
         self._media_mode = "voice"
         self._turn_token = secrets.token_hex(16)
@@ -768,6 +775,7 @@ class KadenceAppliance:
         if event.payload.get("trigger") != "touch":
             return
         await self.tracking.stop("Tracking cancelled.")
+        await self.factory.stop()
 
         self._turn_token = None
         self._wire_result = None

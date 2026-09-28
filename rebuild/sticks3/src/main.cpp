@@ -6,9 +6,12 @@
 #include <mbedtls/md.h>
 #include <math.h>
 
-// Kadence Remote 1.0.2. No serial/servo/camera or model ownership on this client.
+// Kadence Remote 1.0.3. No serial/servo/camera or model ownership on this client.
 static M5Canvas screen(&M5.Display);
 static bool screenReady=false;
+static int batteryPercent=-1;
+static bool batteryCharging=false;
+static uint32_t lastBattery=0;
 static Preferences prefs;
 static WebSocketsClient ws;
 static String host,ssid,password,deviceId,key,serialLine;
@@ -123,7 +126,7 @@ static void serialConfig(){
         JsonDocument d;bool valid=!deserializeJson(d,serialLine);serialLine="";if(!valid)continue;
         String type=d["type"]|"";
         if(type=="kadence.remote.probe"){
-            Serial.println("{\"type\":\"kadence.remote.identity\",\"device\":\"StickS3\",\"protocol\":1,\"firmware\":\"1.0.2\"}");
+            Serial.println("{\"type\":\"kadence.remote.identity\",\"device\":\"StickS3\",\"protocol\":1,\"firmware\":\"1.0.3\"}");
         }else if(type=="kadence.remote.configure"){
             String s=d["ssid"]|"",p=d["password"]|"",h=d["host"]|"",id=d["device_id"]|"",k=d["key"]|"";
             IPAddress ip;
@@ -159,6 +162,13 @@ static void draw(){
     if(!screenReady)return;
     screen.startWrite();screen.fillScreen(TFT_BLACK);screen.setTextColor(0x87F0,TFT_BLACK);
     screen.setTextSize(1);screen.setCursor(5,4);screen.printf("KADENCE / %s",accepted?"LINKED":"OFFLINE");
+    // Shared header on every page, including offline and PTT screens. The PM1
+    // reports a voltage-derived estimate, not a precision coulomb counter.
+    screen.setTextColor(batteryPercent>=0 && batteryPercent<=15?TFT_ORANGE:0x87F0,TFT_BLACK);
+    screen.setCursor(185,4);
+    if(batteryPercent<0)screen.print("--%");
+    else screen.printf("%s%d%%",batteryCharging?"+":"",batteryPercent);
+    screen.setTextColor(0x87F0,TFT_BLACK);
     if(page==0){
         screen.setTextSize(2);screen.setCursor(5,25);screen.print(streaming?"LISTENING":phase.substring(0,15));
         screen.setTextSize(1);screen.setCursor(5,55);screen.printf("CAM %s\nRSSI %d  MIC %s",camera.c_str(),WiFi.RSSI(),streaming?"ON":"OFF");
@@ -173,7 +183,7 @@ static void draw(){
         screen.setCursor(5,24);
         if(page==1){for(int i=0;i<5;++i)screen.printf("%s %s\n",i==selection?">":" ",menu[i]);}
         else if(page==2){for(int i=0;i<cameraCount;++i)screen.printf("%s %s\n",i==selection?">":" ",cameraNames[i].c_str());}
-        else if(page==3){screen.printf("State: %s\nPTT: hold A on main\nLast peak: %d dBFS\nSent: %lu frames\nFirmware: 1.0.2",phase.c_str(),micPeak,(unsigned long)frames);}
+        else if(page==3){screen.printf("State: %s\nPTT: hold A on main\nLast peak: %d dBFS\nSent: %lu frames\nFirmware: 1.0.3",phase.c_str(),micPeak,(unsigned long)frames);}
         else if(page==4){screen.printf("WiFi: %s\nIP: %s\nHost: %s\nRSSI: %d",WiFi.status()==WL_CONNECTED?"connected":"offline",WiFi.localIP().toString().c_str(),host.c_str(),WiFi.RSSI());}
         else screen.print("Gyro control\nNot available in Remote V1");
         screen.setCursor(5,115);screen.print("A/B: next/prev  Hold B: back");
@@ -203,6 +213,14 @@ void setup(){
 }
 void loop(){
     M5.update();serialConfig();
+    // Keep I2C power reads out of microphone capture; the cached indicator stays
+    // visible while talking. Unsigned subtraction handles millis rollover.
+    if(!streaming && !starting && (lastBattery==0 || millis()-lastBattery>=5000)){
+        lastBattery=millis();
+        int level=M5.Power.getBatteryLevel();
+        batteryPercent=level<0?-1:constrain(level,0,100);
+        batteryCharging=M5.Power.isCharging()==m5::Power_Class::is_charging;
+    }
     if(configured){
         if(WiFi.status()==WL_CONNECTED){ws.loop();retryMs=1000;}
         else if(int32_t(millis()-nextWiFi)>=0){disconnectSafe();WiFi.reconnect();nextWiFi=millis()+retryMs;retryMs=min(15000u,retryMs*2);}
