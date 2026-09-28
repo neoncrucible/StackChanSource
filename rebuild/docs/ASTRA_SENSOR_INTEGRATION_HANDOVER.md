@@ -49,15 +49,45 @@ manifest, third-party notices and Stick image. Pairing keys and Wi-Fi passwords 
 not compiled into firmware or emitted to diagnostic exports. Trusted-LAN WS carries
 unencrypted audio; no WAN exposure or generic command socket is intended.
 
-Validation so far: 376 local tests / 119 subtests passed, six environment skips;
+Validation: 376 local tests / 119 subtests passed, six environment skips;
 16 remote/motion checks cover 60-second capture, shared pipeline dispatch, real
 WebSocket authentication/replay/single owner, cancellation during capture/processing,
 audio loss, camera authority, shared home persistence/failed ACK/Stop races. Runtime
 ownership gate passed. Motion and Device UI rendered and inspected at 1160x850.
 Stick firmware compiled successfully: 52404 bytes static RAM / 1106341 bytes
-application flash. Final focused checks passed 38 tests. Windows packaged checks
-are pending; release evidence will follow. Read STICKS3_REMOTE_0_4_14.md for setup, protocol, acceptance checklist
-and the next wireless phase. Hardware-only tests must not be claimed from fixtures.
+application flash. Final focused checks passed 42 tests after adding the motion /
+media ownership regression. Final Windows CI passed 310 tests and 81 subtests,
+the runtime ownership gate, and all packaged executable checks. Packaged checks
+include a real paired WebSocket session, bundled ESP32-S3 flasher data, Remote OFF,
+tracking tools, voice decoding/local speech, profiles, persistence and shutdown.
+Online speech was not tested by the packaged gate.
+
+Release source: `21179b9cdfb150fd2908b3e3d2d63a9ebe7e27cf`, source tree
+`90c2ab494ec57e6b89d54d9ef175161218bd45bc`. Both jobs succeeded in
+https://github.com/neoncrucible/StackChanSource/actions/runs/36406637994
+(Stick firmware job 108876847582; Windows job 108877167104).
+
+- Desktop download, including Stick image, manifest, flash helper and setup guide:
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36406637994/artifacts/10963145437
+  Outer artifact ZIP: 184364213 bytes; SHA-256
+  `39130a55b0114a2d62d4ae2aff6a0eee8331130dc4338af29d9130e35bac88fe`.
+- Standalone Stick firmware (not additionally needed with the desktop download):
+  https://github.com/neoncrucible/StackChanSource/actions/runs/36406637994/artifacts/10962965190
+  Outer artifact ZIP: 757614 bytes; SHA-256
+  `82e9720b1592700bb7d5d84a523405b35853bcc83a21d729e6489dced8d77061`.
+
+Both artifact records identify the exact release source above. These hashes refer
+to GitHub's outer artifact ZIPs, not the inner desktop ZIP or merged flash image;
+the latter has its own verified manifest hash. Artifact expiry is 27 December 2026.
+This handover update is documentation only; it does not change the packaged source.
+
+Physical acceptance remains pending: Stick flash/provisioning, Wi-Fi/reconnect,
+A/B buttons and microphone, held capture/release/reply, camera menu, and Motion /
+Tracking returning to the same saved Home after a restart. Do not claim these from
+fixtures. Install desktop, unplug robot and flash only Stick, reconnect robot,
+pair Stick USB in Device, then Remote ON. No CoreS3 or UnitV2 flash is required.
+Read STICKS3_REMOTE_0_4_14.md for setup, protocol, acceptance checklist and the next
+wireless phase. Keep the accepted functionality baseline until hardware acceptance.
 
 ## Previous continuation — 27 September 2026
 
