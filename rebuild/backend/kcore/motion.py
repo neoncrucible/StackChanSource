@@ -80,7 +80,8 @@ class Motion:
                 except asyncio.CancelledError: continue
                 except Exception: break
             if self.task is task:self.task=None
-            self.status('Head movement settled.')
+            confirmed=not task.cancelled() and task.exception() is None
+            self.status('Position confirmed; torque released.' if confirmed else 'Movement was not confirmed. Check the connection before moving again.')
 
     async def command(self, action, args):
         if action=='motion_status':return self.status()
@@ -88,7 +89,7 @@ class Motion:
         generation=self.generation
         await self.app.tracking.stop(disarm=True)
         if action=='motion_stop':
-            await self.stop();return self.status('Further movement stopped; torque released after any issued move.')
+            await self.stop();return self.status('Further movement stopped. Any issued command has completed or timed out; check its last result.')
         if self.task and not self.task.done():raise RuntimeError('Wait for the current movement to settle.')
         if self.app.perception:await self.app.perception.interrupt()
         if generation!=self.generation:raise RuntimeError('Head action was superseded by Stop.')
