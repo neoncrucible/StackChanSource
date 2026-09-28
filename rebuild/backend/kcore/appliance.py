@@ -157,7 +157,7 @@ class KadenceAppliance:
             self.camera.configure(CameraConfig.load(self.services.paths.root))
             with contextlib.suppress(Exception): await self.camera.settle_settings()
             self.perception = PerceptionController(self.camera, self.services.paths, self.emit,
-                self._deliver_presence, lambda: self._voice_task is not None and not self._voice_task.done(),
+                self._deliver_presence, lambda: (self._voice_task is not None and not self._voice_task.done()) or (self.motion.task is not None and not self.motion.task.done()),
                 sampler=self.sensor_sampler)
             await self.perception.start()
         self._utility_task = asyncio.create_task(self._utility_loop(), name="kadence-device-status")
@@ -378,6 +378,7 @@ class KadenceAppliance:
 
     async def _run_media(self, body, name, *, preserve_tracking=False):
         if not preserve_tracking: await self.tracking.stop("Tracking stopped for audio or camera work.")
+        if getattr(self,"motion",None):await self.motion.stop()
         self._media_mode = "alert" if name == "voice.alert" else "camera"
         self._turn_token = secrets.token_hex(16)
         self._wire_claimed = False

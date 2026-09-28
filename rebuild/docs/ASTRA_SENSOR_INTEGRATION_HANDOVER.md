@@ -36,7 +36,8 @@ move/torque ACK. SET HOME deliberately moves to the chosen yaw/pitch; it does no
 read a manually repositioned head or rewrite servo zeros. Motion HOME, Tracking
 RETURN HOME and MOVE HOME & ARM all use that persisted store. It is not live servo
 telemetry. No automatic startup/home motion. One motor lane drains in-flight moves;
-Stop supersedes pending Home requests. Tracking's relative limits are clipped to
+Stop supersedes pending Home requests. Automatic perception waits while the head
+is moving, and robot media commands drain any issued head move before starting. Tracking's relative limits are clipped to
 the absolute firmware envelope. Native face recognition and accepted voice remain
 the regression baseline.
 
@@ -49,7 +50,7 @@ not compiled into firmware or emitted to diagnostic exports. Trusted-LAN WS carr
 unencrypted audio; no WAN exposure or generic command socket is intended.
 
 Validation so far: 376 local tests / 119 subtests passed, six environment skips;
-15 remote/motion checks cover 60-second capture, shared pipeline dispatch, real
+16 remote/motion checks cover 60-second capture, shared pipeline dispatch, real
 WebSocket authentication/replay/single owner, cancellation during capture/processing,
 audio loss, camera authority, shared home persistence/failed ACK/Stop races. Runtime
 ownership gate passed. Motion and Device UI rendered and inspected at 1160x850.

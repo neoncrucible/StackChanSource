@@ -199,6 +199,7 @@ class DesktopController:
         if action.startswith('motion_'):
             if action not in {'motion_status','motion_set_home','motion_home','motion_move','motion_stop'}:raise ValueError('Unsupported motion command.')
             if not self.app:raise RuntimeError('Start the server before moving the head.')
+            if action not in {'motion_status','motion_stop'} and self._media and not self._media.done():raise RuntimeError('Finish the current camera operation before moving the head.')
             return await self.app.motion.command(action,args)
         if action.startswith('tracking_'):
             if not self.app: raise RuntimeError('Start the server for object tracking.')

@@ -64,3 +64,23 @@ def test_stop_supersedes_a_home_request_waiting_for_perception(tmp_path):
         with pytest.raises(RuntimeError,match='superseded'):await task
         assert moves==[]
     asyncio.run(case())
+
+
+def test_robot_media_waits_for_an_issued_head_move_to_settle():
+    from kcore.appliance import KadenceAppliance
+    from kcore.desktop_worker import settings_from_control
+    from unittest.mock import patch
+    async def case():
+        app=KadenceAppliance(settings_from_control({'port':'COM4','ssid':'Lab','lan_host':'192.168.1.2'}))
+        entered=asyncio.Event();release=asyncio.Event();requests=[]
+        async def move(*a,**kw):entered.set();await release.wait();return NS(payload={'ok':True,'executed':True,'torque_released':True})
+        body=NS(connected=True,host=object(),send_body_pose=move,send_voice_cancel=AsyncMock())
+        app._body=body;app._prepare_audio_endpoint=lambda:None
+        async def request(*a,**kw):requests.append(a);app._media_result=b'image';return NS(payload={'ok':True})
+        moving=asyncio.create_task(app.motion.move((10,300)));await entered.wait()
+        with patch('kcore.appliance.request_device',request):
+            media=asyncio.create_task(app._run_media(body,'camera.snapshot'))
+            await asyncio.sleep(.01);assert not requests and not media.done()
+            release.set();await moving
+            assert await media==b'image' and len(requests)==1
+    asyncio.run(case())
