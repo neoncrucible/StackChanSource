@@ -2,6 +2,28 @@
 
 ## Current continuation — 28 September 2026: StickS3 remote / Motion
 
+### Hardware blocker: initial Stick image ROM header, corrected in packaging revision 2
+
+At 12:12 BST the owner's console screenshot showed `rst:0x7 (TG0WDT_SYS_RST)`,
+`mode:QIO`, the first bootloader segment and `ets_loader.c 78`, repeating. Download
+mode is stable. The image merge command incorrectly forced QIO into the ROM header;
+the actual compiled bootloader header is DIO (byte 2 = 2), while the original merged
+image had byte 2 = 0. This fails before Kadence application startup. ESP32-S3 ROM
+needs the initial dual-I/O load; runtime Quad I/O is configured afterward.
+
+Correction: preserve compiled flash settings during merge and verify all four
+components byte-for-byte at their flash offsets. Reject non-DIO ROM headers. Seven
+new packaging regressions pass, including the exact former QIO rewrite. The rebuilt
+local image passed this gate. Manifest packaging_revision=2, rom_flash_mode=dio;
+application 1.0.0/protocol 1 and host 0.4.14 remain unchanged.
+
+Do not recommend flashing the original artifacts below with their embedded QIO
+setting. Existing downloads can be recovered without changing host or erasing NVS:
+flash the merged image at 0x0 with explicit DIO / 80m / 8MB (115200 serial baud),
+then disconnect the flasher and press reset once. The owner has been given these
+steps. Corrected artifacts will supersede the original links. Physical boot / mic /
+remote acceptance is still pending; successful compilation did not establish it.
+
 The owner says 0.4.13 object tracking worked quite well. This is useful hardware
 feedback, not an exhaustive new sensor/voice/motor acceptance record. Colour and
 shape recognition are explicitly deferred and should reuse the factory UnitV2

@@ -78,7 +78,7 @@ jobs:
       - name: Streaming speech, cancellation and latency regression
         run: python -m pytest rebuild/tests/test_speech_output.py rebuild/tests/test_speech_stream.py rebuild/tests/test_voice_latency.py rebuild/tests/test_windows_audio_routing.py -q
       - name: Remote and shared motion regression
-        run: python -m pytest rebuild/tests/test_remote.py rebuild/tests/test_motion.py -q
+        run: python -m pytest rebuild/tests/test_remote.py rebuild/tests/test_motion.py rebuild/tests/test_stick_package.py -q
       - uses: actions/download-artifact@v4
         with:
           name: Kadence-StickS3-Firmware

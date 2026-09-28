@@ -5,6 +5,24 @@ The robot stays on firmware 0.21.6 and its existing tether. UnitV2 stays on serv
 OFF. Wireless robot transport and gyro control are explicitly unavailable in V1.
 Colour/shape recognition remains future work using the original UnitV2 programs.
 
+## Stick boot-image correction — packaging revision 2
+
+The first 0.4.14 package incorrectly forced QIO into the ROM boot header while
+merging the binaries. Hardware showed repeated `mode:QIO`, `ets_loader.c 78` and
+watchdog resets before application startup. The compiled bootloader already uses
+DIO; packaging revision 2 preserves it byte-for-byte, along with every other image
+component. The new packaging gate rejects any changed component or non-DIO header.
+Firmware application/protocol remain 1.0.0/1; host installation need not change.
+
+Recover the first image using Espressif's browser flasher: enter download mode,
+disconnect its Console, connect under Program at 115200 baud, select the merged
+`kadence-sticks3.bin` at address `0x0`, and explicitly select Flash Mode **DIO**,
+Flash Frequency **80m**, Flash Size **8MB**. Program, disconnect and press reset
+once. No whole-chip erase is needed. With the corrected revision 2 image, keep
+the image's flash settings (or explicitly select DIO); do not override to QIO.
+The application's qio_opi flash/PSRAM configuration is separate and unchanged.
+Physical boot and remote acceptance must still be confirmed on the owner's Stick.
+
 ## Install
 
 1. Quit Kadence. Extract the complete desktop ZIP and run Install-Kadence.cmd.
