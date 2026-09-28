@@ -5,6 +5,26 @@ The robot stays on firmware 0.21.6 and its existing tether. UnitV2 stays on serv
 OFF. Wireless robot transport and gyro control are explicitly unavailable in V1.
 Colour/shape recognition remains future work using the original UnitV2 programs.
 
+## Stick microphone correction — firmware 1.0.2
+
+The owner confirmed boot, steady display and successful pairing, but remote PTT
+returned "Sorry, I didn't catch that." The pinned M5Unified 0.2.12 defines the
+StickS3 ES8311 microphone enable callback but never assigns it to the StickS3
+microphone configuration. I2S setup can succeed without enabling the codec ADC.
+Firmware 1.0.2 pins upstream M5Unified 0.2.13, which assigns that callback. The
+packaging gate now rejects a driver that defines but does not attach the callback.
+
+While holding A, the main screen shows an **IN** level in dBFS and a bar derived
+from the exact outgoing PCM with DC offset removed. It should respond to speech;
+it measures electrical sample level, not calibrated sound pressure or recognition
+confidence. Menu -> Mic / Status retains the highest frame RMS level and sent-frame
+count from the last capture and shows firmware 1.0.2. No samples are retained for
+this meter. The protocol and installed host 0.4.14 are unchanged; flash only Stick,
+retain DIO settings, do not erase all flash or re-pair an already paired device.
+After flashing, hold A, wait for LISTENING, speak normally, and release. Confirm
+both a responding input meter and a correctly transcribed/replied-to utterance.
+Actual microphone/recognition acceptance remains a hardware check.
+
 ## Stick boot-image correction — packaging revision 2
 
 The first 0.4.14 package incorrectly forced QIO into the ROM boot header while

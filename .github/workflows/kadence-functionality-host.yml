@@ -39,6 +39,7 @@ jobs:
         with:
           path: ~/.platformio
           key: sticks3-pio-${{ hashFiles('rebuild/sticks3/platformio.ini') }}
+          restore-keys: sticks3-pio-
       - run: python -m pip install platformio==6.1.18
       - run: python rebuild/tools/package_sticks3.py --source-commit "${{ github.sha }}"
       - uses: actions/upload-artifact@v4

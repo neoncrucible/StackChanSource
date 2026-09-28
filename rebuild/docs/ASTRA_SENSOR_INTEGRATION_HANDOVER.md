@@ -2,6 +2,24 @@
 
 ## Current continuation — 28 September 2026: StickS3 remote / Motion
 
+### Current hardware issue — PTT no speech, Stick firmware 1.0.2
+
+At 12:41 BST the owner confirms the Stick is working/paired, but PTT returns the
+robot's "Sorry, I didn't catch that." Screen flicker was accepted fixed at 12:26.
+Do not re-open pairing/boot/display or require a host reinstall for this issue.
+
+Code inspection found the pinned M5Unified 0.2.12 defines
+_microphone_enabled_cb_sticks3 but omits its assignment in the StickS3 microphone
+board case. M5.Mic.begin consequently configures I2S without enabling the ES8311
+ADC. Official tag 0.2.13 has the missing callback assignment; pin that version.
+Firmware 1.0.2 also adds a DC-removed RMS dBFS meter from each outgoing PCM frame
+and a retained last peak/frame count under Mic / Status. No audio or credentials
+are exposed in diagnostics. DIO boot fix and buffered screen remain intact.
+Protocol 1 / host 0.4.14 remain compatible. New packaging gate checks the actual
+driver's board callback assignment, not merely the callback definition; nine
+packaging regression cases pass. Compile/image CI and physical PTT acceptance
+will be recorded below. Do not claim a successful microphone test from this gate.
+
 ### Hardware blocker: initial Stick image ROM header, corrected in packaging revision 2
 
 At 12:16 BST the owner confirmed that the explicit DIO reflash worked, then reported

@@ -10,6 +10,16 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[2]
 
+def verify_microphone_driver(driver):
+    # 0.2.12 defined the codec callback but did not attach it for StickS3.
+    # M5.Mic.begin then succeeded with I2S configured and the ADC still disabled.
+    source=Path(driver).read_text()
+    audio=source.split('bool(*mic_enable_cb)',1)[-1]
+    case=audio.split('case board_t::board_M5StickS3:',1)[-1].split('break;',1)[0]
+    if not re.search(r'mic_enable_cb\s*=\s*_microphone_enabled_cb_sticks3\s*;',case):
+        raise ValueError('StickS3 driver does not enable the microphone codec')
+    print('STICKS3_MIC_DRIVER PASS codec_enable_callback=1')
+
 def verify_merged_image(image, parts):
     """ROM loads the DIO bootloader; preserve every compiled component verbatim."""
     merged=Path(image).read_bytes()
@@ -28,6 +38,7 @@ def build(commit):
     if not re.fullmatch('[0-9a-f]{40}',commit):raise ValueError('Full source commit required')
     source=ROOT/'rebuild'/'sticks3'
     subprocess.run([sys.executable,'-m','platformio','run','-d',str(source)],check=True)
+    verify_microphone_driver(source/'.pio'/'libdeps'/'sticks3'/'M5Unified'/'src'/'M5Unified.cpp')
     core=Path.home()/'.platformio'
     output=ROOT/'rebuild'/'dist'/'StickS3';output.mkdir(parents=True,exist_ok=True)
     firmware=source/'.pio'/'build'/'sticks3'
@@ -41,8 +52,9 @@ def build(commit):
         'merge_bin','-o',str(image),'--flash_mode','keep','--flash_freq','keep','--flash_size','keep',
         *[arg for offset,path in parts.items() for arg in (hex(offset),str(path))]],check=True)
     verify_merged_image(image,parts)
-    (output/'RELEASE.json').write_text(json.dumps({'device':'StickS3','firmware':'1.0.1','protocol':1,
+    (output/'RELEASE.json').write_text(json.dumps({'device':'StickS3','firmware':'1.0.2','protocol':1,
         'packaging_revision':2,'rom_flash_mode':'dio',
+        'microphone_driver':'M5Unified 0.2.13','microphone_codec_enable_verified':True,
         'source_commit':commit,'flash_offset':'0x0','sha256':hashlib.sha256(image.read_bytes()).hexdigest(),
         'physical_signoff':False},indent=2)+'\n')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'STICKS3_REMOTE_0_4_14.md',output/'STICKS3-REMOTE.txt')

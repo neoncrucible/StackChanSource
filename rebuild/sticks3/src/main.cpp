@@ -4,8 +4,9 @@
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <mbedtls/md.h>
+#include <math.h>
 
-// Kadence Remote 1.0.1. No serial/servo/camera or model ownership on this client.
+// Kadence Remote 1.0.2. No serial/servo/camera or model ownership on this client.
 static M5Canvas screen(&M5.Display);
 static bool screenReady=false;
 static Preferences prefs;
@@ -18,6 +19,7 @@ static uint32_t sequence=1,captureId=0,frames=0,lastPing=0,lastState=0,lastDraw=
 static uint32_t aDown=0,bDown=0,retryMs=1000,startSeq=0,startAt=0;
 static int page=0,selection=0;
 static int16_t audio[2][640];
+static int micLevel=-96,micPeak=-96;
 static bool pending=false;
 static unsigned recordingBuffer=0;
 static const char* menu[]={"Camera","Mic / Status","Network / Status","Gyro (later)","Exit"};
@@ -35,6 +37,13 @@ static void disconnectSafe(const char* reason="Reconnecting..."){
     resetCapture();accepted=false;phase="offline";notice=reason;
 }
 static bool sendAudio(unsigned index){
+    // Measure the exact outgoing PCM, excluding DC offset. No audio is retained.
+    int64_t sum=0;uint64_t energy=0;
+    for(int16_t sample:audio[index]){sum+=sample;energy+=int64_t(sample)*sample;}
+    double mean=double(sum)/640.0;
+    double variance=double(energy)/640.0-mean*mean;
+    micLevel=variance>0?max(-96,int(10.0*log10(variance/(32768.0*32768.0)))):-96;
+    micPeak=max(micPeak,micLevel);
     uint8_t payload[1288];
     for(unsigned i=0;i<4;++i){payload[i]=(captureId>>(24-8*i))&255;payload[i+4]=(frames>>(24-8*i))&255;}
     memcpy(payload+8,audio[index],1280);
@@ -44,6 +53,7 @@ static bool sendAudio(unsigned index){
 static void startCapture(){
     if(!accepted||streaming||starting||phase!="idle"){notice="Wait for IDLE";return;}
     starting=true;held=true;frames=0;startSeq=sequence;startAt=millis();
+    micLevel=micPeak=-96;
     JsonDocument d;d["type"]="audio.start";
     if(!sendJson(d)){ws.disconnect();disconnectSafe();}
 }
@@ -113,7 +123,7 @@ static void serialConfig(){
         JsonDocument d;bool valid=!deserializeJson(d,serialLine);serialLine="";if(!valid)continue;
         String type=d["type"]|"";
         if(type=="kadence.remote.probe"){
-            Serial.println("{\"type\":\"kadence.remote.identity\",\"device\":\"StickS3\",\"protocol\":1,\"firmware\":\"1.0.1\"}");
+            Serial.println("{\"type\":\"kadence.remote.identity\",\"device\":\"StickS3\",\"protocol\":1,\"firmware\":\"1.0.2\"}");
         }else if(type=="kadence.remote.configure"){
             String s=d["ssid"]|"",p=d["password"]|"",h=d["host"]|"",id=d["device_id"]|"",k=d["key"]|"";
             IPAddress ip;
@@ -153,12 +163,17 @@ static void draw(){
         screen.setTextSize(2);screen.setCursor(5,25);screen.print(streaming?"LISTENING":phase.substring(0,15));
         screen.setTextSize(1);screen.setCursor(5,55);screen.printf("CAM %s\nRSSI %d  MIC %s",camera.c_str(),WiFi.RSSI(),streaming?"ON":"OFF");
         screen.setCursor(5,85);screen.print(notice.substring(0,36));
+        if(streaming){
+            screen.setCursor(5,98);screen.printf("IN %d dBFS",micLevel);
+            screen.drawRect(90,98,140,8,0x87F0);
+            screen.fillRect(91,99,constrain((micLevel+72)*138/72,0,138),6,0x87F0);
+        }
         screen.setCursor(5,115);screen.print("Hold A: talk   B: menu");
     }else{
         screen.setCursor(5,24);
         if(page==1){for(int i=0;i<5;++i)screen.printf("%s %s\n",i==selection?">":" ",menu[i]);}
         else if(page==2){for(int i=0;i<cameraCount;++i)screen.printf("%s %s\n",i==selection?">":" ",cameraNames[i].c_str());}
-        else if(page==3){screen.printf("State: %s\nPTT: hold A on main\nNo duration cutoff",phase.c_str());}
+        else if(page==3){screen.printf("State: %s\nPTT: hold A on main\nLast peak: %d dBFS\nSent: %lu frames\nFirmware: 1.0.2",phase.c_str(),micPeak,(unsigned long)frames);}
         else if(page==4){screen.printf("WiFi: %s\nIP: %s\nHost: %s\nRSSI: %d",WiFi.status()==WL_CONNECTED?"connected":"offline",WiFi.localIP().toString().c_str(),host.c_str(),WiFi.RSSI());}
         else screen.print("Gyro control\nNot available in Remote V1");
         screen.setCursor(5,115);screen.print("A/B: next/prev  Hold B: back");

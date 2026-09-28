@@ -53,3 +53,18 @@ def test_incompatible_compiler_boot_header_rejected(image_parts):
     parts[0].write_bytes(boot)
     with pytest.raises(ValueError,match='ROM bootloader must use a DIO'):
         packager.verify_merged_image(image,parts)
+
+
+@pytest.mark.parametrize('wired',[False,True])
+def test_microphone_definition_without_board_registration_is_rejected(tmp_path,wired):
+    driver=tmp_path/'M5Unified.cpp'
+    # Merely having the callback definition (as in 0.2.12) is insufficient.
+    driver.write_text('bool M5Unified::_microphone_enabled_cb_sticks3(void*,bool) {}\n'
+        'bool(*mic_enable_cb)(void*, bool) = nullptr;\n'
+        'case board_t::board_M5StickS3: if (cfg.internal_mic) {\n'
+        'mic_cfg.i2s_port = I2S_NUM_1;\n'+
+        ('mic_enable_cb = _microphone_enabled_cb_sticks3;\n' if wired else '')+'} break;\n')
+    if wired:packager.verify_microphone_driver(driver)
+    else:
+        with pytest.raises(ValueError,match='does not enable the microphone codec'):
+            packager.verify_microphone_driver(driver)
