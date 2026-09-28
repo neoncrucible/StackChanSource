@@ -53,7 +53,7 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     shutil.copytree(ROOT/'rebuild'/'unitv2',output/'UnitV2',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
-        'firmware_included':False,'remote_firmware_included':True,'remote_firmware_version':'1.0.0','compatible_firmware':['0.21.6'],
+        'firmware_included':False,'remote_firmware_included':True,'remote_firmware_version':'1.0.1','compatible_firmware':['0.21.6'],
         'physical_signoff':False},indent=2)+'\n')
     return archive_package(output)
 

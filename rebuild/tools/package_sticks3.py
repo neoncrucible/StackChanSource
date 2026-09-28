@@ -41,7 +41,7 @@ def build(commit):
         'merge_bin','-o',str(image),'--flash_mode','keep','--flash_freq','keep','--flash_size','keep',
         *[arg for offset,path in parts.items() for arg in (hex(offset),str(path))]],check=True)
     verify_merged_image(image,parts)
-    (output/'RELEASE.json').write_text(json.dumps({'device':'StickS3','firmware':'1.0.0','protocol':1,
+    (output/'RELEASE.json').write_text(json.dumps({'device':'StickS3','firmware':'1.0.1','protocol':1,
         'packaging_revision':2,'rom_flash_mode':'dio',
         'source_commit':commit,'flash_offset':'0x0','sha256':hashlib.sha256(image.read_bytes()).hexdigest(),
         'physical_signoff':False},indent=2)+'\n')

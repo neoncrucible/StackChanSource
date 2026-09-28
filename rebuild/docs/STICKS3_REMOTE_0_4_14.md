@@ -12,7 +12,10 @@ merging the binaries. Hardware showed repeated `mode:QIO`, `ets_loader.c 78` and
 watchdog resets before application startup. The compiled bootloader already uses
 DIO; packaging revision 2 preserves it byte-for-byte, along with every other image
 component. The new packaging gate rejects any changed component or non-DIO header.
-Firmware application/protocol remain 1.0.0/1; host installation need not change.
+Firmware 1.0.1 also renders each frame into a PSRAM canvas before pushing it to
+the LCD. This removes the visible black-clear/text-redraw cycle at each refresh.
+Protocol remains 1; host installation need not change. The owner confirmed that
+the explicit DIO reflash boots, then reported the original screen flicker.
 
 Recover the first image using Espressif's browser flasher: enter download mode,
 disconnect its Console, connect under Program at 115200 baud, select the merged
@@ -21,7 +24,7 @@ Flash Frequency **80m**, Flash Size **8MB**. Program, disconnect and press reset
 once. No whole-chip erase is needed. With the corrected revision 2 image, keep
 the image's flash settings (or explicitly select DIO); do not override to QIO.
 The application's qio_opi flash/PSRAM configuration is separate and unchanged.
-Physical boot and remote acceptance must still be confirmed on the owner's Stick.
+Buffered display and remote acceptance must still be confirmed on the owner's Stick.
 
 ## Install
 

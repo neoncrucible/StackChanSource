@@ -4,6 +4,15 @@
 
 ### Hardware blocker: initial Stick image ROM header, corrected in packaging revision 2
 
+At 12:16 BST the owner confirmed that the explicit DIO reflash worked, then reported
+screen flicker. This is physical boot acceptance, not remote/microphone acceptance.
+Firmware 1.0.1 changes the 250 ms renderer from direct LCD clear/text drawing to a
+16-bit PSRAM canvas and one completed-frame push. Allocation failure displays a
+stable error rather than retrying/clearing the screen. Protocol 1 and host 0.4.14
+remain compatible; only the Stick needs flashing. Buffered display acceptance is
+pending. The DIO package-only build at source ebe4ce5eab1c978671f6b939ab2a1267ac3cefd6
+passed its Linux image gate in run 36414604133; it is superseded by this display fix.
+
 At 12:12 BST the owner's console screenshot showed `rst:0x7 (TG0WDT_SYS_RST)`,
 `mode:QIO`, the first bootloader segment and `ets_loader.c 78`, repeating. Download
 mode is stable. The image merge command incorrectly forced QIO into the ROM header;

@@ -5,7 +5,9 @@
 #include <ArduinoJson.h>
 #include <mbedtls/md.h>
 
-// Kadence Remote 1.0.0. No serial/servo/camera or model ownership on this client.
+// Kadence Remote 1.0.1. No serial/servo/camera or model ownership on this client.
+static M5Canvas screen(&M5.Display);
+static bool screenReady=false;
 static Preferences prefs;
 static WebSocketsClient ws;
 static String host,ssid,password,deviceId,key,serialLine;
@@ -111,7 +113,7 @@ static void serialConfig(){
         JsonDocument d;bool valid=!deserializeJson(d,serialLine);serialLine="";if(!valid)continue;
         String type=d["type"]|"";
         if(type=="kadence.remote.probe"){
-            Serial.println("{\"type\":\"kadence.remote.identity\",\"device\":\"StickS3\",\"protocol\":1,\"firmware\":\"1.0.0\"}");
+            Serial.println("{\"type\":\"kadence.remote.identity\",\"device\":\"StickS3\",\"protocol\":1,\"firmware\":\"1.0.1\"}");
         }else if(type=="kadence.remote.configure"){
             String s=d["ssid"]|"",p=d["password"]|"",h=d["host"]|"",id=d["device_id"]|"",k=d["key"]|"";
             IPAddress ip;
@@ -144,27 +146,36 @@ static void buttons(){
     }
 }
 static void draw(){
-    M5.Display.startWrite();M5.Display.fillScreen(TFT_BLACK);M5.Display.setTextColor(0x87F0,TFT_BLACK);
-    M5.Display.setTextSize(1);M5.Display.setCursor(5,4);M5.Display.printf("KADENCE / %s",accepted?"LINKED":"OFFLINE");
+    if(!screenReady)return;
+    screen.startWrite();screen.fillScreen(TFT_BLACK);screen.setTextColor(0x87F0,TFT_BLACK);
+    screen.setTextSize(1);screen.setCursor(5,4);screen.printf("KADENCE / %s",accepted?"LINKED":"OFFLINE");
     if(page==0){
-        M5.Display.setTextSize(2);M5.Display.setCursor(5,25);M5.Display.print(streaming?"LISTENING":phase.substring(0,15));
-        M5.Display.setTextSize(1);M5.Display.setCursor(5,55);M5.Display.printf("CAM %s\nRSSI %d  MIC %s",camera.c_str(),WiFi.RSSI(),streaming?"ON":"OFF");
-        M5.Display.setCursor(5,85);M5.Display.print(notice.substring(0,36));
-        M5.Display.setCursor(5,115);M5.Display.print("Hold A: talk   B: menu");
+        screen.setTextSize(2);screen.setCursor(5,25);screen.print(streaming?"LISTENING":phase.substring(0,15));
+        screen.setTextSize(1);screen.setCursor(5,55);screen.printf("CAM %s\nRSSI %d  MIC %s",camera.c_str(),WiFi.RSSI(),streaming?"ON":"OFF");
+        screen.setCursor(5,85);screen.print(notice.substring(0,36));
+        screen.setCursor(5,115);screen.print("Hold A: talk   B: menu");
     }else{
-        M5.Display.setCursor(5,24);
-        if(page==1){for(int i=0;i<5;++i)M5.Display.printf("%s %s\n",i==selection?">":" ",menu[i]);}
-        else if(page==2){for(int i=0;i<cameraCount;++i)M5.Display.printf("%s %s\n",i==selection?">":" ",cameraNames[i].c_str());}
-        else if(page==3){M5.Display.printf("State: %s\nPTT: hold A on main\nNo duration cutoff",phase.c_str());}
-        else if(page==4){M5.Display.printf("WiFi: %s\nIP: %s\nHost: %s\nRSSI: %d",WiFi.status()==WL_CONNECTED?"connected":"offline",WiFi.localIP().toString().c_str(),host.c_str(),WiFi.RSSI());}
-        else M5.Display.print("Gyro control\nNot available in Remote V1");
-        M5.Display.setCursor(5,115);M5.Display.print("A/B: next/prev  Hold B: back");
+        screen.setCursor(5,24);
+        if(page==1){for(int i=0;i<5;++i)screen.printf("%s %s\n",i==selection?">":" ",menu[i]);}
+        else if(page==2){for(int i=0;i<cameraCount;++i)screen.printf("%s %s\n",i==selection?">":" ",cameraNames[i].c_str());}
+        else if(page==3){screen.printf("State: %s\nPTT: hold A on main\nNo duration cutoff",phase.c_str());}
+        else if(page==4){screen.printf("WiFi: %s\nIP: %s\nHost: %s\nRSSI: %d",WiFi.status()==WL_CONNECTED?"connected":"offline",WiFi.localIP().toString().c_str(),host.c_str(),WiFi.RSSI());}
+        else screen.print("Gyro control\nNot available in Remote V1");
+        screen.setCursor(5,115);screen.print("A/B: next/prev  Hold B: back");
     }
-    M5.Display.endWrite();
+    screen.endWrite();
+    // Clear and text rendering happen off-screen; the LCD receives one full frame.
+    screen.pushSprite(0,0);
 }
 void setup(){
     auto cfg=M5.config();M5.begin(cfg);M5.Speaker.end();M5.Mic.end();
     M5.Display.setRotation(1);Serial.begin(115200);prefs.begin("kadence-remote",false);
+    screen.setColorDepth(16);
+    screenReady=screen.createSprite(M5.Display.width(),M5.Display.height())!=nullptr;
+    if(!screenReady){
+        M5.Display.fillScreen(TFT_BLACK);M5.Display.setCursor(5,5);
+        M5.Display.print("Display buffer unavailable");
+    }
     JsonDocument d;if(!deserializeJson(d,prefs.getString("config",""))){
         ssid=d["ssid"]|"";password=d["password"]|"";host=d["host"]|"";deviceId=d["device_id"]|"";key=d["key"]|"";
         configured=!ssid.isEmpty()&&host.length()>0&&key.length()==64&&deviceId.length()==16;
