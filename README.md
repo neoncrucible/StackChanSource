@@ -1,3 +1,7 @@
+> **PROJECT KADENCE — CURRENT DEVELOPMENT (2026-10-12):** The sole active development branch is [`main`](https://github.com/neoncrucible/StackChanSource/tree/main). Read [`KADENCE_CURRENT.md`](KADENCE_CURRENT.md) for the authoritative Astra handover, current accepted/candidate status, frozen historical branches, and the 0.5.0 Presence & Consolidation plan. Older `kadence/*` and `feature/*` refs are **archival, not active**. Do not deploy the newest host build solely because it is on `main`—check physical acceptance and the release manifest.
+
+---
+
 # StackChan Open-Source
 
 <img src="https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1205/K151_stack_chan_main_pictures_01.webp" width="60%">
