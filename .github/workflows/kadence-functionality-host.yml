@@ -2,7 +2,7 @@ name: Kadence functionality host regression
 
 on:
   push:
-    branches: [kadence/functionality, kadence/sticks3-remote]
+    branches: [main]
     paths:
       - 'rebuild/backend/**'
       - 'rebuild/tests/**'
@@ -19,6 +19,7 @@ on:
       - 'rebuild/tools/prepare_face_models.py'
       - 'rebuild/tools/prepare_face_fixtures.py'
       - 'rebuild/tools/desktop_frozen_check.py'
+      - 'rebuild/tools/baseline_audit.py'
       - 'rebuild/tools/install_desktop.ps1'
       - 'rebuild/tools/Install-Kadence.cmd'
       - '.github/workflows/kadence-functionality-host.yml'
@@ -69,7 +70,7 @@ jobs:
           KADENCE_TEST_FACE_FIXTURES: rebuild/dist/face_fixtures
         run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_vision_console.py rebuild/tests/test_vision_description.py rebuild/tests/test_face_review.py rebuild/tests/test_live_faces.py rebuild/tests/test_camera_diagnostics.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py rebuild/tests/test_native_unitv2.py rebuild/tests/test_object_tracking.py -q
       - name: Observe-only reflex and desktop regression
-        run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py -q
+        run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py rebuild/tests/test_presence_console.py rebuild/tests/test_baseline_audit.py -q
       - name: Autonomous perception, rate limits and visit semantics
         run: python -m pytest rebuild/tests/test_autonomous_perception.py -q
       - name: Voice completion and recovery regression

@@ -183,7 +183,8 @@ def test_vision_tabs_and_saved_feedback_exclude_names_from_diagnostics(tmp_path)
     qt=QApplication.instance() or QApplication([])
     window=MainWindow(directory=tmp_path,load_credentials=False)
     try:
-        assert [window.vision_tabs.tabText(i) for i in range(4)]==['Camera','Perception','Profiles','Activity']
+        assert window.pages.count()==4
+        assert [window.tools_tabs.tabText(i) for i in range(4)]==['Reminders','Workbench','Camera','Tracking']
         window.faces_result({'ok':True,'result':{'database':'test/database/kadence.sqlite3','persons':[{'id':'sample','display_name':'Private name','samples':3,'compatible_samples':3,'recognition_enabled':1,'greeting_enabled':1,'enrolled_at':1}]}})
         assert window.profiles_table.rowCount()==1 and window.profile_name.text()=='Private name'
         assert '0 onboard UnitV2' in window.profile_summary.text()
@@ -195,8 +196,8 @@ def test_vision_tabs_and_saved_feedback_exclude_names_from_diagnostics(tmp_path)
         window.on_event('vision_activity',{'kind':'recognition_test','message':'Recognised: Private name.'})
         assert 'Private name' in window.reflex_log.toPlainText()
         assert 'Private name' not in json.dumps(list(window.diagnostic))
-        window.navigate(3);window.vision_tabs.setCurrentIndex(1);window.show();qt.processEvents()
-        assert window.perception_enable.isVisible()
+        window.navigate(0);window.show();qt.processEvents()
+        assert window.camera_policy.isVisible()
     finally:window.ticker.stop();window.quitting=True;window.close()
 
 

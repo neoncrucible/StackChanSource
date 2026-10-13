@@ -55,7 +55,7 @@ class DesktopTests(unittest.TestCase):
                 from unittest.mock import patch
                 with patch.object(window.control, 'send') as send:
                     window.capture_camera()
-                    self.assertEqual(send.call_args.args[0],'camera_settings')
+                    self.assertEqual(send.call_args.args[0],'camera_patch')
                     callback=send.call_args.args[2]
                     send.reset_mock()
                     callback({'ok':True})
@@ -113,7 +113,7 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(window.diagnostic[-1]['received_bytes'],123)
                 self.assertEqual(window.diagnostic[-1]['stage'],'image-data')
                 self.assertNotIn(fake,json.dumps(list(window.diagnostic)))
-                for index in range(6):
+                for index in range(4):
                     window.navigate(index); QApplication.processEvents()
                     self.assertFalse(window.grab().isNull())
                 self.assertFalse(window.timezone.isReadOnly())
@@ -177,7 +177,7 @@ class DesktopTests(unittest.TestCase):
                 window.on_event('activity',{'state':'idle'})
                 with patch.object(window.control,'send') as send:
                     window.look_camera()
-                    self.assertEqual(send.call_args.args[0],'camera_settings')
+                    self.assertEqual(send.call_args.args[0],'camera_patch')
                     self.assertFalse(window.look_button.isEnabled())
                     send.call_args.args[2]({'ok':True})
                     self.assertEqual(send.call_args.args[0],'camera_look')

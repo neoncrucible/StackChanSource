@@ -50,17 +50,17 @@ def test_console_controls_and_biometric_status_not_in_diagnostics(tmp_path):
     window=MainWindow(directory=tmp_path,load_credentials=False)
     try:
         window.on_event('camera_settings',asdict(CameraConfig(policy='AWARE',privacy=True)))
-        assert window.camera_policy.currentData()=='AWARE' and window.camera_privacy.isChecked()
+        assert window.camera_policy.currentData()=='OFF' and window.camera_privacy.isChecked()
         assert window.camera_source.currentData()=='auto'
         with patch.object(window.control,'send') as send:
             window.apply_camera_policy()
-            assert send.call_args.args==('camera_settings',asdict(CameraConfig(policy='AWARE',privacy=True)))
+            assert send.call_args.args==('camera_patch',window.camera_policy_values())
         window.on_event('perception',{'occupancy':'OCCUPIED','sensor_health':'ready','health':'ready','model_health':'ready','subjects':2,'confirmed_persons':['private-person']})
         assert 'confirmed 1' in window.perception_state.text()
         window.record_diagnostic('perception',{'confirmed_persons':['private-person'],'embedding':[123],'name':'private-name'})
         assert 'private-person' not in json.dumps(list(window.diagnostic))
         assert 'private-name' not in json.dumps(list(window.diagnostic))
-        window.navigate(3)
+        window.navigate(0)
         window.show();qt.processEvents()
         assert window.camera_policy.isVisible()
     finally:

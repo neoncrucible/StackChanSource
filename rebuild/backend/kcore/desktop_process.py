@@ -54,6 +54,7 @@ class ControlProcess(QObject):
         if self.process.write(raw) != len(raw):
             self.pending.pop(ident, None)
             self.event.emit("message", {"message": "Control request could not be sent."})
+            return None
         return ident
 
     def _read(self):

@@ -63,7 +63,7 @@ def package(build: Path, output: Path, *, source_commit: str | None = None) -> P
     shutil.copyfile(ROOT / "rebuild" / "tools" / "flash_bundle.ps1",output / "flash.ps1")
     shutil.copytree(ROOT / "rebuild" / "firmware" / "main" / "third_party",
                     output / "THIRD-PARTY-NOTICES", dirs_exist_ok=True)
-    release={"format":1,"candidate":"Kadence sensor bus Phase 1","source_commit":source_commit,"branch":"kadence/sensor-clean-base",
+    release={"format":1,"candidate":"Kadence sensor bus Phase 1","source_commit":source_commit,"branch":"main",
              "idf":"5.5.4","chip":"esp32s3","flash_size":"16MB","files":entries,"physical_signoff":False}
     (output / "RELEASE.json").write_text(json.dumps(release,indent=2)+"\n")
     sums=[]

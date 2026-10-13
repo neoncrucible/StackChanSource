@@ -220,12 +220,12 @@ def test_console_opt_in_gate_and_sanitized_decisions(tmp_path):
     qt=QApplication.instance() or QApplication([])
     window=MainWindow(directory=tmp_path,load_credentials=False)
     try:
-        assert not window.perception_enable.isChecked()
+        assert window.camera_policy.currentData()=='OFF'
         values=asdict(CameraConfig(policy='EVENT_ONLY',perception_enabled=True))
         window.on_event('camera_settings',values)
         with patch.object(window.control,'send') as send:
             window.apply_camera_policy()
-            assert send.call_args.args==('camera_settings',values)
+            assert send.call_args.args==('camera_patch',{k:values[k] for k in ('source','address','greetings','unknown_alerts')})
         window.on_event('perception',{'gate':'ready','completed_bursts':2,'bursts':2,'health':'ready','name':'private-name','confirmed_persons':['private-id']})
         window.on_event('perception_decision',{'trigger':'gesture','decision':'completed','reason':'captured','image':'private-image'})
         assert 'enabled' in window.perception_gate.text() and 'VISION GESTURE' in window.reflex_log.toPlainText()

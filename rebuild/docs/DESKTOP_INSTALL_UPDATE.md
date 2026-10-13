@@ -1,4 +1,55 @@
-# Current update: 0.4.14 — StickS3 Remote and shared Motion home
+# Current candidate: 0.5.0 — consolidated console (M1)
+
+This is a host-only candidate, not a physically accepted release. CoreS3 remains
+0.21.6, UnitV2 remains on its existing service (current source 1.3.0), and SQLite
+remains schema 5. Preserve the accepted 0.4.13 package and its matching data
+backup before installing. No robot flash, camera update or face retraining is
+needed for this console change. Keep Stick remote OFF; its microphone work is
+parked.
+
+The console now has four pages:
+
+- **Home:** live voice/camera/sensor state, next reminder, cancellation, Privacy
+  and a single OFF / EVENT ONLY / AWARE selector. The selector enables or disables
+  the existing automatic perception service. Changes wait for service confirmation;
+  an unavailable camera or failed lifecycle test gives a reason instead of claiming
+  awareness is running. Privacy stays available during voice and pending awareness
+  changes. Saved preferences do not prove the camera producer has stopped.
+- **Activity:** bounded live decisions and saved perception history, including
+  suppression reasons. No routine sensor sample feed or automatic image gallery.
+- **Tools:** Reminders, Workbench, Camera and explicitly armed Tracking.
+- **Settings:** camera/greeting preferences, audio/display controls and Profiles.
+  Expand **Engineering** for Connection & services (including API keys and Ollama),
+  UnitV2 start/stop, Perception checks, Face check, UnitV2 training, Motion, Factory
+  Vision, Stick controls and Diagnostics. These are the existing service controls.
+
+Tray reminder notifications open Tools → Reminders. Quiet hours, do-not-disturb
+and the remaining passive-coordination changes belong to M2; they are not part of
+this candidate. The known device volume/top-swipe issue remains open.
+
+Before installing, collect the read-only M0 report from the existing Windows
+installation using `rebuild/tools/baseline_audit.py`; see `KADENCE_CURRENT.md` for
+operator instructions and remaining evidence. The audit reports schema, field
+metadata, row counts, snapshot health and package hashes without returning stored
+notes, identities, images or credentials. It never performs an upgrade or backup.
+
+1. Quit Kadence completely, including its tray icon. Keep the previous install.
+2. Extract the complete verified candidate ZIP to a new folder.
+3. Run Install-Kadence.cmd. It verifies the package and retains previous versions.
+4. Open the Kadence desktop shortcut, check saved settings, then START SERVER.
+
+Rollback: quit the candidate and launch the retained accepted executable from its
+original version folder. This candidate introduces no database migration. If a
+later release changes the schema, follow that release's database recovery steps.
+A SQLite backup does not include native UnitV2 face features.
+
+The source handover is authoritative: KADENCE_CURRENT.md on main. Instructions
+below describe previous releases only; do not apply their firmware/setup steps to
+this host-only update.
+
+---
+
+## Historical update: 0.4.14 — StickS3 Remote and shared Motion home
 
 Install the complete desktop ZIP as usual. Robot firmware remains 0.21.6 and
 UnitV2 service remains 1.2.0. No robot or camera flash is required. Read

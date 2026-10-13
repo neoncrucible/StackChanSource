@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.4.15'
+HOST_VERSION='0.5.0'
 
 
 def archive_package(output: Path):
@@ -55,7 +55,7 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
         'firmware_included':False,'remote_firmware_included':True,'remote_firmware_version':'1.0.3','compatible_firmware':['0.21.6'],
-        'physical_signoff':False},indent=2)+'\n')
+        'release_status':'candidate','database_schema':5,'physical_signoff':False},indent=2)+'\n')
     return archive_package(output)
 
 
@@ -135,7 +135,7 @@ def build(commit: str, firmware: Path | None = None):
         'Licences are collected below; replaceable libraries are in _internal.\n'
         'Qt source: https://download.qt.io/official_releases/qt/\n'
         'PySide6 source: https://code.qt.io/cgit/pyside/pyside-setup.git/\n'
-        'Kadence source: https://github.com/neoncrucible/StackChanSource/tree/kadence/rebuild-kade\n')
+        'Kadence source: https://github.com/neoncrucible/StackChanSource/tree/main\n')
     # Standalone builds use the same verified replay gate as CI.
     from prepare_face_fixtures import prepare as prepare_fixtures
     prepare_fixtures(ROOT/'rebuild'/'dist'/'face_fixtures')

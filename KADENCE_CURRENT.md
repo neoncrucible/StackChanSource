@@ -1,5 +1,6 @@
 # PROJECT KADENCE — canonical state and Astra handover
 **Audit date:** 2026-10-12 (Europe/London)
+**Latest engineering continuation:** 2026-10-13 — M0 source inventory / M1 console candidate; see section 12.
 **Owner decision:** ONE active development branch: `main`.
 **Repository:** `neoncrucible/StackChanSource`
 **Promoted source head (pre-documentation):** `4a0a816a0442f391533591db52b5a82a58bc1bad` from `kadence/sticks3-remote`.
@@ -19,7 +20,7 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 | Component | Current source/candidate | Evidence and limits |
 |---|---|---|
 | CoreS3 firmware | 0.21.6 | Hardware-tested sensor/voice/body foundation. No new flash required for host changes. |
-| Windows host | 0.4.15 source | Latest dated commit 2026-09-28, 4a0a816, UnitV2 LAB colour controls. Not fully owner-signed-off as one release. |
+| Windows host | 0.5.0 M1 candidate source | Continues main from 3203c91. Four-page console; local test evidence in section 12. Installed Windows version and physical acceptance remain unobserved. |
 | UnitV2 service | 1.3.0 | Factory Vision modes exposed; many physical mode tests still unproven. |
 | StickS3 | firmware 1.0.3 candidate | Boot/pair/display corrections and driver fix recorded, but PTT still lacks successful hardware acceptance. Remote OFF. |
 | Data | SQLite schema 5 | Native UnitV2 face files live on camera, not in PC SQLite backup. |
@@ -31,7 +32,7 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 | Utilities | Reminders, lab notes/workbench, calculations | Previous physical reminder checks; preserve states/DB. |
 | Open known bugs | Volume slider/top-swipe; remote PTT | Do not silently mark fixed. Review volumes independently before closing. |
 
-Latest commit check runs: `voice-alignment` and `sticks3` both succeeded (GitHub Actions run 36428902903); builds do not prove a live microphone or newly installed host.
+Pre-consolidation source check runs: `voice-alignment` and `sticks3` both succeeded (GitHub Actions run 36428902903); builds do not prove a live microphone or newly installed host.
 
 ## 2. Branch governance and archival inventory
 As audited just before consolidation, 24 branches existed, including `main`. The source `main` now fast-forwards to the newest Kadence branch head. No historical branch ref has been deleted; the GitHub connector used for this audit cannot rename/delete Git branch refs. Only `main` is AUTHORISED ACTIVE. Any branch named below is read-only.
@@ -90,7 +91,7 @@ Useful code starting points:
 `rebuild/backend/kcore/desktop_ui.py`, `perception.py`, `reflex.py`, `sensor_sampler.py`, `occupancy.py`, `camera_manager.py`, `unitv2_lifecycle.py`, `motion.py`, `object_tracking.py`, `reminders.py`, `remote_server.py`, `runtime.py`; `rebuild/docs/NATIVE_UNITV2_FACES_0_4_12.md`, `OBJECT_TRACKING_0_4_13.md`, `FACTORY_VISION_0_4_15.md`, `STICKS3_REMOTE_0_4_14.md`.
 
 ## 4. Owner objective: make intelligence passive, not a maze of server tabs
-The current UI has six main pages and nine nested Vision tabs. This is developer instrumentation presented as product UX. DO NOT delete functionality; restructure navigation and centralise actual behaviour.
+The pre-M1 UI had six main pages and nine nested Vision tabs. Section 12 records the new four-page console source. DO NOT delete functionality; retain one service owner for actual behaviour.
 
 Target product IA:
 1. **HOME:** host/robot/camera/sensor health; actual last state; next reminder; recent meaningful events; clear stop/cancel, audio state, camera Privacy; single awareness selector OFF / EVENT_ONLY / AWARE.
@@ -123,6 +124,7 @@ Avoid multiple places controlling the same setting. Set `camera_policy`, `percep
 5. Create a verifiable 0.5.0 candidate package only when all relevant gates pass, with hashes and no credentials.
 
 ### M1 — one practical console
+**Source implementation delivered 2026-10-13; Windows/package and physical acceptance are separate gates (section 12).**
 1. Build four-page IA above; old controls remain reachable under Engineering, with no layout duplication.
 2. Real state labels and failure reasons, preference persistence, reconnect and tray behaviour.
 3. Automated UI widget tests: privacy control, awareness modes, policy persistence, disabled controls during unavailable service, Voice vs camera arbitration, state after restart.
@@ -281,7 +283,7 @@ Use an explicit integration adapter and incremental migration plan, not direct a
 ### 10.1 Current tooling (implemented)
 - `rebuild/tools/package_firmware.py` packages the **actual ESP-IDF `flasher_args.json` manifest**, validates ESP32-S3 target, flash file paths/offsets, startup-stack report where present, computes SHA-256 and writes a `RELEASE.json` next to the firmware package.
 - `rebuild/tools/package_sticks3.py` produces `rebuild/dist/StickS3/kadence-sticks3.bin` and `RELEASE.json`, pins target firmware/protocol and verifies merged image components/ROM flash mode.
-- `rebuild/tools/package_desktop.py` produces the frozen Windows host, `BUILD.json`/package `RELEASE.json`; it checks the source commit and checksum when bundling remote firmware. Host 0.4.15 source advertises CoreS3 0.21.6 compatibility and Stick 1.0.3 candidate.
+- `rebuild/tools/package_desktop.py` produces the frozen Windows host, `BUILD.json`/package `RELEASE.json`; it checks the source commit and checksum when bundling remote firmware. Host 0.5.0 M1 candidate retains CoreS3 0.21.6 compatibility and Stick 1.0.3 candidate; the Stick microphone remains unaccepted.
 - `rebuild/dist` is an **ephemeral build output directory**, not a lifetime firmware archive. GitHub Actions artifact storage is also temporary; expiry must not make the only accepted rollback disappear.
 
 ### 10.2 Canonical release layout (PROPOSED, NOT YET DEPLOYED)
@@ -349,3 +351,100 @@ Names are conceptual, **not assertions about already-existing tables**. Don't ha
 
 **Release acceptance:** Kadence normal operation still succeeds with KadeHQ fully unavailable; KadeLink transcription/summary data is preserved without duplicates; no unacknowledged command is replayed; no unexplained DB is created; every installed firmware has a trusted release manifest and an identifiable rollback; current UnitV2 face identities remain unchanged unless the owner explicitly authorises a retraining/delete operation.
 
+
+
+## 12. Engineering continuation — 2026-10-13, M0 source / M1 console
+
+**Audited starting SHA:** `3203c91f0741461cfc9329be6d3ec64628c18837` on `main`.
+**Candidate host identity:** `0.5.0`; this is M1 progress towards Presence &
+Consolidation, not a declaration that M2–M5 or physical acceptance are complete.
+No firmware source, database schema, biometric profiles or HQ integration changed.
+
+### Implemented changes
+- `desktop_ui.py`: four primary pages, Home / Activity / Tools / Settings. Existing
+  tools remain reachable. Engineering starts collapsed and uses one section picker
+  for connection/provider credentials, UnitV2 lifecycle, perception checks, native
+  training, face checks, Motion, Factory Vision, Stick controls and diagnostics.
+- Home's sole awareness selector applies policy + perception opt-in together through
+  the existing worker's `camera_patch`. It displays acknowledged configuration;
+  refusal/timeout/disconnect do not claim success. A legacy policy with opt-in OFF
+  correctly displays OFF. Privacy is an independent patch and remains accessible
+  during voice and a pending awareness request. Manual camera controls respect
+  privacy, active voice and service availability. Unrelated preference changes no
+  longer resubmit stale privacy or awareness values.
+- Actual live readiness remains distinct from saved settings. Stopping/disconnecting
+  clears live sensor readiness labels. Tray reminder clicks open Tools / Reminders.
+  `desktop_process.py` now reports a failed worker pipe write as unsent, so Home
+  controls and camera requests cannot wait forever for an acknowledgement that
+  cannot arrive.
+  Profiles, native training, factory modes and explicitly armed tracking retain
+  their existing service and storage authority.
+- `tools/baseline_audit.py`: read-only operator inventory via `KadencePaths` and
+  schema validation. It inspects schema version, all table/column names and counts,
+  integrity/foreign keys, up to 20 newest SQLite backups, build/release identity
+  agreement and complete package checksums. It rejects unsafe checksum paths,
+  corrupt/incomplete packages and conflicting legacy/canonical DB locations.
+  It does not create a database, migrate, copy releases, configure hardware or
+  print record/face/credential content. Missing evidence remains UNKNOWN.
+- `.github/workflows/kadence-functionality-host.yml`: restored host build/test
+  triggering on sole active `main` instead of the retired development refs; added
+  console and baseline-audit regressions. Existing Windows frozen executable,
+  installer and voice/camera gates remain required. The unchanged Stick build is
+  still an existing packaging dependency; this does not resume its mic development.
+- Host version updated consistently in `pyproject.toml`, `build_info.py` and
+  `package_desktop.py`; host manifests explicitly say candidate, schema 5 and
+  physical sign-off false. Packaging provenance links now point to `main`.
+  `DESKTOP_INSTALL_UPDATE.md` documents the new navigation and rollback boundaries.
+
+### Verified locally vs still pending
+- Linux source suite: **405 passed, 4 skipped, 119 subtests passed**, with the pinned
+  face models and evaluation media hash-verified and enabled. The four skips are
+  Windows-only firewall COM, Credential Manager, installer/shortcut and installed
+  Windows speech checks; the Windows workflow covers them. A focused final
+  console/audit/worker run also passed (18 passed, one Windows-only skip).
+- `phase_a4_gate.py`: PASS — single runtime/voice owner, cancellation, reconnect,
+  clean shutdown and preservation of post-voice head alignment in source.
+- Qt offscreen widgets were rendered and inspected at 1160×800 and 980×690.
+  This is layout/source evidence, not a Windows hardware acceptance.
+- Added tests cover acknowledged modes, lifecycle rejection, Privacy while voice
+  and awareness requests are active, partial preference patches, restart/voice
+  persistence, offline controls, WAL-consistent read-only inventory, backup damage,
+  manifest mismatch, path traversal, corrupt and incomplete package checksums.
+- **CI / Windows executable:** pending at this source checkpoint. Require the
+  current implementation commit's Windows job and frozen/package gates to pass
+  before treating its ZIP as an installable candidate. Physical sign-off stays false.
+- **Not observed:** installed Windows BUILD/RELEASE identity; actual local DB row
+  counts and backup health; native UnitV2 face backup; KadeHQ migration/DDL and
+  KadePocket/HQ release files; hardware voice/camera/sensors/volume; physical soak.
+  The source schema is still **5, thirteen application tables**. Do not report that
+  as an inspection of the owner's live SQLite or PostgreSQL database.
+
+### Safety, rollback and next work
+One serial/control owner, one camera producer lease, privacy priority, bounded
+movement/torque release, native UnitV2 identity ownership, local reminders, existing
+voice cancellation and HQ-offline operation remain the existing architecture.
+No remote microphone, wireless robot, locomotion, automatic head motion, new
+model or KadeHQ migration was implemented. Known volume/top-swipe and remote PTT
+issues remain open. The accepted recovery reference remains
+`kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`;
+its actual durable package and data/UnitV2 backups still need Windows verification.
+
+**One next operator task:** collect the M0 read-only inventory against the existing
+Windows installation before installing the candidate. After updating the existing
+source checkout from `main`, run in PowerShell:
+
+```powershell
+Set-Location C:\KadenceX\source\rebuild
+$kadenceShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Kadence.lnk'
+if (-not (Test-Path -LiteralPath $kadenceShortcut)) { throw 'Locate the existing Kadence shortcut before auditing; do not guess the installed version.' }
+$kadenceInstalledDir = Split-Path ((New-Object -ComObject WScript.Shell).CreateShortcut($kadenceShortcut).TargetPath)
+uv run --no-project --python 3.12 .\tools\baseline_audit.py --app-dir $kadenceInstalledDir
+```
+
+The report does not include native UnitV2 face files or live KadeHQ schema, and is
+not deployment approval. Do not install if its layout conflicts or package hashes
+fail, or if the accepted rollback cannot be located. Preserve all evidence and
+resolve the specific mismatch first. After M0's remaining live evidence and M1's
+Windows/owner checks, continue M2: versioned attention preferences, quiet hours,
+do-not-disturb, visit/cooldown coordination and deterministic stationary-user tests,
+then the required 30–60 minute desk soak. Do not add another controller or database.
