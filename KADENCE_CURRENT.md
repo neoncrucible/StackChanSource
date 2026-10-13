@@ -124,7 +124,7 @@ Avoid multiple places controlling the same setting. Set `camera_policy`, `percep
 5. Create a verifiable 0.5.0 candidate package only when all relevant gates pass, with hashes and no credentials.
 
 ### M1 — one practical console
-**Source implementation delivered 2026-10-13; Windows/package and physical acceptance are separate gates (section 12).**
+**Source and Windows package gates passed 2026-10-13; physical acceptance remains pending (section 12).**
 1. Build four-page IA above; old controls remain reachable under Engineering, with no layout duplication.
 2. Real state labels and failure reasons, preference persistence, reconnect and tray behaviour.
 3. Automated UI widget tests: privacy control, awareness modes, policy persistence, disabled controls during unavailable service, Voice vs camera arbitration, state after restart.
@@ -356,6 +356,9 @@ Names are conceptual, **not assertions about already-existing tables**. Don't ha
 ## 12. Engineering continuation — 2026-10-13, M0 source / M1 console
 
 **Audited starting SHA:** `3203c91f0741461cfc9329be6d3ec64628c18837` on `main`.
+**Built implementation SHA:** `b17b42e00a9857fcb563e5a04181bd66246d83ff`.
+The follow-up handover commit changes documentation only; the executable is built
+from the implementation SHA above.
 **Candidate host identity:** `0.5.0`; this is M1 progress towards Presence &
 Consolidation, not a declaration that M2–M5 or physical acceptance are complete.
 No firmware source, database schema, biometric profiles or HQ integration changed.
@@ -410,9 +413,25 @@ No firmware source, database schema, biometric profiles or HQ integration change
   and awareness requests are active, partial preference patches, restart/voice
   persistence, offline controls, WAL-consistent read-only inventory, backup damage,
   manifest mismatch, path traversal, corrupt and incomplete package checksums.
-- **CI / Windows executable:** pending at this source checkpoint. Require the
-  current implementation commit's Windows job and frozen/package gates to pass
-  before treating its ZIP as an installable candidate. Physical sign-off stays false.
+- **CI / Windows executable: PASS.** [Actions run 38359902849](https://github.com/neoncrucible/StackChanSource/actions/runs/38359902849)
+  tested the exact implementation SHA above. Windows: **336 passed, 81 subtests
+  passed** across its six regression groups; runtime ownership gate PASS;
+  `DESKTOP_FROZEN PASS` for the built executable's private worker, timezone,
+  persistence, utilities, profiles/review photos/deletion, SQLite backup, camera
+  voice status, vision history, local speech PCM and clean shutdown. Streaming
+  decoding also passed. Live online speech and physical robot audio were NOT tested.
+  The existing Stick packaging dependency passed its build/codec/merged-image
+  checks; this is not microphone hardware acceptance. Physical sign-off stays false.
+- **Windows candidate artifact:** `Kadence-Desktop-Windows`, artifact ID
+  `11794611969`, 185,213,512 bytes. It contains
+  `Kadence-Desktop-0.5.0-b17b42e00a98.zip`, with its own `SHA256SUMS`, BUILD/RELEASE
+  identity and retained-version installer. Download from the Actions run above.
+  GitHub's **outer artifact ZIP** SHA-256 is
+  `9e06cff5cfd961e4d542361cf8437c9452c9024c36fb80e29e0b299b14dc76ec`.
+  This is the outer Actions archive hash, not a claimed hash for the inner installer
+  ZIP. GitHub reports expiry **2027-01-11 06:59:34 UTC**; this temporary candidate
+  artifact is not the durable archive for an accepted rollback. No package was
+  installed on the owner's PC in this session.
 - **Not observed:** installed Windows BUILD/RELEASE identity; actual local DB row
   counts and backup health; native UnitV2 face backup; KadeHQ migration/DDL and
   KadePocket/HQ release files; hardware voice/camera/sensors/volume; physical soak.
@@ -445,6 +464,6 @@ The report does not include native UnitV2 face files or live KadeHQ schema, and 
 not deployment approval. Do not install if its layout conflicts or package hashes
 fail, or if the accepted rollback cannot be located. Preserve all evidence and
 resolve the specific mismatch first. After M0's remaining live evidence and M1's
-Windows/owner checks, continue M2: versioned attention preferences, quiet hours,
+owner checks, continue M2: versioned attention preferences, quiet hours,
 do-not-disturb, visit/cooldown coordination and deterministic stationary-user tests,
 then the required 30–60 minute desk soak. Do not add another controller or database.
