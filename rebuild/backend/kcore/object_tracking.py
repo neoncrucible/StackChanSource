@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import time
 from .camera_manager import settled_thread
-from .tracking_target import locate_target, relocate, local_target
+from .tracking_target import locate_target, relocate, local_target, POINTING_TARGETS
 
 
 def validate_preview(jpeg):
@@ -269,6 +269,15 @@ class ObjectTracking:
                     reference=self.frames[-1][2]
                     selected_at=self.clock()
                     earlier=next((f[2] for f in reversed(self.frames) if self.clock()-f[1]>=.2),None)
+                    if earlier is None and target.casefold().strip() in POINTING_TARGETS:
+                        # A newly opened preview has only one image. Give the
+                        # presented object a short local observation window
+                        # rather than always falling through to cloud vision.
+                        earlier=reference
+                        await asyncio.sleep(.25)
+                        self.camera.check()
+                        if not self.active or not self.frames: raise RuntimeError('Tracking session ended during selection.')
+                        reference=self.frames[-1][2]
                     region=await settled_thread(local_target,reference,target,earlier)
                     if region is None:
                         region=await self.locator(reference,target,self.app.settings.providers)

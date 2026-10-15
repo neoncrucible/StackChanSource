@@ -51,7 +51,7 @@ while True:
  if roi and scene!='lost':
   box={k:roi[k] for k in ('x','y','w','h')}
   print(json.dumps(dict(running='Target Tracker',**box)),flush=True)
- print(json.dumps({'img':JPEG}),flush=True)
+ print(json.dumps({'img':Path('image').read_text() if Path('image').exists() else JPEG}),flush=True)
  time.sleep(.025)
 ''')
     (tmp_path/'scene').write_text('visible')

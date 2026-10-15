@@ -508,14 +508,15 @@ It does not establish a new physically accepted baseline.
 
 ### Verification and delivery
 
-Local full-suite run with pinned face models/media: **451 passed, 4 Windows-only
-skips, 119 subtests passed**; its only failure was a release-notes file still being
-written while the packaging test ran. After completing that file, the installer
-and speech-worker group passed **5 tests, 1 Windows skip**, including the newly
-added failed-warm-child case. Runtime ownership/alignment gate: **PASS**. Additional
-focused camera/UI regressions and the Windows frozen-package gate are recorded
-with final build evidence below when complete. Do not confuse tests with installed
-or physical acceptance.
+Clean local full-suite run with pinned face models/media on `4292c3d`: **453 passed,
+4 Windows-only skips, 119 subtests passed** in 42.35 seconds. Runtime ownership/
+alignment gate: **PASS**. Focused camera/UI group: **75 passed, 1 Windows skip**.
+Final review also added a 250 ms first-use motion observation window: a brand-new
+“track that” session must collect two frames before trying local selection, rather
+than falling through to cloud recognition simply because it has only one frame.
+Its real-process HTTP regression verifies cloud-free first selection. The Windows
+frozen-package evidence is recorded below when complete. Do not confuse tests with
+installed or physical acceptance.
 
 See `rebuild/docs/REACTIVE_COMPANION_0_6_0.md` and the package's `WHATS-NEW.txt`.
 CoreS3 **0.21.6**, UnitV2 service **1.3.0 source**, SQLite **5**, native face files

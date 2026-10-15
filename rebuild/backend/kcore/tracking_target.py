@@ -6,6 +6,7 @@ import json
 import re
 from .vision_provider import VisionServiceError, description_text, MAX_RESPONSE_BYTES
 
+POINTING_TARGETS=frozenset({'this','that','it','this thing','that thing','this object','that object','something','the object'})
 
 def local_target(image, target, earlier=None):
     """Select only an unambiguous colour or moving target, without a cloud trip.
@@ -17,7 +18,7 @@ def local_target(image, target, earlier=None):
     import numpy as np
     normal=re.sub(r'\s+',' ',target.casefold()).strip()
     colour=re.fullmatch(r'(?:(?:the|this|that|a) )?(red|orange|yellow|green|blue|purple|pink)(?: (?:one|thing|object|item))?|something (red|orange|yellow|green|blue|purple|pink)',normal)
-    pointing=normal in {'this','that','it','this thing','that thing','this object','that object','something','the object'}
+    pointing=normal in POINTING_TARGETS
     if not colour and not pointing: return None
     current=cv2.imdecode(np.frombuffer(image,np.uint8),cv2.IMREAD_COLOR)
     if current is None: return None

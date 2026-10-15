@@ -63,6 +63,28 @@ def test_native_jpeg_preview_and_camera_continue_during_speech(tracker_service):
     asyncio.run(run())
 
 
+def test_first_track_that_collects_motion_and_selects_without_cloud(tracker_service):
+    async def run():
+        p,b,c,root=tracker_service;app,events,moves=make_app(c);t=app.tracking
+        scene=np.random.default_rng(8).integers(40,100,(240,320,3),dtype=np.uint8)
+        before=scene.copy();before[80:120,125:155]=(220,180,50)
+        after=scene.copy();after[80:120,140:170]=(220,180,50)
+        (root/'image').write_text(base64.b64encode(jpeg(before)).decode())
+        t.locator=AsyncMock(side_effect=AssertionError('Cloud should not be needed'))
+        await t.preview()
+        async def present():
+            await asyncio.sleep(.08)
+            temporary=root/'image.new'
+            temporary.write_text(base64.b64encode(jpeg(after)).decode());temporary.replace(root/'image')
+        changing=asyncio.create_task(present())
+        result=await t.select(target='that')
+        await changing
+        assert t.state=='TRACKING' and 'tracking' in result['spoken']
+        t.locator.assert_not_called()
+        await t.stop();await app.camera.close()
+    asyncio.run(run())
+
+
 def test_brief_loss_resumes_only_matching_appearance(tracker_service):
     async def run():
         p,b,c,root=tracker_service;app,events,moves=make_app(c);t=app.tracking
