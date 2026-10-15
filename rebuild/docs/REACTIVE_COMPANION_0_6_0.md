@@ -59,7 +59,9 @@ transport; this host update does not change the robot wire protocol.
 The live target preview now transports UnitV2's JPEG directly instead of converting
 every frame to PNG. The fixed 150 ms pause after each fresh frame is removed.
 The camera already waits for a new observation, so the host does not need a second
-polling delay. Activity diagnostics distinguish frame-request time, target-selection
+polling delay. Preview acquisition also continues while a head movement waits for
+its acknowledgement; there is still only one in-flight step and no motor queue.
+Activity diagnostics distinguish frame-request time, target-selection
 time, first rendered PCM and first PC playback. Frame-request time includes waiting
 for a fresh image and LAN transfer; it is not a sensor exposure measurement.
 

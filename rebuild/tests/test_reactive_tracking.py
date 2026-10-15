@@ -126,3 +126,30 @@ def test_saved_head_setup_automatically_positions_before_selecting_and_stop_canc
         app.motion.store.save((20,300));assert t.saved_head_setup() is None
         await app.camera.close()
     asyncio.run(run())
+
+
+def test_preview_keeps_receiving_while_one_head_step_waits_for_ack(tracker_service):
+    async def run():
+        p,b,c,root=tracker_service;app,events,moves=make_app(c);t=app.tracking
+        entered=asyncio.Event();release=asyncio.Event()
+        async def move(yaw,pitch,**kwargs):
+            moves.append((yaw,pitch));entered.set();await release.wait()
+            return NS(payload={'ok':True,'executed':True,'torque_released':True})
+        app._body.send_body_pose=move
+        await t.preview();await t.select([650,350,180,250],t.frames[-1][0]);t.armed=True
+        await asyncio.wait_for(entered.wait(),2)
+        sequence=t.last_sequence
+        await asyncio.sleep(.2)
+        assert t.last_sequence>sequence+2 and len(moves)==1
+        t.locator=AsyncMock(side_effect=AssertionError('Cancelled selection must not run'))
+        selecting=asyncio.create_task(t.select(target='this pen'))
+        await asyncio.sleep(.03)
+        stopping=asyncio.create_task(t.stop(disarm=True))
+        await asyncio.sleep(.05);assert not stopping.done()
+        release.set();await stopping
+        assert selecting.cancelled()
+        t.locator.assert_not_called()
+        assert len(moves)==1 and not t.active and not t.armed
+        assert t._follow_task is None and t.move is None
+        await app.camera.close()
+    asyncio.run(run())

@@ -689,7 +689,8 @@ class KadenceAppliance:
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
         # Speech owns motors, but an ordinary conversation must not destroy the
         # camera's target. Explicit camera actions still switch the one owner.
-        await self.tracking._settle_move()
+        await self.tracking.pause_head()
+        if asyncio.current_task().cancelling(): raise asyncio.CancelledError
         await self.factory.stop()
         await self.motion.stop()
         self._media_mode = "voice"

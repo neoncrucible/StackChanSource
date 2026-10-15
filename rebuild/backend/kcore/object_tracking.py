@@ -38,6 +38,7 @@ class ObjectTracking:
         self.clock, self.locator = clock, locator
         self.camera.tracking = self
         self.task = self.operation = self.move = None
+        self._follow_task = None
         self.state, self.message = 'STOPPED', 'Say “track that” or name the object you want me to follow.'
         self.frames = deque(maxlen=30)
         self.last_sequence = 0
@@ -211,8 +212,14 @@ class ObjectTracking:
                 if self.clock()-self.started>900: raise RuntimeError('The 15-minute tracking session ended. Start a fresh session when needed.')
                 result=await self._frame()
                 if not ready.done(): ready.set_result(True)
-                if self.state=='TRACKING' and result.get('target_epoch')==self.expected_epoch:
-                    await self._follow(result.get('box'))
+                following=self._follow_task
+                if following and following.done():
+                    self._follow_task=None
+                    if not following.cancelled(): following.result()
+                if self.state=='TRACKING' and result.get('target_epoch')==self.expected_epoch and self._follow_task is None:
+                    # Keep receiving fresh images while the one bounded motor
+                    # command waits for its acknowledgement. Never queue steps.
+                    self._follow_task=asyncio.create_task(self._follow(result.get('box')),name='kadence-follow-step')
                 elif self.state=='LOST' and result.get('target_epoch')==self.expected_epoch:
                     await self._recover(result.get('box'))
                 # UnitV2's authenticated observation already waits for a new
@@ -226,7 +233,7 @@ class ObjectTracking:
             self.publish(str(exc) if type(exc) is RuntimeError else 'Tracking unavailable. Update UnitV2 using SET UP UNITV2, or check its connection.')
             if not ready.done(): ready.set_exception(RuntimeError(self.message))
         finally:
-            await self._settle_move()
+            await self.pause_head()
             self.frames.clear()
             self._last_good=None
             self.emit('tracking_preview',{})
@@ -263,8 +270,13 @@ class ObjectTracking:
             if not self.active: await self.preview()
             self.operation=asyncio.current_task()
             self.state='FINDING' if target else 'SELECTING'
-            self.publish('Selecting the target. Hold it still; the head stays stationary.')
             try:
+                intent=self.intent
+                await self.pause_head()
+                if asyncio.current_task().cancelling(): raise asyncio.CancelledError
+                if intent!=self.intent: raise RuntimeError('Target selection was superseded by Stop.')
+                self.camera.check()
+                self.publish('Selecting the target. Hold it still; the head stays stationary.')
                 if target:
                     reference=self.frames[-1][2]
                     selected_at=self.clock()
@@ -366,6 +378,17 @@ class ObjectTracking:
             except Exception: break
         with contextlib.suppress(Exception,asyncio.CancelledError): task.result()
         if self.move is task: self.move=None
+
+    async def pause_head(self):
+        task=self._follow_task
+        if task:
+            if not task.done(): task.cancel()
+            while not task.done():
+                try: await asyncio.shield(task)
+                except (asyncio.CancelledError,Exception): continue
+            with contextlib.suppress(asyncio.CancelledError,Exception): task.result()
+            if self._follow_task is task: self._follow_task=None
+        await self._settle_move()
 
     async def _move(self, pose):
         if self.busy(): raise RuntimeError('Wait for speech to finish before moving the head.')

@@ -492,6 +492,8 @@ It does not establish a new physically accepted baseline.
   object for “track that”. Named objects retain Gemini selection. Ambiguity asks
   for clearer presentation rather than requiring a hand-drawn rectangle.
 - Live tracking retains native JPEG and removes the added 150 ms polling sleep.
+  Frame acquisition continues during a motor acknowledgement instead of freezing
+  the preview. One in-flight step, no motor queue; Stop still drains the real ACK.
   Voice keeps the visual target, pauses motor steps and drains any issued step.
   Brief loss can resume after three fresh, same-epoch, appearance-matched frames
   within five seconds. Larger jumps/long loss require another spoken request.
