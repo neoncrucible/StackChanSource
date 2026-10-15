@@ -7,7 +7,7 @@
 **Previous main:** `3b9890063b3abe03e96cf2b00c1b94409532a8eb`; changed by a NON-FORCED fast-forward.
 **Accepted fallback:** `kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`.
 **Target release:** host 0.6.2 camera connection repair; retain existing CoreS3 0.21.7 (0.21.6 remains compatible).
-**Status:** 0.6.0 FAILED owner acceptance. 0.6.1 owner reports repeated camera-unavailable failures after setup. 0.6.2 repair under verification (section 15); no new firmware installation required.
+**Status:** 0.6.0 FAILED owner acceptance. 0.6.1 failed owner camera acceptance. 0.6.2 Windows desktop repair is built, independently package-verified and ready for physical camera acceptance (section 15). No new robot firmware installation required.
 
 ## 0. Astra: read this first
 Do not continue from the former `kadence/functionality`, `kadence/sensor-clean-base`, `kadence/sticks3-remote`, `kadence/rebuild-kade`, or any alpha branch. All new development must target `main` unless the owner explicitly changes this policy. Preserve existing commit SHAs and the 0.4.13 rollback package. Never assume that a code branch or passing CI reflects what is installed on the Windows computer. The owner wants one-shot, autonomous, fail-fast changes and only unavoidable hardware acceptance requests.
@@ -20,7 +20,7 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 | Component | Current source/candidate | Evidence and limits |
 |---|---|---|
 | CoreS3 firmware | 0.21.7 candidate; accepted foundation 0.21.6 | Compiled and bundled, startup stack and endpoint logic gates passed. New microphone VAD is required to remove fixed capture. No calibration/storage migration. Physical endpointing acceptance pending. |
-| Windows host | 0.6.2 camera repair candidate | 0.6.1 camera access failed in owner use. Repair evidence and actual limits in section 15; prior package in section 14. |
+| Windows host | 0.6.2 Windows package verified, physical sign-off pending | 0.6.1 camera access failed in owner use. Run 38795750292 and full archive verification in section 15; prior package in section 14. |
 | UnitV2 service | 1.3.0 | Factory Vision modes exposed; many physical mode tests still unproven. |
 | StickS3 | firmware 1.0.3 candidate | Boot/pair/display corrections and driver fix recorded, but PTT still lacks successful hardware acceptance. Remote OFF. |
 | Data | SQLite schema 5 | Native UnitV2 face files live on camera, not in PC SQLite backup. |
@@ -751,5 +751,16 @@ library; no project dependency requirements were changed for that environment fi
 **Delivery:** desktop-only 0.6.2. No CoreS3 image or Update-Robot.cmd is bundled.
 Keep existing CoreS3 0.21.7/0.21.6, UnitV2 service 1.3.0, saved native faces,
 pairing and SQLite schema 5. Install only with Install-Kadence.cmd. The previous
-0.21.7 speech endpoint firmware remains in use. Windows/package evidence follows
-after the final gate. Physical camera recovery is still awaiting owner evidence.
+0.21.7 speech endpoint firmware remains in use. The package evidence below confirms
+that these protections are preserved; physical camera recovery still awaits owner evidence.
+
+
+### 0.6.2 exact-source Windows gate and independently verified delivery
+
+- **Source:** `e9c3e7a15d3184eb91233eb4d098cec995b57e41` on sole active branch `main`. The host release and frozen BUILD identity are 0.6.2. Subsequent documentation-only commits do not alter this package.
+- **GitHub Actions:** run https://github.com/neoncrucible/StackChanSource/actions/runs/38795750292 finished **SUCCESS** in all three jobs (StickS3, CoreS3, Windows host). Firmware CI jobs were compatibility/build gates only; the Windows installer does NOT flash firmware. The Windows groups passed **543 tests and 94 subtests**. The runtime ownership/cancellation/reconnect gate passed. The source environment previously passed **599 tests, 4 Windows-only skips and 122 subtests**.
+- **Frozen Windows acceptance gate:** `DESKTOP_FROZEN PASS` for private worker, timezone, persistence, utilities, profiles, profile images and deletion, backup, camera/voice status, vision history, local speech PCM and clean shutdown. Speech decoder produced PCM before stream EOF after 576 encoded bytes; local Windows speech produced 119,360 PCM bytes in 547 ms on the CI runner. Neither result proves robot end-to-end latency or physical camera success.
+- **Actions artifact:** `Kadence-Desktop-Windows`, ID **12001229674**; outer archive **185,292,882 bytes**, SHA-256 `efbc53e42f3b407fc5f2e1310c298571269cce917dbc8d36680622f8fd21cb83`, matching GitHub's artifact digest. Expires **2027-01-13 19:39:59 UTC**. The outer ZIP passed CRC and contains exactly one release ZIP.
+- **Delivered release:** `Kadence-Desktop-0.6.2-e9c3e7a15d31.zip`, **185,292,692 bytes**, SHA-256 `fc7f91e3cf6eb07c7d0c9482d8e46cc04ffa60e65ce5e5fad844d11a1cf5fa56`. The inner archive passed full CRC and safe-path/duplicate checks. Every one of **1,175** manifest-listed files matched its SHA-256; all **1,176** archive entries had complete manifest coverage. RELEASE.json agrees on 0.6.2, exact source SHA, schema 5, host-only package, compatible CoreS3 0.21.6/0.21.7 and physical_signoff=false. `Install-Kadence.cmd` and the readme are present; **no CoreS3 Firmware directory or Update-Robot.cmd** is present. The optional existing StickS3 tool/bundle is present but must remain OFF; do not flash it for this repair.
+- **Installation:** close the running Kadence instance and tray icon, extract complete ZIP to a new folder, run **Install-Kadence.cmd**, then **Connect**. Saved settings/data under `%LOCALAPPDATA%\\Kadence`, versioned binaries under `%LOCALAPPDATA%\\KadenceApp`, and the user's Windows Credential Manager pairing persist across install. Never rerun first-time UnitV2 SSH setup or flash CoreS3 simply because the desktop app was updated. If needed, use **Settings → Camera → Reconnect camera** (no SSH). If it fails, record the displayed camera failure category; do not mask it with another blind reinstall. A pairing rejection or unreachable UnitV2 remains a possible *device-side* issue, not proof that this build failed.
+- **Owner physical gate still open:** camera connected and fresh frame accepted; “what is in my hand?”/blue bottle colour; explicit tracking and slow head follow; object watch; privacy/stop; short and long speech with silence endpoint. Do not mark tracking or camera recognition/latency as physically accepted based on the automated gate alone.
