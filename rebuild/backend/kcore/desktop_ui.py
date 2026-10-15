@@ -1538,7 +1538,7 @@ class MainWindow(QMainWindow):
                 self.reflex_log.appendPlainText(f"{stamp}Z  {safe['type'].upper()}  salience={safe['salience']:.2f} confidence={safe['confidence']:.2f}  proposed only")
             return
         from .device_diagnostics import DEVICE_REASONS, DEVICE_COMPONENTS, IMAGE_STAGES, IMAGE_REASONS
-        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer","thinking_check","vision_description","voice_progress","voice_recovery","voice_result","audio_link_test"}
+        allowed={"server","robot","activity","turn","device","device_status","alert","reminders_due","storage","integration","timing","runtime_issue","provider_stage","device_diagnostic","camera_transfer","thinking_check","vision_description","voice_progress","voice_capture","voice_recovery","voice_result","audio_link_test"}
         if name not in allowed: return
         safe={}
         states={"stopped","starting","running","stopping","idle","listening","thinking","speaking","tool-working","camera","alert","unavailable","configuration_required","delivered","review_in_windows","offline","degraded","fault","recovery","booting","attentive","ready"}
@@ -1550,6 +1550,7 @@ class MainWindow(QMainWindow):
         if name=="camera_transfer": stages=stages | IMAGE_STAGES
         if name=="voice_progress": stages |= {"connecting", "recording", "providers", "playback"}
         reasons={"timeout","unavailable","device_proof","address_not_local"}
+        if name=='voice_capture': reasons |= {'silence','no-speech','limit'}
         if name=="vision_description":
             from .vision_provider import VISION_REASONS
             reasons |= VISION_REASONS

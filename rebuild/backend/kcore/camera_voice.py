@@ -86,6 +86,9 @@ def camera_plan(text):
     watch = re.fullmatch(r"(?:tell me|let me know|notify me|alert me|remind me)(?: if| when)? (.{1,80}?) (?:gets? moved|moves|is moved|disappears|goes missing|is gone|is removed|gets? removed|gets? taken|is taken)(?: again)?", normal)
     if watch:
         return {'tool':'tracking_control','arguments':{'action':'watch','target':watch[1]}}
+    watch = re.fullmatch(r'(?:tell me|let me know|notify me|alert me|warn me|remind me) (?:if|when) (?:someone|somebody|anyone|anybody|i|you) (?:moves?|takes?|removes?|hides?) (.{1,80})', normal)
+    if watch:
+        return {'tool':'tracking_control','arguments':{'action':'watch','target':watch[1]}}
     watch = re.fullmatch(r'(?:watch|monitor) (.{1,80}?)(?: for (?:movement|changes))?', normal)
     if watch:
         return {'tool':'tracking_control','arguments':{'action':'watch','target':watch[1]}}

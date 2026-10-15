@@ -16,9 +16,11 @@ def app_at(root):
     return app,moves
 
 
-def test_home_persists_and_tracking_uses_same_coordinates(tmp_path):
+@pytest.mark.parametrize('firmware',['0.21.6','0.21.7'])
+def test_home_persists_and_tracking_uses_same_coordinates(tmp_path,firmware):
     async def case():
         app,moves=app_at(tmp_path)
+        app._last_device_status['firmware']=firmware
         await app.motion.command('motion_set_home',{'yaw':120,'pitch':410})
         assert HomeStore(tmp_path).home==(120,410)
         from kcore.object_tracking import ObjectTracking

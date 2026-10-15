@@ -201,6 +201,7 @@ def split_reminder_request(text: str) -> tuple[str, str] | None:
     match = re.fullmatch(r"(?:(" + TEMPORAL_START + r"\b.*?)\s+)?" + verbs + r"(?:\s+(.*))?", source, re.I)
     if match:
         prefix, rest = (match[1] or "").strip(" ,"), (match[2] or "").strip()
+        if not prefix and re.match(r'^(?:what|who|where|why|how)\b',rest,re.I): return None
         if re.match(r'^(?:nudge me|ping me|alert me|notify me|let me know)\b', source, re.I) and not re.search(TEMPORAL_START + r'\b', rest, re.I):
             return None
         rest = re.sub(r"^(?:for|about)\s+(?=" + TEMPORAL_START + r"\b)", "", rest, flags=re.I)

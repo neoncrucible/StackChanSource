@@ -88,6 +88,7 @@ def test_reminder_wording_preserves_task_and_time(phrase):
     'If I say remind me tomorrow, what happens?', 'Tell me a story about a reminder',
     'I reminded myself to buy milk', 'What are reminders?',
     'Let me know what you think of that idea', 'That reminds me of yesterday',
+    'Remind me what we were talking about', 'Remind me where I saved that note',
 ])
 def test_mentions_and_negations_are_not_creation_requests(phrase):
     assert split_reminder_request(phrase) is None
@@ -157,6 +158,9 @@ def test_conditions_use_real_watch_or_explain_missing_capability(tmp_path):
             reply=await c.respond('Remind me when the blue bottle moves',Offline())
             assert reply.startswith('Watching')
             service.tracking_handler.assert_awaited_once_with({'action':'watch','target':'the blue bottle'})
+            for wording in ('Remind me if someone moves the bottle','Let me know when I hide the bottle','Warn me if anybody takes the bottle'):
+                assert 'Watching' in await c.respond(wording,Offline())
+                service.tracking_handler.assert_awaited_with({'action':'watch','target':'the bottle'})
             reply=await c.respond('Remind me when I get home to order filament',Offline())
             assert "can't detect that condition" in reply
             assert await service.store.call('reminder_list') == []
