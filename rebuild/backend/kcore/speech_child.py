@@ -47,6 +47,17 @@ async def render(request, output):
 
 def main():
     try:
+        if '--warm-speech' in sys.argv:
+            # Import native decoders and the network adapter before a voice turn.
+            # No text, credential, provider connection or audio device is used.
+            from .speech_stream import Mp3Decoder
+            from .voice_providers import EdgeNeuralTTS
+            import edge_tts
+            import miniaudio
+            decoder = Mp3Decoder()
+            del decoder
+            sys.stdout.buffer.write(b'{"ready":true}\n')
+            sys.stdout.buffer.flush()
         raw = sys.stdin.buffer.read(100001)
         if len(raw) > 100000: return 2
         request = json.loads(raw)

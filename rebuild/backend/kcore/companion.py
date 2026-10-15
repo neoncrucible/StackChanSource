@@ -102,12 +102,13 @@ class Companion:
         if set(plan) != {"tool", "arguments"}:
             return "I couldn't safely interpret that request."
         name, arguments = plan["tool"], plan["arguments"]
-        if name == "desk_look" and not re.search(r"\b(look at|what (?:am i holding|do you see|is this|can you see)|read this|describe (?:this|what)|identify this|scan (?:this|the) (?:qr|code))\b", text, re.I):
+        from .camera_voice import is_visual_request
+        if name == "desk_look" and not is_visual_request(text):
             return "Ask me to look at something when you want a camera snapshot."
         rejection = self.tools.validate(name, arguments)
         if rejection:
             return self._format_result(rejection)
-        if explicit_local and name in {"remember", "task_add", "camera_control", "tracking_control"}:
+        if explicit_local and name in {"remember", "task_add", "camera_control", "tracking_control", "factory_vision"}:
             return await self._execute(name, arguments, state_sink, confirmed=True)
         if self.tools.requires_confirmation(name):
             description = await self._describe_change(name, arguments)
@@ -215,7 +216,7 @@ class Companion:
                 return "I can't carry out that request through my available tools."
             return "That service isn't available just now. We can carry on talking."
         data, name = result["data"], result["tool"]
-        if name in {"convert_units", "ohms_law", "resistor_bands", "desk_look", "camera_status", "camera_control", "tracking_status", "tracking_control"}:
+        if name in {"convert_units", "ohms_law", "resistor_bands", "desk_look", "camera_status", "camera_control", "tracking_status", "tracking_control", "factory_vision"}:
             return data["spoken"]
         if name in {"project_create", "project_note", "project_step"}:
             return f"Saved as {data['id']}: {data.get('name', data.get('text', ''))}"

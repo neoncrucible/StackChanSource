@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.5.0'
+HOST_VERSION='0.6.0'
 
 
 def archive_package(output: Path):
@@ -45,6 +45,7 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     shutil.copyfile(ROOT/'rebuild'/'docs'/'OBJECT_TRACKING_0_4_13.md',output/'OBJECT-TRACKING.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'STICKS3_REMOTE_0_4_14.md',output/'STICKS3-REMOTE.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'FACTORY_VISION_0_4_15.md',output/'FACTORY-VISION.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'REACTIVE_COMPANION_0_6_0.md',output/'WHATS-NEW.txt')
     stick=stick or ROOT/'rebuild'/'dist'/'StickS3'
     metadata=json.loads((stick/'RELEASE.json').read_text())
     if metadata['source_commit']!=commit:raise ValueError('Stick firmware source does not match host')

@@ -20,11 +20,12 @@ class TargetPreview(QWidget):
         self.setCursor(Qt.CrossCursor)
 
     def frame(self, data):
-        if not data.get('png'):
+        encoded=data.get('jpeg') or data.get('png')
+        if not encoded:
             self.pixmap=QPixmap();self.sequence=None;self.box=None;self.anchor=self.end=None
         elif self.anchor is None:
             pixmap=QPixmap()
-            if pixmap.loadFromData(base64.b64decode(data['png'],validate=True),'PNG'):
+            if pixmap.loadFromData(base64.b64decode(encoded,validate=True)):
                 self.pixmap=pixmap;self.sequence=data['sequence'];self.box=data.get('box')
         self.update()
 
@@ -38,7 +39,7 @@ class TargetPreview(QWidget):
         area=self.image_rect()
         if area.isEmpty():
             painter.setPen(QColor('#a6bdad'))
-            painter.drawText(self.rect(),Qt.AlignCenter,'OPEN PREVIEW\nThen draw a box around one object.');return
+            painter.drawText(self.rect(),Qt.AlignCenter,'Say “track that”\nor name an object below.');return
         painter.drawPixmap(area.toRect(),self.pixmap)
         painter.setPen(QPen(QColor('#64ff88'),2))
         if self.box:
@@ -80,26 +81,27 @@ class TrackingPanel(QWidget):
             holder=QWidget();box=QHBoxLayout(holder);box.setContentsMargins(0,0,0,0)
             for item in items:box.addWidget(item)
             return holder
-        self.status=text('Tracking stopped. Visual tracking works without moving the robot.')
+        self.status=text('Say “track that”, “follow this pen” or “track something red”.')
         self.status.setObjectName('status');layout.addWidget(self.status)
-        self.target=QLineEdit();self.target.setPlaceholderText('One object, e.g. this pen');self.target.setMaxLength(80)
-        layout.addWidget(row(button('OPEN PREVIEW','tracking_preview'),self.target,
-                             button('FIND && TRACK','tracking_find',lambda:{'target':self.target.text().strip()}),
-                             button('STOP / DISARM','tracking_stop')))
-        layout.addWidget(text('Hold the object still while selecting it. Draw a box for fully local selection, or name it for Gemini selection. Continuous tracking runs on UnitV2.'))
+        self.target=QLineEdit();self.target.setPlaceholderText('What should I follow?');self.target.setMaxLength(80)
+        self.target.returnPressed.connect(lambda:self.send('tracking_find',{'target':self.target.text().strip() or 'that'}))
+        layout.addWidget(row(self.target,
+                             button('Track','tracking_find',lambda:{'target':self.target.text().strip() or 'that'}),
+                             button('Stop','tracking_stop'),button('Preview','tracking_preview')))
+        layout.addWidget(text('No box needed. Show one object clearly; gently move it when saying “track that”. Colour and clear moving targets can be selected locally. Other objects use your vision service.'))
         self.preview=TargetPreview();self.preview.selected.connect(lambda args:self.send('tracking_select',args))
         layout.addWidget(self.preview,1)
-        group=QGroupBox('OPTIONAL HEAD FOLLOWING');box=QVBoxLayout(group)
+        group=QGroupBox('Head setup');box=QVBoxLayout(group)
         self.mounted=QCheckBox('UnitV2 is attached to the moving head; cables have room to move')
         box.addWidget(self.mounted)
         self.home_label=text('Shared home: set it in Motion.')
         self.flip_yaw=QCheckBox('Reverse horizontal');self.flip_pitch=QCheckBox('Reverse vertical')
         box.addWidget(row(self.home_label,self.flip_yaw,self.flip_pitch))
-        box.addWidget(row(button('MOVE HOME && ARM','tracking_arm',self.arm_args),button('RETURN HOME','tracking_home')))
-        box.addWidget(text('Arming moves to the shared home saved in Motion. Test with slow, small movements; stop and reverse an axis if it turns away. Following stays within ±18° yaw / ±15° pitch of home, in steps of at most 2°. Arming lasts only for this server session.'))
+        box.addWidget(row(button('Save head setup','tracking_arm',self.arm_args),button('Return home','tracking_home')))
+        box.addWidget(text('One-time setup moves to the shared home saved in Motion and remembers the mounting directions. Future “follow” requests position the head and select the target automatically. Test with a slow movement; reverse an axis if it turns away. Steps stay within ±18° horizontally and ±15° vertically of home.'))
         layout.addWidget(group)
-        layout.addWidget(text('Say “Kadence, follow this pen”, “tracking status”, or “stop tracking”. Other voice work, Privacy, another camera action or disconnect ends tracking. Stop prevents further steps; an in-flight bounded step settles and releases torque first. A session lasts up to 15 minutes.'))
-        layout.addWidget(text('Target loss stops head following. Select again to resume. Movement alerts, person descriptions, colour/shape modes and idle motor reflexes are separate follow-up work.'))
+        layout.addWidget(text('Conversation keeps the target and pauses head movement. Privacy, Stop, another camera action or disconnect ends tracking. A session lasts up to 15 minutes.'))
+        layout.addWidget(text('Brief loss resumes only after the same object is verified again. If it stays out of view, show it clearly and say “track that”.'))
 
     def arm_args(self):
         return {'mounted':self.mounted.isChecked(),

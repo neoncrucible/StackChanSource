@@ -16,6 +16,7 @@ MAX_PCM = 4 * 1024 * 1024
 EDGE_SECONDS = 12
 STREAM_SECONDS = 30
 LOCAL_SECONDS = 12
+_workers = None
 STAGES = frozenset({"tts_connect", "tts_audio", "tts_decode", "tts_fallback",
                     "tts_local_input", "tts_local_load", "tts_local_render", "tts_ready"})
 
@@ -68,12 +69,33 @@ def child_environment():
         "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "KADENCE_WIFI_PASSWORD"}}
 
 
+def warm_workers():
+    global _workers
+    from .speech_workers import SpeechWorkers
+    if _workers is None or _workers.closed:
+        _workers = SpeechWorkers(child_command(), child_environment())
+    return _workers
+
+
+async def close_workers(workers):
+    global _workers
+    if workers is not None:
+        if _workers is workers:
+            _workers = None
+        await workers.close()
+
+
 async def _render(command, payload, *, timeout, progress_sink=None, pcm_sink=None, stream_timeout=None):
     """Kill and reap even a wedged native decoder or websocket shutdown."""
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-    spawning = asyncio.create_task(asyncio.create_subprocess_exec(*command, stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-        env=child_environment(), limit=2048, **options))
+    workers = _workers
+    if (command == child_command() and workers is not None and not workers.closed
+            and workers.loop is asyncio.get_running_loop()):
+        spawning = asyncio.create_task(workers.take())
+    else:
+        spawning = asyncio.create_task(asyncio.create_subprocess_exec(*command, stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            env=child_environment(), limit=2048, **options))
     try:
         process = await asyncio.shield(spawning)
     except asyncio.CancelledError:

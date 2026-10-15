@@ -73,6 +73,40 @@ def test_real_process_fresh_frames_stop_and_restart(service,producer):
     assert client.call('stop',other)['stops']==2
 
 
+def test_readiness_runs_once_automatically_and_keeps_background_paused(service,producer,tmp_path):
+    async def run():
+        _,client=service
+        owner=UnitV2Owner(lambda *args:None,key_loader=lambda:KEY,client_factory=lambda *a:client)
+        owner.verification_root=tmp_path
+        owner.mode='STOPPED'
+        await owner.ensure_ready(client.address)
+        assert owner.verified and producer.status()['stop_confirmed'] and owner.mode=='STOPPED'
+        starts=producer.starts
+        await owner.ensure_ready(client.address)
+        assert producer.starts==starts
+        another=UnitV2Owner(lambda *args:None,key_loader=lambda:KEY,client_factory=lambda *a:client)
+        another.verification_root=tmp_path
+        await another.ensure_ready(client.address)
+        assert another.verified and producer.starts==starts
+        await owner.close();await another.close()
+    asyncio.run(run())
+
+
+def test_readiness_privacy_guard_never_marks_a_revoked_check_verified(service,producer,tmp_path):
+    async def run():
+        _,client=service
+        owner=UnitV2Owner(lambda *args:None,key_loader=lambda:KEY,client_factory=lambda *a:client)
+        owner.verification_root=tmp_path
+        def guard():
+            if producer.starts: raise RuntimeError('Privacy is on')
+        with pytest.raises(RuntimeError,match='Privacy'):
+            await owner.ensure_ready(client.address,guard=guard)
+        assert not owner.verified and producer.status()['stop_confirmed']
+        assert not (tmp_path/'unitv2-verification.json').exists()
+        await owner.close()
+    asyncio.run(run())
+
+
 def test_second_owner_cannot_take_or_stop_first(service,producer):
     _,client=service
     one,two=uuid.uuid4().hex,uuid.uuid4().hex

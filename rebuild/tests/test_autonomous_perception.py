@@ -198,12 +198,13 @@ def test_automatic_source_never_falls_into_unmanaged_factory_capture():
     asyncio.run(case())
 
 
-def test_worker_refuses_unverified_autonomy_without_persisting_opt_in(tmp_path):
+def test_worker_saves_explicit_awareness_choice_while_offline_without_claiming_readiness(tmp_path):
     async def case():
         worker=DesktopController(lambda *a:None,directory=tmp_path);await worker.start()
         values=asdict(CameraConfig(policy='EVENT_ONLY',perception_enabled=True))
-        with pytest.raises(ValueError,match='TEST START / STOP'):await worker.command('camera_settings',values)
-        assert not CameraConfig.load(tmp_path).perception_enabled
+        await worker.command('camera_settings',values)
+        assert CameraConfig.load(tmp_path).perception_enabled
+        assert worker.app is None  # Saving intent does not start a producer.
         await worker.close()
     asyncio.run(case())
 

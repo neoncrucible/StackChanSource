@@ -245,6 +245,7 @@ async def process_audio_turn(transcribe, *, settings=None, companion=None, state
     providers = LiveVoiceProviders.from_settings(resolved)
     timings = {}
     started = time.perf_counter()
+    turn_started = started
     if progress_sink: await progress_sink("stt")
     try:
         transcript = await transcribe(providers.stt)
@@ -265,14 +266,21 @@ async def process_audio_turn(transcribe, *, settings=None, companion=None, state
     timings["stt"] = round((time.perf_counter()-started)*1000)
     from .speech_draft import SpeechDrafts
     async def render(text, *, pcm_sink):
-        return await _synthesize_reply(providers, text, pcm_sink=pcm_sink)
+        async def measured(chunk):
+            timings.setdefault("first_pcm", round((time.perf_counter()-turn_started)*1000))
+            await pcm_sink(chunk)
+        return await _synthesize_reply(providers, text, pcm_sink=measured, progress_sink=progress_sink)
+    async def buffered_sink(chunk):
+        # Robot firmware still needs a complete length-prefixed reply. Decode
+        # and render it incrementally in private without inventing a new wire.
+        pass
     drafts = SpeechDrafts(render)
     try:
         started = time.perf_counter()
         if progress_sink: await progress_sink("reasoning")
         if companion is not None:
-            options = {"preview_sink": drafts.offer} if pcm_sink is not None else {}
-            reply = await companion.respond(transcript, providers.thinker, state_sink=state_sink, **options)
+            reply = await companion.respond(transcript, providers.thinker, state_sink=state_sink,
+                                            preview_sink=drafts.offer)
         else:
             prompt = KADENCE_IDENTITY.wrap_user_text(transcript)
             reply_parts: list[str] = []
@@ -289,11 +297,11 @@ async def process_audio_turn(transcribe, *, settings=None, companion=None, state
         timings.update(getattr(providers.thinker, "timings", {}))
         started = time.perf_counter()
         if progress_sink: await progress_sink("tts")
-        if pcm_sink is not None and drafts.first is not None:
-            pcm = await drafts.speak(reply, pcm_sink)
+        if drafts.first is not None:
+            pcm = await drafts.speak(reply, pcm_sink or buffered_sink)
             if progress_sink: await progress_sink("tts_ready")
         else:
-            pcm = await _synthesize_reply(providers, reply, progress_sink=progress_sink, pcm_sink=pcm_sink)
+            pcm = await render(reply, pcm_sink=pcm_sink or buffered_sink)
         if len(pcm) > MAX_PCM_REPLY:
             raise ValueError("Combined speech exceeds limit")
         timings["tts"] = round((time.perf_counter()-started)*1000)

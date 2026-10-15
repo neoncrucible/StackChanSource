@@ -16,7 +16,7 @@ from kcore.voice_wire import process_wire_turn, VoiceWireTurn
 
 
 class PipelineTests(unittest.IsolatedAsyncioTestCase):
-    async def exercise(self, *, invalid=False, cancel=False):
+    async def exercise(self, *, invalid=False, cancel=False, buffered=False):
         prepared = asyncio.Event(); model_finished = asyncio.Event(); played = []; renders = []
         private = "The first sentence is ready."
         class Providers:
@@ -46,7 +46,7 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
             played.append(pcm)
         with patch("kcore.voice_wire.LiveVoiceProviders.from_settings", return_value=providers):
             task = asyncio.create_task(process_wire_turn(VoiceWireTurn(16000, 60, (b"abc",)),
-                settings=VoiceProviderSettings("fixture", "fixture"), companion=companion, pcm_sink=sink))
+                settings=VoiceProviderSettings("fixture", "fixture"), companion=companion, pcm_sink=None if buffered else sink))
             if cancel:
                 await asyncio.wait_for(prepared.wait(), 2)
                 task.cancel()
@@ -54,18 +54,22 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(played, [])
             else:
                 result = await asyncio.wait_for(task, 3)
-                self.assertEqual(result.pcm, b"".join(played))
+                if not buffered: self.assertEqual(result.pcm, b"".join(played))
                 if invalid:
                     self.assertNotIn(private, result.reply)
                     self.assertTrue(all(chunk == b"\2\0" * 160 for chunk in played))
                 else:
                     self.assertEqual(renders, [private, "Here is the remainder."])
-                    self.assertEqual(played, [b"\1\0" * 160, b"\2\0" * 160])
+                    self.assertEqual(played, [] if buffered else [b"\1\0" * 160, b"\2\0" * 160])
+                    self.assertEqual(result.pcm,b"\1\0"*160+b"\2\0"*160)
             self.assertFalse(companion.history)  # Device proof has not arrived.
         self.assertFalse([task for task in asyncio.all_tasks() if task.get_name() == "kadence-speech-draft"])
 
     async def test_render_overlaps_reasoning_but_audio_waits_for_validation(self):
         await self.exercise()
+
+    async def test_robot_buffered_output_also_overlaps_reasoning_and_rendering(self):
+        await self.exercise(buffered=True)
 
     async def test_invalid_mixed_plan_discards_private_audio(self):
         await self.exercise(invalid=True)

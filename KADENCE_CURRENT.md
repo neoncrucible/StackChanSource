@@ -1,12 +1,12 @@
 # PROJECT KADENCE — canonical state and Astra handover
 **Audit date:** 2026-10-12 (Europe/London)
-**Latest engineering continuation:** 2026-10-13 — M0 source inventory / M1 console candidate; see section 12.
+**Latest engineering continuation:** 2026-10-15 — reactive companion 0.6.0 candidate; see section 13 and `rebuild/docs/REACTIVE_COMPANION_0_6_0.md`.
 **Owner decision:** ONE active development branch: `main`.
 **Repository:** `neoncrucible/StackChanSource`
 **Promoted source head (pre-documentation):** `4a0a816a0442f391533591db52b5a82a58bc1bad` from `kadence/sticks3-remote`.
 **Previous main:** `3b9890063b3abe03e96cf2b00c1b94409532a8eb`; changed by a NON-FORCED fast-forward.
 **Accepted fallback:** `kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`.
-**Target release:** host 0.5.0, "Presence & Consolidation".
+**Target release:** host 0.6.0, "Reactive Companion".
 **Status:** engineering plan, not a claim of owner physical acceptance or deployed version.
 
 ## 0. Astra: read this first
@@ -20,7 +20,7 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 | Component | Current source/candidate | Evidence and limits |
 |---|---|---|
 | CoreS3 firmware | 0.21.6 | Hardware-tested sensor/voice/body foundation. No new flash required for host changes. |
-| Windows host | 0.5.0 M1 candidate source | Continues main from 3203c91. Four-page console; local test evidence in section 12. Installed Windows version and physical acceptance remain unobserved. |
+| Windows host | 0.6.0 candidate source | Continues main from f4ced1e. Natural camera commands, streaming warm-up and reactive tracking; see section 13. Installed Windows version and physical acceptance remain unobserved. |
 | UnitV2 service | 1.3.0 | Factory Vision modes exposed; many physical mode tests still unproven. |
 | StickS3 | firmware 1.0.3 candidate | Boot/pair/display corrections and driver fix recorded, but PTT still lacks successful hardware acceptance. Remote OFF. |
 | Data | SQLite schema 5 | Native UnitV2 face files live on camera, not in PC SQLite backup. |
@@ -467,3 +467,65 @@ resolve the specific mismatch first. After M0's remaining live evidence and M1's
 owner checks, continue M2: versioned attention preferences, quiet hours,
 do-not-disturb, visit/cooldown coordination and deterministic stationary-user tests,
 then the required 30–60 minute desk soak. Do not add another controller or database.
+
+## 13. Reactive companion continuation — 2026-10-15
+
+The owner reported a serious latency/interaction regression after M1: slow voice,
+slow UnitV2 preview, manual readiness gates, repeated target selection and a canned
+recognition greeting. This priority supersedes the previous M2-only next-step list.
+Host **0.6.0** continues `main` from `f4ced1e899b474ef7bcd89018b24afa80e51363c`.
+It does not establish a new physically accepted baseline.
+
+### Implemented
+
+- Preserved the accepted incremental PyAV/PC audio route. The 0.5.0 diff did not
+  remove it; do not invent that as the proven installed regression. Added two
+  preloaded single-use speech children to remove repeated native import startup,
+  earlier private phrase preparation and model/TTS overlap for robot/Both too.
+  Robot/Both still require complete-buffer PCM under firmware 0.21.6. No wire change.
+- Camera questions understand conversational wrappers and ordinary colour, shape,
+  label and scene requests. Explicit tracking/factory requests perform readiness
+  automatically, including when background mode is stopped or snapshot preference
+  is the robot camera. Privacy and one camera lease remain mandatory. Saved automatic
+  awareness triggers a bounded background readiness check without delaying voice startup.
+- Local selection handles one unambiguous coloured region or moving foreground
+  object for “track that”. Named objects retain Gemini selection. Ambiguity asks
+  for clearer presentation rather than requiring a hand-drawn rectangle.
+- Live tracking retains native JPEG and removes the added 150 ms polling sleep.
+  Voice keeps the visual target, pauses motor steps and drains any issued step.
+  Brief loss can resume after three fresh, same-epoch, appearance-matched frames
+  within five seconds. Larger jumps/long loss require another spoken request.
+- One-time head setup is saved in `tracking-head.json`, bound to the shared home
+  and only after movement/torque confirmation. Explicit subsequent follow requests
+  automatically position and select; requests made during voice wait for its motor
+  lane to release. Stop cancels queued requests. No unrequested idle motor motion.
+- Home now focuses on conversation, one camera-request field, awareness and Stop.
+  Privacy is global. Voice/connection settings are directly accessible. Speaker
+  changes apply to the next reply without restarting. Existing preferences persist.
+- Recognition greeting: “Alright, {saved greeting name}. What's the plan?”
+- Added separate first-PCM, first-PC-playback, live-frame and target-selection
+  timing evidence. No camera image, target name or spoken text enters timing logs.
+
+### Verification and delivery
+
+Local full-suite run with pinned face models/media: **451 passed, 4 Windows-only
+skips, 119 subtests passed**; its only failure was a release-notes file still being
+written while the packaging test ran. After completing that file, the installer
+and speech-worker group passed **5 tests, 1 Windows skip**, including the newly
+added failed-warm-child case. Runtime ownership/alignment gate: **PASS**. Additional
+focused camera/UI regressions and the Windows frozen-package gate are recorded
+with final build evidence below when complete. Do not confuse tests with installed
+or physical acceptance.
+
+See `rebuild/docs/REACTIVE_COMPANION_0_6_0.md` and the package's `WHATS-NEW.txt`.
+CoreS3 **0.21.6**, UnitV2 service **1.3.0 source**, SQLite **5**, native face files
+and the accepted **0.4.13** rollback remain unchanged. No reflash/re-enrolment is
+required. Stick microphone, wireless control, locomotion and volume/top-swipe are
+still outside this fix. Sessions still expire after 15 minutes; explicit snapshots
+switch camera ownership away from tracking.
+
+Consistent two-second audible replies, LAN camera rate and physical following are
+not measurable from this build environment. After installing the complete candidate,
+the next operator check is ordinary voice, “what colour is this?”, “track that”,
+conversation while tracking, then Stop/Privacy. Use the new timing fields if latency
+persists; do not ask the owner to navigate repeated readiness/arming switches.

@@ -121,6 +121,8 @@ class KadenceAppliance:
         self._companion: Companion | None = None
         self._provider_stage: str | None = None
         self._warmup_task = None
+        self._speech_workers = None
+        self._camera_ready_task = None
         self._voice_stage = "idle"
         self._voice_deadline = 0.0
         self._voice_progress = asyncio.Event()
@@ -149,6 +151,8 @@ class KadenceAppliance:
     async def run_forever(self) -> None:
         await self._start_companion()
         await self._start_voice_server()
+        from .speech_output import warm_workers
+        self._speech_workers = warm_workers()
         self._schedule_network_check()
         if self.settings.providers.thinker_provider == "ollama":
             self._warmup_task = asyncio.create_task(self._warm_thinker(), name="kadence-ollama-warmup")
@@ -158,6 +162,17 @@ class KadenceAppliance:
             self.camera.unitv2.verification_root = self.services.paths.root
             self.camera.configure(CameraConfig.load(self.services.paths.root))
             with contextlib.suppress(Exception): await self.camera.settle_settings()
+            config=self.camera.config
+            if not config.privacy and config.perception_enabled and config.policy!='OFF' and config.source!='robot-camera':
+                generation=self.camera.generation
+                # A saved awareness choice includes permission for this bounded
+                # readiness check. Failure never prevents ordinary voice startup.
+                async def prepare_camera():
+                    with contextlib.suppress(RuntimeError, TimeoutError):
+                        async with asyncio.timeout(20):
+                            await self.camera.unitv2.ensure_ready(config.address,
+                                guard=lambda:self.camera.check(generation))
+                self._camera_ready_task=asyncio.create_task(prepare_camera(),name='kadence-camera-readiness')
             self.perception = PerceptionController(self.camera, self.services.paths, self.emit,
                 self._deliver_presence, lambda: (self._voice_task is not None and not self._voice_task.done()) or (self.motion.task is not None and not self.motion.task.done()),
                 sampler=self.sensor_sampler)
@@ -247,6 +262,10 @@ class KadenceAppliance:
 
     async def close(self) -> None:
         self._stop.set()
+        if self._camera_ready_task is not None:
+            self._camera_ready_task.cancel()
+            await asyncio.gather(self._camera_ready_task,return_exceptions=True)
+            self._camera_ready_task=None
         await self.tracking.stop(disarm=True)
         await self.factory.stop()
         await self.motion.stop()
@@ -273,6 +292,9 @@ class KadenceAppliance:
         await self._cancel_active_provider()
         await self._cancel_active_voice_task()
         await self._close_connections()
+        from .speech_output import close_workers
+        await close_workers(self._speech_workers)
+        self._speech_workers = None
         if self._companion:
             self._companion.abort_turn()
             if self.services is None:
@@ -555,7 +577,7 @@ class KadenceAppliance:
         async def speak():
             try:
                 providers = LiveVoiceProviders.from_settings(self.settings.providers)
-                pcm = await _synthesize_reply(providers, "Welcome back, " + action["greeting_name"][:80] + ". Try not to break the universe before tea.")
+                pcm = await _synthesize_reply(providers, "Alright, " + action["greeting_name"][:80] + ". What's the plan?")
                 check()
                 if time.time() > action["expires_at"]: raise RuntimeError("Greeting expired.")
                 if self.settings.audio_output == "windows":
@@ -665,7 +687,9 @@ class KadenceAppliance:
             task.result()
 
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
-        await self.tracking.stop("Tracking stopped for voice. Select a fresh target to follow again.")
+        # Speech owns motors, but an ordinary conversation must not destroy the
+        # camera's target. Explicit camera actions still switch the one owner.
+        await self.tracking._settle_move()
         await self.factory.stop()
         await self.motion.stop()
         self._media_mode = "voice"

@@ -25,6 +25,17 @@ def check(executable, expected_commit, *, offline=False):
     decoded=json.loads(subprocess.check_output([str(executable),'--speech-decode-check',str(fixture)],text=True,timeout=30))
     assert decoded['before_eof'] and decoded['first_encoded_bytes']<=1152 and decoded['pcm_bytes']>128000,decoded
     print('DESKTOP_STREAM_DECODER',json.dumps(decoded),flush=True)
+    warm=subprocess.Popen([str(executable),'--speech-child','--warm-speech'],stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    ready=queue.Queue()
+    threading.Thread(target=lambda:ready.put(warm.stdout.readline()),daemon=True).start()
+    try:
+        assert json.loads(ready.get(timeout=20))=={'ready':True}
+        assert warm.poll() is None
+        print('DESKTOP_WARM_SPEECH PASS native_decoder_preloaded=1',flush=True)
+    finally:
+        if warm.poll() is None: warm.kill()
+        warm.wait(timeout=5)
     remote=json.loads(subprocess.check_output([str(executable),'--remote-protocol-check'],text=True,timeout=30))
     assert remote=={'paired_websocket':True,'robot_link':'tethered','disconnected_ptt_rejected':True,'clean_close':True},remote
     print('DESKTOP_REMOTE_PROTOCOL PASS',flush=True)

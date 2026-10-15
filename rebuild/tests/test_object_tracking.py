@@ -110,7 +110,8 @@ def test_controller_owns_one_process_tracks_and_privacy_stops(tracker_service):
         sequence=t.frames[-1][0]
         await t.select([650,350,180,250],sequence)
         await asyncio.sleep(.4)
-        assert t.state=='TRACKING' and not moves and p.starts==1
+        # One automatic readiness cycle, then one live tracking producer.
+        assert t.state=='TRACKING' and not moves and p.starts==2
         with pytest.raises(RuntimeError,match='busy'):await app.camera.acquire()
         app.camera.configure(replace(app.camera.config,privacy=True))
         task=t.task

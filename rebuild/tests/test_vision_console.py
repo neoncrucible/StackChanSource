@@ -145,8 +145,9 @@ def test_voice_and_desktop_share_lifecycle_gate_and_partial_settings(tmp_path):
     async def case():
         worker=DesktopController(lambda *a:None,directory=tmp_path);await worker.start()
         result=await worker.camera_voice('perception_on')
-        assert 'TEST START / STOP' in result['spoken']
-        assert not CameraConfig.load(tmp_path).perception_enabled
+        assert result['ok']
+        assert CameraConfig.load(tmp_path).perception_enabled
+        assert worker.app is None
         await worker.command('camera_settings',asdict(CameraConfig(source='robot-camera',address='192.168.40.175')))
         await worker.camera_voice('perception_on')
         saved=CameraConfig.load(tmp_path)

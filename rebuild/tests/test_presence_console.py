@@ -22,13 +22,15 @@ def window(tmp_path):
 
 
 def test_everyday_pages_and_single_control_locations(window):
-    assert [b.text() for b in window.nav] == ['01  HOME','02  ACTIVITY','03  TOOLS','04  SETTINGS']
+    assert [b.text() for b in window.nav] == ['Home','Activity','Tools','Settings']
     assert window.camera_policy.isVisible() and window.camera_privacy.isVisible()
     assert not window.engineering.isVisible()
     assert not window.secret_fields['wifi_password'].isVisible()
     window.navigate(1); QApplication.processEvents()
+    assert window.camera_privacy.isVisible()
     assert window.reflex_log.isVisible()
     window.navigate(2); QApplication.processEvents()
+    assert window.camera_privacy.isVisible()
     assert window.reminder_table.isVisible()
     window.tools_tabs.setCurrentIndex(3); QApplication.processEvents()
     assert window.tracking_panel.isVisible()

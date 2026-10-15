@@ -282,6 +282,8 @@ class UnitV2Owner:
                     except Exception:
                         if not cancelled: raise
                     finally: self.publish()
+                    if succeeded and epoch == self._cancel_epoch and self.verification_root:
+                        self.record_verified(self.verification_root)
 
     def _stop_sync(self):
         # Called while lock is retained; publication stays on the event loop.
@@ -337,6 +339,49 @@ class UnitV2Owner:
         self.verification_root=root
         self.verified=True
         self.publish()
+
+    async def ensure_ready(self, address, *, guard=lambda: None):
+        """Load saved readiness or prove one fresh start/frame/stop automatically.
+
+        STOPPED pauses background use. An explicit request may acquire a bounded
+        session without changing that preference or bypassing camera privacy.
+        """
+        from .camera_manager import decode_jpeg, settled_thread
+        async with self.lock:
+            guard()
+            if not await self._select(address):
+                raise LifecycleError('UnitV2 needs its one-time connection setup. Open Settings > Camera.')
+            guard()
+            if self.web_session:
+                raise LifecycleError('Finish the open face-training session before using the camera.')
+            if self.verified:
+                return
+            epoch = self._cancel_epoch
+            try:
+                await self._start()
+                guard()
+                if epoch != self._cancel_epoch:
+                    raise LifecycleError('Camera readiness check was cancelled.')
+                jpeg, sequence = await self._call('frame', lease=self.lease, timeout=10)
+                if type(sequence) is not int or sequence <= self.sequence:
+                    raise LifecycleError('UnitV2 did not return a fresh image.')
+                await settled_thread(decode_jpeg, jpeg)
+                self.sequence = sequence
+                guard()
+            finally:
+                # Settle the real producer even if privacy or cancellation arrives.
+                await settled_thread(self._stop_sync)
+                self.publish()
+            guard()
+            if epoch != self._cancel_epoch:
+                raise LifecycleError('Camera readiness check was cancelled.')
+            if self.verification_root:
+                self.record_verified(self.verification_root)
+            elif self.status.get('stop_confirmed') and self.status.get('version') in {'1.1.0', '1.2.0', '1.3.0'}:
+                self.verified = True
+                self.publish()
+            else:
+                raise LifecycleError('UnitV2 did not confirm its stop. Check its connection and try again.')
 
     async def refresh(self, address):
         async with self.lock:

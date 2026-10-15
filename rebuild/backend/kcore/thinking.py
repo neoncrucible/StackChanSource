@@ -91,14 +91,23 @@ def reply_preview(raw: str) -> str | None:
         return None
     tail = raw[match.end():]
     for index, char in enumerate(tail[:240]):
-        if char not in ".!?" or index + 1 >= len(tail) or tail[index + 1] not in ' \t\r\n"':
+        if char not in ".!?,;:" or index + 1 >= len(tail) or tail[index + 1] not in ' \t\r\n"':
             continue
         try:
             value = json.loads('"' + tail[:index + 1] + '"').strip()
         except ValueError:
             continue
-        if 12 <= len(value) <= 200:
+        minimum = 32 if char in ',;:' else 6
+        if minimum <= len(value) <= 200:
             return value
+    # Short replies need not end in punctuation. Prepare once their JSON string
+    # closes, while the provider drains its final metadata. Still private.
+    try:
+        value, _ = json.JSONDecoder().raw_decode('"' + tail)
+        if isinstance(value, str) and 1 <= len(value.strip()) <= 200:
+            return value.strip()
+    except ValueError:
+        pass
     return None
 
 

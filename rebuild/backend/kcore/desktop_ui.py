@@ -28,7 +28,7 @@ from .build_info import build_info
 from .ollama_models import DEFAULT_OLLAMA_MODEL, model_name
 
 STYLE = """
-QWidget { background: #000000; color: #d4dfd7; font-family: 'Cascadia Mono','Consolas','DejaVu Sans Mono'; font-size: 12px; }
+QWidget { background: #080c0a; color: #e3ebe6; font-family: 'Segoe UI','Inter','DejaVu Sans'; font-size: 13px; }
 QMainWindow { background: #000000; }
 QLabel#brand { color: #64ff88; font-size: 24px; font-weight: bold; letter-spacing: 3px; }
 QLabel#muted { color: #88968d; }
@@ -36,15 +36,16 @@ QLabel#title { font-size: 23px; color: #e0f2e5; font-weight: bold; }
 QLabel#status { color: #64ff88; }
 QFrame#rule { background: #263c2d; max-height: 1px; }
 QFrame#rail { border-right: 1px solid #263c2d; }
-QGroupBox { border: 1px solid #293c2f; margin-top: 15px; padding: 16px 12px 12px; font-weight: bold; }
+QGroupBox { border: 1px solid #293c2f; border-radius: 10px; margin-top: 15px; padding: 16px 16px 14px; font-weight: bold; }
 QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #64ff88; }
-QPushButton { background: #101a13; border: 1px solid #39523f; padding: 9px 13px; color: #d6eadb; }
+QPushButton { background: #101a13; border: 1px solid #39523f; border-radius: 6px; padding: 9px 13px; color: #d6eadb; }
 QPushButton:hover { border-color: #64ff88; color: #64ff88; }
 QPushButton:pressed, QPushButton:checked { background: #64ff88; color: #0b130b; border-color: #64ff88; }
 QPushButton:disabled { color: #58635b; border-color: #253027; background: #0a0e0b; }
 QPushButton#primary { background: #64ff88; color: #08100a; font-weight: bold; }
+QPushButton#primary:disabled { background: #243a2b; color: #829c89; border-color: #304736; }
 QPushButton#nav { text-align: left; border: none; padding: 14px 12px; }
-QLineEdit, QComboBox, QSpinBox, QPlainTextEdit { background: #0b110d; border: 1px solid #324c3a; padding: 7px; selection-background-color: #64ff88; selection-color: #08100a; }
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit { background: #0b110d; border: 1px solid #324c3a; border-radius: 5px; padding: 9px; selection-background-color: #64ff88; selection-color: #08100a; }
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: #64ff88; }
 QComboBox::drop-down { border: none; width: 24px; }
 QCheckBox { spacing: 8px; padding: 4px 0; }
@@ -118,7 +119,7 @@ class Avatar(QWidget):
         self.timer=QTimer(self); self.timer.setInterval(66); self.timer.timeout.connect(self.update); self.timer.start()
     def paintEvent(self, event):
         p=QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(),QColor("#000000"))
+        p.fillRect(self.rect(),QColor("#080c0a"))
         p.translate(self.width()/2,self.height()/2-6)
         scale=min(self.width()/320,self.height()/215); p.scale(scale,scale)
         t=time.monotonic()-self.epoch
@@ -182,30 +183,31 @@ class MainWindow(QMainWindow):
         self.perception_snapshot={}; self.perception_decisions=deque(maxlen=120)
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
         self.active_timezone="Europe/London"; self.timings={}
-        self.setWindowTitle("Kadence • Signal Console")
+        self.setWindowTitle("Kadence")
         self.resize(1160,800); self.setMinimumSize(980,690)
         self.setStyleSheet(STYLE)
         root=QWidget(); self.setCentralWidget(root); shell=QVBoxLayout(root); shell.setContentsMargins(24,18,24,14); shell.setSpacing(14)
-        heading=QHBoxLayout(); heading.addWidget(label("KADENCE", "brand")); heading.addWidget(label("/  SIGNAL CONSOLE", "muted")); heading.addStretch()
+        heading=QHBoxLayout(); heading.addWidget(label("KADENCE", "brand")); heading.addWidget(label("Your desk companion", "muted")); heading.addStretch()
         self.clock=label("LOCAL CLOCK", "muted"); heading.addWidget(self.clock)
         shell.addLayout(heading)
         rule=QFrame(); rule.setObjectName("rule"); shell.addWidget(rule)
         controls=QHBoxLayout()
+        self.header_controls=controls
         self.server_label=label("SERVER  STOPPED", "status"); self.robot_label=label("ROBOT  DISCONNECTED", "muted")
         controls.addWidget(self.server_label); controls.addSpacing(22); controls.addWidget(self.robot_label); controls.addStretch()
-        self.start_button=button("START SERVER",self.start_server,primary=True)
-        self.stop_button=button("STOP",lambda:self.control.send("server_stop"))
-        self.restart_button=button("RESTART",lambda:self.start_server(restart=True))
-        for b in (self.start_button,self.stop_button,self.restart_button): controls.addWidget(b)
+        self.start_button=button("Connect",self.start_server,primary=True)
+        self.stop_button=button("Disconnect",lambda:self.control.send("server_stop"))
+        self.restart_button=button("Reconnect",lambda:self.start_server(restart=True))
+        for b in (self.start_button,self.stop_button): controls.addWidget(b)
         shell.addLayout(controls)
         content=QHBoxLayout(); content.setSpacing(22)
         rail=QFrame(); rail.setObjectName("rail"); rail.setFixedWidth(175); sidebar=QVBoxLayout(rail); sidebar.setContentsMargins(0,6,14,0)
         self.pages=QStackedWidget()
         self.build_vision_sections()
-        for index,(title,method) in enumerate((("01  HOME",self.overview_page),("02  ACTIVITY",self.activity_page),("03  TOOLS",self.tools_page),("04  SETTINGS",self.settings_page))):
+        for index,(title,method) in enumerate((("Home",self.overview_page),("Activity",self.activity_page),("Tools",self.tools_page),("Settings",self.settings_page))):
             b=button(title,lambda checked=False,i=index:self.navigate(i)); b.setObjectName("nav"); b.setCheckable(True); self.nav.append(b); sidebar.addWidget(b)
             page=method(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setWidget(page); self.pages.addWidget(scroll)
-        sidebar.addStretch(); sidebar.addWidget(label("PRIVATE LAB\nSYSTEM TERMINAL", "muted"))
+        sidebar.addStretch(); sidebar.addWidget(label("Local presence.\nReady on request.", "muted"))
         info=build_info(); sidebar.addWidget(label(f"v{info['host_version']} / CANDIDATE\n{info['source_commit'][:12]}","muted"))
         self.tray_check=QCheckBox("Keep in tray"); sidebar.addWidget(self.tray_check)
         sidebar.addWidget(button("QUIT",self.quit_app))
@@ -213,10 +215,11 @@ class MainWindow(QMainWindow):
         self.message=label("Local utilities are starting…", "muted"); self.message.setMinimumHeight(36); shell.addWidget(self.message)
         self.navigate(0)
         self._load_settings(load_credentials)
+        self.active_audio_output=self.audio_output.currentData()
         self.ollama_model.activated.connect(self.save_settings)
         self.ollama_model.lineEdit().editingFinished.connect(self.save_settings)
         self.thinker_provider.currentIndexChanged.connect(self.save_settings)
-        self.audio_output.currentIndexChanged.connect(self.save_settings)
+        self.audio_output.currentIndexChanged.connect(self.change_audio_output)
         self.timezone.editingFinished.connect(self.apply_timezone)
         self._make_tray()
         self.ticker=QTimer(self); self.ticker.setInterval(1000); self.ticker.timeout.connect(self.tick); self.ticker.start()
@@ -228,36 +231,50 @@ class MainWindow(QMainWindow):
         return widget,layout
 
     def overview_page(self):
-        page,layout=self.page("Home", "Kadence at a glance. Changes below are saved by the host service.")
+        page,layout=self.page("Home", "Talk naturally. Ask for a look, a colour, or an object to track.")
         top=QHBoxLayout(); self.avatar=Avatar(); top.addWidget(self.avatar,1)
+        self.avatar.setMaximumHeight(180)
         info=QVBoxLayout(); self.activity=label("READY WHEN YOU ARE", "status"); self.activity.setStyleSheet("font-size: 18px;")
         self.runtime_info=label("Server stopped. Local reminders work while this app is open.","muted")
-        self.model_info=label("Thinking provider: see Settings; server stopped", "muted"); info.addWidget(self.model_info)
+        self.model_info=label("Thinking provider: see Settings; server stopped", "muted")
         self.next_due=label("No scheduled reminders."); self.turn_info=label("Completed turns  0","muted")
-        for w in (self.activity,self.runtime_info,self.next_due,self.turn_info): info.addWidget(w)
-        self.voice_health=label("Audio not checked · start the server, then Test Audio Link.","muted"); info.addWidget(self.voice_health)
-        self.cancel_button=button("CANCEL CURRENT TASK",lambda:self.control.send("media_cancel"))
+        for w in (self.activity,self.runtime_info,self.next_due): info.addWidget(w)
+        self.voice_health=label("Replies use your selected speaker.","muted"); info.addWidget(self.voice_health)
+        self.cancel_button=button("Stop task",lambda:self.control.send("media_cancel"))
         info.addWidget(self.cancel_button)
         info.addStretch(); top.addLayout(info,1); layout.addLayout(top)
-        awareness=QGroupBox("AWARENESS / PRIVACY"); box=QVBoxLayout(awareness)
+        camera=QGroupBox("Ask your camera"); camera_box=QVBoxLayout(camera)
+        self.home_question=line('What can you see?  /  What colour is this?  /  Track the pen',500)
+        self.home_ask=button('Ask',self.ask_camera,primary=True)
+        self.home_question.returnPressed.connect(self.ask_camera)
+        camera_box.addWidget(row(self.home_question,self.home_ask))
+        self.home_camera_status=label('Connect Kadence to use the camera.','muted')
+        camera_box.addWidget(self.home_camera_status)
+        self.home_answer=QPlainTextEdit(); self.home_answer.setReadOnly(True); self.home_answer.setFixedHeight(70)
+        self.home_answer.setPlaceholderText('Fresh camera answers appear here. You can say the same requests aloud.')
+        camera_box.addWidget(self.home_answer)
+        layout.addWidget(camera)
+        awareness=QGroupBox("Background awareness"); box=QVBoxLayout(awareness)
         self.camera_policy=QComboBox()
-        for text,value in (("OFF · manual only","OFF"),("EVENT ONLY · arrival / gesture","EVENT_ONLY"),("AWARE · events + sparse checks","AWARE")):
+        for text,value in (("On request","OFF"),("Arrival checks","EVENT_ONLY"),("Stay aware","AWARE")):
             self.camera_policy.addItem(text,value)
         self.camera_policy.activated.connect(self.change_awareness)
-        self.camera_privacy=QCheckBox("PRIVACY · block camera access")
+        self.camera_privacy=QCheckBox("Camera privacy")
         self.camera_privacy.clicked.connect(self.change_privacy)
-        box.addWidget(row(self.camera_policy,self.camera_privacy))
+        self.header_controls.insertWidget(3,self.camera_privacy)
+        box.addWidget(self.camera_policy)
         self.awareness_feedback=label("Waiting for saved settings. Live readiness appears below.","muted")
         box.addWidget(self.awareness_feedback)
-        for widget in (self.perception_gate,self.camera_state,self.perception_state,self.last_look,self.greeting_result): box.addWidget(widget)
-        box.addWidget(label("Privacy blocks all camera access. Awareness uses local recognition; spoken greetings follow your saved preferences.","muted"))
+        box.addWidget(label("Camera questions work in every awareness mode. Privacy blocks all camera access.","muted"))
         layout.addWidget(awareness)
-        layout.addWidget(row(button("RECENT ACTIVITY",lambda:self.navigate(1)),button("REMINDERS / TOOLS",lambda:self.navigate(2))))
+        self.response_speed=label('Reply timing appears after your next conversation.','muted')
+        layout.addWidget(self.response_speed)
         layout.addStretch()
         return page
 
     def connection_page(self):
         page,layout=self.page("Connection & services", "Transport, credentials, reasoning provider and audio diagnostics.")
+        layout.addWidget(self.model_info)
         layout.addWidget(row(button("TEST AUDIO LINK",lambda:self.audio_action("audio_link_test"),primary=True),
             button("CHECK NETWORK",lambda:self.audio_action("audio_network_check")),
             button("ALLOW ROBOT AUDIO",lambda:self.audio_action("audio_network_allow"))))
@@ -290,26 +307,30 @@ class MainWindow(QMainWindow):
         self.reply_check=button("TEST REPLY",self.test_ollama_reply)
         self.reply_check.setToolTip("Stop the server, then test the selected Ollama model's actual reply.")
         self.audio_output=QComboBox()
-        for title,value in (("Robot speaker","robot"),("Windows speaker / Bluetooth","windows"),("Robot + Windows","both")):
+        for title,value in (("PC / Bluetooth · fast streaming","windows"),("Robot speaker","robot"),("Robot + PC · buffered","both")):
             self.audio_output.addItem(title,value)
+        self.audio_output.setCurrentIndex(self.audio_output.findData('windows' if os.name=='nt' else 'robot'))
         grid.addWidget(label("Thinking provider"),8,0); grid.addWidget(self.thinker_provider,8,1,1,2)
         grid.addWidget(label("Ollama model"),9,0); grid.addWidget(self.ollama_model,9,1); grid.addWidget(self.models_refresh,9,2)
         grid.addWidget(label("Speech output"),10,0); grid.addWidget(self.audio_output,10,1,1,2)
-        grid.addWidget(label("Ollama changes reasoning only. Transcription and Edge speech still use online services.\nWindows output follows your default speaker. Restart the server after changes.","muted"),11,0,1,3)
+        grid.addWidget(label("PC / Bluetooth starts speaking as audio arrives, using your Windows default speaker. Robot output uses its stable buffered playback. Speaker changes apply between replies.","muted"),11,0,1,3)
         grid.addWidget(button("SAVE SETTINGS",self.save_settings),12,1)
         grid.addWidget(self.reply_check,12,2)
         layout.addWidget(group)
+        layout.addWidget(self.restart_button)
         layout.addWidget(label("Session-only credentials by default. SHOW reveals a field here; diagnostics never include it.","muted"))
         layout.addStretch()
         return page
 
     def activity_page(self):
         page,layout=self.page("Activity", "Recent decisions and their reasons. Routine sensor samples are omitted.")
+        layout.addWidget(self.turn_info)
+        for widget in (self.perception_gate,self.camera_state,self.perception_state,self.last_look,self.greeting_result): layout.addWidget(widget)
         layout.addWidget(self.vision_sections["Activity"])
         return page
 
     def tools_page(self):
-        page,layout=self.page("Tools", "Reminders, project notes, requested snapshots and explicitly armed tracking.")
+        page,layout=self.page("Tools", "Reminders, project notes and hands-on camera tools.")
         self.tools_tabs=QTabWidget()
         for title,widget in (("Reminders",self.reminders_page()),("Workbench",self.workbench_page()),
                              ("Camera",self.vision_sections["Camera"]),("Tracking",self.vision_sections["Tracking"])):
@@ -318,20 +339,22 @@ class MainWindow(QMainWindow):
         return page
 
     def settings_page(self):
-        page,layout=self.page("Settings", "Saved preferences and device controls. Setup and diagnostics are under Engineering.")
+        page,layout=self.page("Settings", "Set up once. Your preferences stay with Kadence between updates.")
         self.settings_tabs=QTabWidget()
+        connection=self.connection_page()
+        self.settings_tabs.addTab(connection,"Voice & connection")
         preferences=QWidget(); box=QVBoxLayout(preferences)
         box.addWidget(self.camera_selection); box.addWidget(self.perception_preferences); box.addStretch()
-        self.settings_tabs.addTab(preferences,"Awareness / camera")
-        self.settings_tabs.addTab(self.device_page(),"Audio / display")
+        self.settings_tabs.addTab(preferences,"Camera & awareness")
         self.settings_tabs.addTab(self.vision_sections["Profiles"],"Profiles")
+        self.settings_tabs.addTab(self.device_page(),"Robot")
         self.settings_tabs.currentChanged.connect(lambda i:self.refresh_faces() if i==2 else None)
         layout.addWidget(self.settings_tabs)
-        self.engineering_toggle=QCheckBox("ENGINEERING · setup, calibration and diagnostics")
+        self.engineering_toggle=QCheckBox("Advanced · calibration and diagnostics")
         layout.addWidget(self.engineering_toggle)
         self.engineering=QWidget(); engineering_layout=QVBoxLayout(self.engineering)
         self.engineering_choice=QComboBox(); self.engineering_pages=QStackedWidget()
-        for title,widget in (("Connection & services",self.connection_page()),("UnitV2 start / stop",self.camera_lifecycle),
+        for title,widget in (("UnitV2 start / stop",self.camera_lifecycle),
                 ("Perception checks",self.vision_sections["Perception"]),("Face check",self.vision_sections["Face check"]),
                 ("UnitV2 training",self.vision_sections["UnitV2 training"]),("Motion",self.vision_sections["Motion"]),
                 ("Factory Vision",self.vision_sections["Factory Vision"]),("Stick controls",self.remote_panel),
@@ -349,9 +372,12 @@ class MainWindow(QMainWindow):
         self.engineering.setVisible(checked)
 
     def show_camera_settings(self):
-        self.navigate(3); self.engineering_toggle.setChecked(False); self.settings_tabs.setCurrentIndex(0)
+        self.navigate(3); self.engineering_toggle.setChecked(False); self.settings_tabs.setCurrentIndex(1)
 
     def show_engineering(self,title):
+        if title == 'Connection & services':
+            self.navigate(3); self.engineering_toggle.setChecked(False); self.settings_tabs.setCurrentIndex(0)
+            return
         self.navigate(3); self.engineering_toggle.setChecked(True)
         self.engineering_choice.setCurrentText(title)
 
@@ -477,8 +503,8 @@ class MainWindow(QMainWindow):
         camera.addWidget(label("Snapshots are temporary until saved. Privacy blocks access and requests a producer stop; board power remains on.","muted"))
         self.camera_selection=QGroupBox("CAMERA SOURCE"); box=QVBoxLayout(self.camera_selection)
         box.addWidget(row(self.camera_source,self.unitv2_address))
-        box.addWidget(button("APPLY AND SAVE",self.apply_camera_policy))
-        box.addWidget(label("The saved source is shared by voice, manual requests and automatic looks. UnitV2 setup is under Engineering.","muted"))
+        box.addWidget(row(button("Save camera",self.apply_camera_policy),button("Connect UnitV2",self.setup_unitv2)))
+        box.addWidget(label("Automatic prefers UnitV2 and falls back to the robot camera. Tracking uses UnitV2 automatically. Connection setup is only needed once.","muted"))
         camera.addWidget(button("CAMERA SETTINGS",self.show_camera_settings))
         perception=tab("Perception")
         self.perception_gate=label("Automatic perception is off. Start the server for live readiness.","status")
@@ -811,7 +837,7 @@ class MainWindow(QMainWindow):
         if isinstance(saved,str) and saved!=DEFAULT_OLLAMA_MODEL: self.ollama_model.addItem(saved)
         self.ollama_model.setCurrentText(saved if isinstance(saved,str) else DEFAULT_OLLAMA_MODEL)
         self.unitv2_address.setText(str(self._settings.get("unitv2_address", "192.168.40.175")))
-        camera_index=self.camera_source.findData(self._settings.get("camera_source", "robot-camera"))
+        camera_index=self.camera_source.findData(self._settings.get("camera_source", "auto"))
         if camera_index>=0: self.camera_source.setCurrentIndex(camera_index)
         for key,widget in (("thinker_provider",self.thinker_provider),("audio_output",self.audio_output)):
             index=widget.findData(self._settings.get(key))
@@ -846,6 +872,48 @@ class MainWindow(QMainWindow):
             self.message.setText("Settings saved. Restart the server to apply changes. Credentials follow the Remember option when you start the server.")
         except ValueError as exc: self.message.setText(str(exc))
         except OSError: self.message.setText("Settings could not be saved. Check access to the Kadence data folder.")
+
+    def change_audio_output(self,*args):
+        if getattr(self,'_audio_pending',False): return
+        self._audio_pending=True
+        self.audio_output.setEnabled(False)
+        selected=self.audio_output.currentData()
+        previous=self.active_audio_output
+        def finished(data):
+            self._audio_pending=False
+            self.audio_output.setEnabled(True)
+            if data.get('ok'):
+                self.active_audio_output=selected
+                try:
+                    self.save_preferences()
+                    self.message.setText('Speaker saved. The next reply uses your selected output.')
+                except OSError:
+                    self.message.setText('Speaker changed for this session; the preference could not be saved.')
+            else:
+                self.audio_output.blockSignals(True)
+                self.audio_output.setCurrentIndex(self.audio_output.findData(previous))
+                self.audio_output.blockSignals(False)
+                self.message.setText(data.get('message','The speaker change was not confirmed.'))
+        if self.server_state=='running':
+            if self.control.send('audio_output',{'mode':selected},finished) is None:
+                finished({'ok':False,'message':'Speaker change was not sent.'})
+        else:
+            finished({'ok':True})
+
+    def ask_camera(self,*args):
+        if self._look_pending:
+            return
+        self._look_pending=True
+        self.home_answer.setPlainText('Working on your request…')
+        self.update_controls()
+        def finished(data):
+            self._look_pending=False
+            result=data.get('result',{}) if data.get('ok') else {}
+            self.home_answer.setPlainText(result.get('spoken') or result.get('message')
+                or data.get('message','The request did not complete. Try again.'))
+            self.update_controls()
+        if self.control.send('camera_request',{'text':self.home_question.text().strip() or 'What can you see?'},finished) is None:
+            finished({'ok':False,'message':'The camera request was not sent. Connect Kadence and try again.'})
 
     def refresh_models(self):
         self.models_refresh.setEnabled(False)
@@ -1063,6 +1131,11 @@ class MainWindow(QMainWindow):
             return
         if name=="tracking_status":
             self.tracking_panel.update_status(data)
+            self.tracking_snapshot=dict(data)
+            if data.get('active') or data.get('state') in {'LOST','FAULT'}:
+                self.home_camera_status.setText(data.get('message','Tracking status updated.'))
+            elif data.get('state')=='STOPPED':
+                self.update_controls()
             return
         if name=="tracking_preview":
             self.tracking_panel.preview.frame(data)
@@ -1108,7 +1181,7 @@ class MainWindow(QMainWindow):
             self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')}")
         elif name=="unitv2_lifecycle":
             confirmed="stop confirmed" if data.get("stop_confirmed") else "stop not confirmed"
-            proof="lifecycle passed" if data.get("verified") else "lifecycle test needed"
+            proof="ready" if data.get("verified") else "readiness checked automatically on request"
             self.unitv2_state.setText(f"Producer {data.get('state','UNKNOWN')} · {confirmed} · {proof}")
             current=(data.get('state','UNKNOWN'),confirmed)
             if current!=getattr(self,'_last_producer',None):
@@ -1256,6 +1329,10 @@ class MainWindow(QMainWindow):
             values=[("UnitV2" if data.get("source_device")=="unitv2-camera" else "StackChan") + f" · {data.get('width',320)} × {data.get('height',240)}" if encoded else "",data.get("description","")]
             values.extend("QR (local, text only): "+str(qr) for qr in data.get("qr",[]))
             self.vision_result.setPlainText("\n\n".join(x for x in values if x))
+            if data.get('description'):
+                self.home_answer.setPlainText(data['description'])
+            elif not encoded:
+                self.home_answer.clear()
             state=data.get("description_state","captured" if encoded else "idle")
             stamp=datetime.fromtimestamp(data["captured"],ZoneInfo(self.active_timezone)).strftime("%H:%M:%S %Z") if data.get("captured") else ""
             detail={"idle":"No snapshot retained.", "captured":"Image captured · ready to describe.",
@@ -1270,10 +1347,15 @@ class MainWindow(QMainWindow):
         elif name=="result":
             if not data.get("ok"): self.message.setText(data.get("message","Operation was not confirmed."))
             elif isinstance(data.get("result"),dict) and data["result"].get("message"): self.message.setText(data["result"]["message"])
+        elif name=="tracking_timing":
+            if type(data.get('frame_ms')) is int:
+                self.home_camera_status.setText(f"Tracking · live frame {data['frame_ms']} ms")
         elif name=="timing":
-            if data.get("stage") in {"stt","reasoning","tts","first_audio"}:
+            if data.get("stage") in {"stt","reasoning","tts","first_pcm","first_audio"}:
                 self.timings[data["stage"]]=data.get("elapsed_ms",0)
                 self.timing_label.setText("  /  ".join(f"{'FIRST AUDIO' if key=='first_audio' else key.upper()} {value/1000:.2f}s" for key,value in self.timings.items()))
+                if data.get('stage')=='first_audio':
+                    self.response_speed.setText(f"Last reply started in {data.get('elapsed_ms',0)/1000:.1f}s · PC playback")
         elif name=="runtime_issue":
             hints={"connection":"Waiting for the robot. Check its USB port and normal boot mode.",
                 "voice":"Voice did not complete. Check connection and provider settings; details are in Diagnostics.",
@@ -1328,7 +1410,10 @@ class MainWindow(QMainWindow):
     def update_controls(self):
         ready=self.control.ready and not self.quitting
         self.start_button.setEnabled(ready and self.server_state=="stopped")
+        self.start_button.setVisible(self.server_state not in {'running','stopping'})
+        self.start_button.setText('Connecting…' if self.server_state=='starting' else 'Connect')
         self.stop_button.setEnabled(ready and self.server_state in {"running","starting"})
+        self.stop_button.setVisible(self.server_state!='stopped')
         self.restart_button.setEnabled(ready and self.server_state=="running")
         self.timezone.setEnabled(ready and self.server_state=="stopped")
         self.camera_policy.setEnabled(ready and bool(self.camera_settings_snapshot) and "awareness" not in self._camera_pending)
@@ -1342,6 +1427,14 @@ class MainWindow(QMainWindow):
         self.look_button.setEnabled(can_look)
         self.capture_button.setEnabled(can_look)
         self.describe_button.setEnabled(can_look and self.snapshot_pixmap is not None)
+        self.home_ask.setEnabled(can_look)
+        self.home_question.setEnabled(can_look)
+        if self.camera_settings_snapshot.get('privacy'):
+            self.home_camera_status.setText('Privacy is on. Turn it off when you want Kadence to look.')
+        elif self.server_state!='running':
+            self.home_camera_status.setText('Connect Kadence to use the camera.')
+        elif not self._look_pending and not self.tracking_snapshot.get('active'):
+            self.home_camera_status.setText('On demand · the camera starts when you ask.')
 
     def tick(self):
         self.refresh_activity()
@@ -1349,9 +1442,8 @@ class MainWindow(QMainWindow):
         except Exception: now=datetime.now(timezone.utc)
         self.clock.setText(now.strftime("%a %d %b %Y  %H:%M:%S %Z").upper())
         if self.started_at:
-            seconds=int(time.monotonic()-self.started_at)
-            self.runtime_info.setText(f"Uptime {seconds//3600:02d}:{seconds//60%60:02d}:{seconds%60:02d}\n"+("Robot connected." if self.robot_connected else "Waiting for the robot. Local utilities are ready.")+"\nAudio endpoint "+self._voice_endpoint)
-        else: self.runtime_info.setText("Server stopped. Local reminders work while this app is open.")
+            self.runtime_info.setText('Tap Kadence and speak after the cue.' if self.robot_connected else 'Waiting for the robot. Reminders and notes are available.')
+        else: self.runtime_info.setText('Connect when you are ready. Reminders still work while Kadence is open.')
         due=[r for r in self.reminders if r["state"]=="due"]
         scheduled=[r for r in self.reminders if r["state"]=="scheduled"]
         if due: self.next_due.setText(f"{len(due)} REMINDER(S) DUE\n"+due[0]["text"][:100])
@@ -1361,6 +1453,11 @@ class MainWindow(QMainWindow):
         else: self.next_due.setText("No scheduled reminders.")
 
     def record_diagnostic(self,name,data):
+        if name=='tracking_timing':
+            safe={key:data[key] for key in ('frame_ms','selection_ms')
+                  if type(data.get(key)) is int and 0<=data[key]<=60000}
+            if safe: self._append_diagnostic({'at':datetime.now(timezone.utc).isoformat(timespec='seconds'),'event':name,**safe})
+            return
         if name=='remote_event':
             if data.get('event') in {'enabled','paired','connected','disconnected','connection_lost','connection_rejected','audio_start','audio_stop','audio_failed','audio_watchdog','camera_command','command_rejected'}:
                 self._append_diagnostic({'at':datetime.now(timezone.utc).isoformat(timespec='seconds'),'event':'remote_'+data['event']})
@@ -1425,7 +1522,7 @@ class MainWindow(QMainWindow):
         if name in {"audio_link_test", "voice_recovery"}: states |= {"testing", "passed", "network_required"}
         from .host import VoiceTurnFailure
         stages={"stt","reasoning","tts","tts_connect","tts_audio","tts_decode","tts_fallback","tts_local_input","tts_local_load","tts_local_render","tts_ready","connection","voice","providers","uplink","body","cancel","camera","alert"}
-        stages |= {"first_audio","ollama_first_token","ollama_load","ollama_prompt","ollama_generate","ollama_warmup"}
+        stages |= {"first_audio","first_pcm","ollama_first_token","ollama_load","ollama_prompt","ollama_generate","ollama_warmup"}
         if name=="camera_transfer": stages=stages | IMAGE_STAGES
         if name=="voice_progress": stages |= {"connecting", "recording", "providers", "playback"}
         reasons={"timeout","unavailable","device_proof","address_not_local"}

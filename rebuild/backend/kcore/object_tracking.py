@@ -4,9 +4,21 @@ import asyncio
 import base64
 from collections import deque
 import contextlib
+import io
+import json
+from pathlib import Path
 import time
-from .camera_manager import decode_jpeg, settled_thread
-from .tracking_target import locate_target, relocate
+from .camera_manager import settled_thread
+from .tracking_target import locate_target, relocate, local_target
+
+
+def validate_preview(jpeg):
+    from PIL import Image
+    if len(jpeg)>2*1024*1024: raise RuntimeError('Tracker image exceeds limit.')
+    with Image.open(io.BytesIO(jpeg)) as image:
+        if image.format!='JPEG' or image.size!=(320,240):
+            raise RuntimeError('Tracker image dimensions changed; tracking stopped.')
+        image.load()
 
 
 def diagnostic_status(value):
@@ -26,7 +38,7 @@ class ObjectTracking:
         self.clock, self.locator = clock, locator
         self.camera.tracking = self
         self.task = self.operation = self.move = None
-        self.state, self.message = 'STOPPED', 'Open preview, then draw a box around one object.'
+        self.state, self.message = 'STOPPED', 'Say “track that” or name the object you want me to follow.'
         self.frames = deque(maxlen=30)
         self.last_sequence = 0
         self.expected_epoch = None
@@ -42,6 +54,39 @@ class ObjectTracking:
         self.intent = 0
         self.stop_confirmed = True
         self._last_status = None
+        self._last_preview = 0
+        self._last_metrics = 0
+        self._last_good = None
+        self._recovered = 0
+
+    def head_setup_path(self):
+        services=getattr(self.app,'services',None)
+        return Path(services.paths.root)/'tracking-head.json' if services else None
+
+    def saved_head_setup(self):
+        path=self.head_setup_path()
+        if path is None: return None
+        try:
+            value=json.loads(path.read_text())
+            if (value.get('format')==1 and value.get('home')==list(self.home)
+                    and all(type(value.get(k)) is int and value[k] in (-1,1) for k in ('yaw_sign','pitch_sign'))):
+                return {'mounted':True,'yaw_sign':value['yaw_sign'],'pitch_sign':value['pitch_sign']}
+        except (OSError,ValueError,AttributeError): pass
+        return None
+
+    async def _follow_after_voice(self, target, setup):
+        me=asyncio.current_task()
+        try:
+            while self.busy(): await asyncio.sleep(.05)
+            self.camera.check()
+            await self.arm(setup)
+            await self.select(target=target)
+        except asyncio.CancelledError: raise
+        except Exception as exc:
+            self.armed=False
+            self.publish(str(exc) if isinstance(exc,RuntimeError) else 'Head following could not start. Check the connection and ask again.')
+        finally:
+            if self.operation is me: self.operation=None
 
     @property
     def home(self):
@@ -87,6 +132,8 @@ class ObjectTracking:
             with contextlib.suppress(asyncio.CancelledError,Exception): await task
         await self._settle_move()
         self.frames.clear()
+        self._last_good=None
+        self._recovered=0
         self.emit('tracking_preview',{})
         self.state='FAULT' if was_active and not self.stop_confirmed else 'STOPPED'
         self.publish('Tracking ended, but UnitV2 stop was not confirmed. Check camera status.' if self.state=='FAULT' else message)
@@ -95,9 +142,8 @@ class ObjectTracking:
         await self.stop()
         intent = self.intent
         self.camera.check()
-        if self.camera.unitv2.mode=='STOPPED': raise RuntimeError('Choose ON DEMAND before object tracking.')
-        if self.camera.config.source=='robot-camera': raise RuntimeError('Select UnitV2 or AUTO before object tracking.')
-        if not self.camera.unitv2.verified: raise RuntimeError('Pass TEST START / STOP before object tracking.')
+        # Tracking is an explicit UnitV2 capability request; it does not need a
+        # separate camera-mode toggle or change the saved snapshot preference.
         pc=getattr(self.app,'perception',None)
         if pc: await pc.interrupt()
         if intent != self.intent: raise RuntimeError('Tracking start was superseded by Stop.')
@@ -111,7 +157,7 @@ class ObjectTracking:
         self.started=self.clock()
         self.state='SELECTING'
         self.stop_confirmed=False
-        self.publish('Hold the object still and draw its box, or enter its name and choose FIND & TRACK.')
+        self.publish('Camera ready. Say “track that” or name one object in view.')
         ready=asyncio.get_running_loop().create_future()
         self.task=asyncio.create_task(self._run(ready),name='kadence-object-tracking')
         session=self.task
@@ -119,7 +165,7 @@ class ObjectTracking:
         self.camera._purpose='tracking'
         self.camera.publish('CAPTURING')
         try:
-            async with asyncio.timeout(10): await asyncio.shield(ready)
+            async with asyncio.timeout(25): await asyncio.shield(ready)
         except BaseException:
             if self.task is session: await self.stop()
             if ready.done() and not ready.cancelled(): ready.exception()
@@ -128,28 +174,38 @@ class ObjectTracking:
         return self.publish()
 
     async def _frame(self):
+        started=self.clock()
         result=await self.camera.unitv2.tracking_frame(self.camera.config.address)
         sequence=result.get('sequence')
         if type(sequence) is not int or sequence<=self.last_sequence: raise RuntimeError('Tracker repeated an old image; tracking stopped.')
         self.last_sequence=sequence
         try: jpeg=base64.b64decode(result['image'],validate=True)
         except (KeyError,ValueError,TypeError): raise RuntimeError('Tracker returned an invalid image.') from None
-        png,w,h,_=await settled_thread(decode_jpeg,jpeg)
-        if (w,h)!=(320,240): raise RuntimeError('Tracker image dimensions changed; tracking stopped.')
+        # Preserve the native JPEG: PNG conversion inflated every preview and
+        # held the control loop behind compression and UI-pipe writes.
+        await settled_thread(validate_preview,jpeg)
         self.camera.check()
         box=result.get('box')
         if box is not None and (not isinstance(box,list) or len(box)!=4 or any(type(v) is not int for v in box)
                 or min(box)<0 or min(box[2:])<8 or box[0]+box[2]>640 or box[1]+box[3]>480):
             raise RuntimeError('Tracker returned an invalid target box.')
-        self.frames.append((sequence,self.clock(),png))
-        self.emit('tracking_preview',{'png':base64.b64encode(png).decode('ascii'),'sequence':sequence,
-                                     'box':box if result.get('target_epoch')==self.expected_epoch else None})
+        now=self.clock()
+        self.frames.append((sequence,now,jpeg))
+        if now-self._last_preview>=.08:
+            self._last_preview=now
+            self.emit('tracking_preview',{'jpeg':result['image'],'sequence':sequence,
+                                         'box':box if result.get('target_epoch')==self.expected_epoch else None})
+        if now-self._last_metrics>=1:
+            self._last_metrics=now
+            self.emit('tracking_timing',{'frame_ms':round((now-started)*1000)})
         return result
 
     async def _run(self, ready):
         me=asyncio.current_task()
         generation=self.camera.generation
         try:
+            await self.camera.unitv2.ensure_ready(self.camera.config.address,
+                guard=lambda: self.camera.check(generation))
             while True:
                 self.camera.check(generation)
                 if self.clock()-self.started>900: raise RuntimeError('The 15-minute tracking session ended. Start a fresh session when needed.')
@@ -157,7 +213,11 @@ class ObjectTracking:
                 if not ready.done(): ready.set_result(True)
                 if self.state=='TRACKING' and result.get('target_epoch')==self.expected_epoch:
                     await self._follow(result.get('box'))
-                await asyncio.sleep(.15)
+                elif self.state=='LOST' and result.get('target_epoch')==self.expected_epoch:
+                    await self._recover(result.get('box'))
+                # UnitV2's authenticated observation already waits for a new
+                # image. Polling again immediately cannot replay an old frame.
+                await asyncio.sleep(0)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -168,6 +228,7 @@ class ObjectTracking:
         finally:
             await self._settle_move()
             self.frames.clear()
+            self._last_good=None
             self.emit('tracking_preview',{})
             stopping=asyncio.create_task(self.camera.unitv2.stop(),name='kadence-tracker-camera-stop')
             while not stopping.done():
@@ -187,6 +248,16 @@ class ObjectTracking:
             self.publish()
 
     async def select(self, region=None, sequence=None, target=None):
+        setup=self.saved_head_setup() if target and not self.armed else None
+        if setup:
+            if self.busy():
+                # The same explicit request resumes after the voice motor lane
+                # releases. Home first, then select from a fresh live image.
+                await self.stop()
+                self.operation=asyncio.create_task(self._follow_after_voice(target,setup),name='kadence-requested-follow')
+                self.publish('I will get into position and follow '+target+' when speech finishes.')
+                return {'spoken':'I will follow '+target+'.','message':self.message}
+            await self.arm(setup)
         if self._selection_lock.locked(): raise RuntimeError('Target selection is already running.')
         async with self._selection_lock:
             if not self.active: await self.preview()
@@ -196,7 +267,12 @@ class ObjectTracking:
             try:
                 if target:
                     reference=self.frames[-1][2]
-                    region=await self.locator(reference,target,self.app.settings.providers)
+                    selected_at=self.clock()
+                    earlier=next((f[2] for f in reversed(self.frames) if self.clock()-f[1]>=.2),None)
+                    region=await settled_thread(local_target,reference,target,earlier)
+                    if region is None:
+                        region=await self.locator(reference,target,self.app.settings.providers)
+                    self.emit('tracking_timing',{'selection_ms':round((self.clock()-selected_at)*1000)})
                 else:
                     frame=next((f for f in self.frames if f[0]==sequence and self.clock()-f[1]<8),None)
                     if frame is None: raise RuntimeError('That preview expired. Draw a new box on the current image.')
@@ -211,8 +287,8 @@ class ObjectTracking:
                 self.stable=0;self.last_box=None;self.lost_at=None
                 self.label=target or 'selected object'
                 self.state='TRACKING'
-                self.publish('Target selected. '+('Head follows after stable fresh matches.' if self.armed else 'Visual tracking only; head following is not armed.'))
-                return {'spoken':f'I have selected {self.label}. '+('I will follow it after I finish speaking.' if self.armed else 'I am tracking it on screen. Arm head following in the Tracking tab to move the robot.'), 'message':self.message}
+                self.publish('Tracking '+self.label+'. '+('Head following is ready.' if self.armed else 'Camera tracking is active.'))
+                return {'spoken':f'I am tracking {self.label}.', 'message':self.message}
             except BaseException:
                 if self.active:
                     self.state='SELECTING';self.expected_epoch=None
@@ -227,14 +303,16 @@ class ObjectTracking:
             self.publish('Target not visible. Head stopped; no blind searching.')
             if self.clock()-self.lost_at>=1.5:
                 self.state='LOST'
-                self.publish('Target lost. Select it again; automatic reacquisition is disabled.')
+                self.publish('Target briefly lost. I will resume if I can verify the same object in view.')
             return
         cx,cy=box[0]+box[2]/2,box[1]+box[3]/2
         if self.last_box:
             oldx,oldy=self.last_box[0]+self.last_box[2]/2,self.last_box[1]+self.last_box[3]/2
             if abs(cx-oldx)>160 or abs(cy-oldy)>120:
-                self.state='LOST';self.publish('Target jumped too far. Head stopped; select it again.');return
+                self.state='LOST';self.lost_at=None
+                self.publish('Target changed abruptly. Show it clearly and say “track that” again.');return
         self.last_box=box
+        if self.frames: self._last_good=(self.frames[-1][2],list(box))
         self.lost_at=None
         self.stable+=1
         if self.stable<3 or not self.armed or self.busy(): return
@@ -246,6 +324,27 @@ class ObjectTracking:
         yaw=max(-320,min(320,yaw));pitch=max(30,min(870,pitch))
         await self._move((yaw,pitch))
         if self.state=='TRACKING': self.publish('Following the selected target with bounded head steps.')
+
+    async def _recover(self, box):
+        # Brief occlusion only: require appearance agreement with the last
+        # known target, a matching native epoch, and three fresh observations.
+        # No motor search and no cloud call can silently pick a different item.
+        if box is None or not self._last_good or self.lost_at is None or self.clock()-self.lost_at>5:
+            self._recovered=0
+            return
+        reference,previous=self._last_good
+        region=[round(v*1000/s) for v,s in zip(previous,(640,480,640,480))]
+        try: checked=await settled_thread(relocate,reference,self.frames[-1][2],region)
+        except (RuntimeError,ValueError):
+            self._recovered=0
+            return
+        if any(abs(a-b)>32 for a,b in zip(checked,box)):
+            self._recovered=0
+            return
+        self._recovered+=1
+        if self._recovered>=3:
+            self.state='TRACKING';self.stable=0;self.last_box=None;self.lost_at=None;self._recovered=0
+            self.publish('Same target found. Tracking resumed.')
 
     async def _settle_move(self):
         task=self.move
@@ -304,8 +403,14 @@ class ObjectTracking:
         self.operation=asyncio.current_task()
         try:
             await self._move((yaw,pitch))
+            if intent!=self.intent: raise RuntimeError('Head setup was cancelled before saving.')
             self.home=(yaw,pitch);self.signs=(sx,sy);self.armed=True
-            return self.publish('Home reached and torque released. Head following armed for this server session; select a target.')
+            path=self.head_setup_path()
+            if path:
+                temporary=path.with_suffix('.tmp')
+                temporary.write_text(json.dumps({'format':1,'home':[yaw,pitch],'yaw_sign':sx,'pitch_sign':sy}))
+                temporary.replace(path)
+            return self.publish('Head setup saved. Say “follow this pen” whenever you want to track an object.')
         finally: self.operation=None
 
     async def home_head(self):

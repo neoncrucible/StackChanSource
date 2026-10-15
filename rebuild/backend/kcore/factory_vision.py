@@ -54,9 +54,6 @@ class FactoryVision:
         await self.stop()
         intent=self.intent
         self.camera.check()
-        if self.camera.config.source=='robot-camera': raise RuntimeError('Select UnitV2 or AUTO first.')
-        if self.camera.unitv2.mode=='STOPPED': raise RuntimeError('Choose ON DEMAND first.')
-        if not self.camera.unitv2.verified: raise RuntimeError('Pass TEST START / STOP first.')
         perception=getattr(self.app,'perception',None)
         if perception: await perception.interrupt()
         if intent!=self.intent: raise RuntimeError('Factory start was superseded by Stop.')
@@ -69,7 +66,7 @@ class FactoryVision:
         self.camera.publish('CAPTURING')
         self.publish()
         try:
-            async with asyncio.timeout(15): await asyncio.shield(ready)
+            async with asyncio.timeout(30): await asyncio.shield(ready)
         except BaseException:
             await self.stop()
             if ready.done() and not ready.cancelled(): ready.exception()
@@ -82,6 +79,8 @@ class FactoryVision:
         generation=self.camera.generation
         started=time.monotonic()
         try:
+            await self.camera.unitv2.ensure_ready(self.camera.config.address,
+                guard=lambda: self.camera.check(generation))
             while True:
                 self.camera.check(generation)
                 if time.monotonic()-started>900: raise RuntimeError('The 15-minute factory session ended. Start again when needed.')

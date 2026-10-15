@@ -78,9 +78,9 @@ class DesktopController:
             return {'spoken':'Object tracking stopped and head following disarmed.'}
         if action=='follow':
             if self._media and not self._media.done(): return {'spoken':'Finish the current camera check before tracking an object.'}
-            if not args.get('target'): return {'spoken':'Name one object to follow, or draw a box in Tracking.'}
+            if not args.get('target'): args={**args,'target':'that'}
             try: return await tracker.select(target=args['target'])
-            except RuntimeError as exc: return {'spoken':str(exc) if type(exc) is RuntimeError else 'Tracking is unavailable. Check the Tracking tab.'}
+            except RuntimeError as exc: return {'spoken':str(exc)}
         raise ValueError('Unsupported tracking action.')
 
     async def factory_voice(self, args):
@@ -125,8 +125,10 @@ class DesktopController:
         }
         try:
             if command in patches:
-                await self.command("camera_patch",patches[command])
+                outcome=await self.command("camera_patch",patches[command])
                 message = "Saved: " + CAMERA_CHANGES[command] + "."
+                if outcome.get('camera_ready') is False:
+                    message += ' ' + outcome['message']
                 saved = self.app.camera.config if self.app else CameraConfig.load(self.services.paths.root)
                 if command == "greetings_on" and (not saved.perception_enabled or saved.policy=="OFF"):
                     message += " Automatic perception is still off; enable it when you want me to look for arrivals."
@@ -206,6 +208,42 @@ class DesktopController:
                 self.emit("server", {"state": "stopped", "error": failure})
 
     async def command(self, action, args):
+        if action == 'audio_output':
+            from dataclasses import replace
+            if not self.app or self.state != 'running':
+                raise RuntimeError('Connect Kadence before changing the active speaker.')
+            if set(args) != {'mode'} or args['mode'] not in {'windows','robot','both'}:
+                raise ValueError('Choose a supported speaker.')
+            if (self.app._voice_task and not self.app._voice_task.done()) or (self._media and not self._media.done()):
+                raise RuntimeError('Finish or stop the current reply before switching speakers.')
+            self.app._windows_audio.stop()
+            self.app.settings=replace(self.app.settings,audio_output=args['mode'])
+            return {'message':'Speaker changed for the next reply.'}
+        if action == 'camera_request':
+            from .camera_voice import camera_plan
+            text = args.get('text')
+            if set(args) != {'text'} or not isinstance(text, str) or not 1 <= len(text.strip()) <= 500:
+                raise ValueError('Enter a camera question or name an object to track.')
+            plan = camera_plan(text)
+            if plan is None:
+                raise ValueError('Try “What can you see?”, “What colour is this?” or “Track the pen”.')
+            tool, values = plan['tool'], plan['arguments']
+            if tool == 'desk_look':
+                return await self.command('camera_look', values)
+            if tool == 'tracking_control':
+                return await self.command('tracking_stop' if values['action'] == 'stop' else 'tracking_find',
+                    {} if values['action'] == 'stop' else {'target': values['target']})
+            if tool == 'tracking_status':
+                return await self.tracking_voice({})
+            if tool == 'camera_status':
+                return await self.camera_voice('status')
+            if tool == 'camera_control':
+                return await self.camera_voice(values['command'])
+            if tool == 'factory_vision':
+                if self.app and self.app.tracking.busy():
+                    raise RuntimeError('Wait for the current reply, or press Stop task.')
+                return await self.factory_voice(values)
+            raise ValueError('That request is not available here.')
         if action=='remote_status':return self.remote.status()
         if action=='remote_config':return await self.remote.configure(args)
         if action=='remote_pair':
@@ -274,13 +312,12 @@ class DesktopController:
                         with contextlib.suppress(Exception): await self.app.camera.settle_settings()
                 try:
                     config = CameraConfig.parse(args)
-                    if (not config.privacy and config.perception_enabled and config.policy != "OFF" and config.source != "robot-camera"
-                            and (not self.app or not self.app.camera.unitv2.verified)):
-                        raise ValueError("Run TEST START / STOP successfully before enabling automatic UnitV2 perception.")
                 except ValueError:
                     self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
                     raise
-                if self.app and config == self.app.camera.config:
+                if (self.app and config == self.app.camera.config
+                        and (config.privacy or not config.perception_enabled or config.policy=='OFF'
+                             or config.source=='robot-camera' or self.app.camera.unitv2.verified)):
                     config.save(self.services.paths.root)
                     self.emit("camera_settings",asdict(config))
                     return {"message":"Camera settings saved."}
@@ -294,6 +331,14 @@ class DesktopController:
                 if self.app and self.app.perception: await self.app.perception.reset("settings_changed")
                 if self.app:
                     with contextlib.suppress(Exception): await self.app.camera.settle_settings()
+                    if (not config.privacy and config.perception_enabled and config.policy != 'OFF'
+                            and config.source != 'robot-camera'):
+                        generation=self.app.camera.generation
+                        try:
+                            await self.app.camera.unitv2.ensure_ready(config.address,
+                                guard=lambda:self.app.camera.check(generation))
+                        except (RuntimeError,TimeoutError):
+                            return {'message':'Awareness saved. UnitV2 is not ready; check its connection in Camera settings. Camera privacy remains available.', 'camera_ready':False}
             return {"message": "Camera policy saved."}
         if action in {"unitv2_mode", "unitv2_status", "unitv2_check"}:
             if not self.app: raise RuntimeError("Start the server to control UnitV2.")

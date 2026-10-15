@@ -1,4 +1,26 @@
-# Current candidate: 0.5.0 — consolidated console (M1)
+# Current candidate: 0.6.0 — reactive companion
+
+Close Kadence completely, extract the entire new ZIP, run **Install-Kadence.cmd**
+and open the desktop shortcut. Click **Connect**. Existing settings, pairing and
+faces are reused. No robot flash, UnitV2 reinstall or face retraining is required.
+
+Camera questions now start the camera automatically. Say “What colour is this?”,
+“Track that” or “Follow this pen”; there is no manual readiness/arming step for
+visual tracking. Conversation keeps the target while head movement pauses.
+Head mounting/directions are saved after one successful physical setup and reused
+by future follow requests. See **WHATS-NEW.txt** for the behaviour and limits.
+
+For the fastest audible response, **Settings → Voice & connection → Speaker**
+offers PC / Bluetooth streaming. Existing saved speaker choices are preserved.
+Robot and Both use the existing complete-buffer robot transport.
+
+This is a candidate pending physical timing on the owner's robot. Keep the
+accepted 0.4.13 installation available. Firmware remains 0.21.6 and SQLite remains
+schema 5. Keep Stick remote off; its microphone work is parked.
+
+---
+
+## Historical candidate: 0.5.0 — consolidated console (M1)
 
 This is a host-only candidate, not a physically accepted release. CoreS3 remains
 0.21.6, UnitV2 remains on its existing service (current source 1.3.0), and SQLite
