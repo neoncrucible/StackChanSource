@@ -61,6 +61,7 @@ every frame to PNG. The fixed 150 ms pause after each fresh frame is removed.
 The camera already waits for a new observation, so the host does not need a second
 polling delay. Preview acquisition also continues while a head movement waits for
 its acknowledgement; there is still only one in-flight step and no motor queue.
+The original 150 ms settling interval between head steps is preserved separately.
 Activity diagnostics distinguish frame-request time, target-selection
 time, first rendered PCM and first PC playback. Frame-request time includes waiting
 for a fresh image and LAN transfer; it is not a sensor exposure measurement.

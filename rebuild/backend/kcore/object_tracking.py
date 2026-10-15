@@ -39,6 +39,7 @@ class ObjectTracking:
         self.camera.tracking = self
         self.task = self.operation = self.move = None
         self._follow_task = None
+        self._head_ready_at = 0
         self.state, self.message = 'STOPPED', 'Say “track that” or name the object you want me to follow.'
         self.frames = deque(maxlen=30)
         self.last_sequence = 0
@@ -336,7 +337,7 @@ class ObjectTracking:
         if self.frames: self._last_good=(self.frames[-1][2],list(box))
         self.lost_at=None
         self.stable+=1
-        if self.stable<3 or not self.armed or self.busy(): return
+        if self.stable<3 or not self.armed or self.busy() or self.clock()<self._head_ready_at: return
         dx,dy=(cx-320)/320,(cy-240)/240
         def step(error): return 0 if abs(error)<.13 else max(-20,min(20,round(error*45)))
         yaw=max(self.home[0]-180,min(self.home[0]+180,self.pose[0]+self.signs[0]*step(dx)))
@@ -344,6 +345,9 @@ class ObjectTracking:
         if (yaw,pitch)==self.pose: return
         yaw=max(-320,min(320,yaw));pitch=max(30,min(870,pitch))
         await self._move((yaw,pitch))
+        # The old preview sleep also limited servo cadence. Keep that physical
+        # settling interval while allowing camera frames to arrive continuously.
+        self._head_ready_at=self.clock()+.15
         if self.state=='TRACKING': self.publish('Following the selected target with bounded head steps.')
 
     async def _recover(self, box):

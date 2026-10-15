@@ -125,12 +125,18 @@ def test_controller_owns_one_process_tracks_and_privacy_stops(tracker_service):
 def test_head_steps_require_arming_and_stop_on_loss_or_voice(tracker_service):
     async def run():
         p,b,c,root=tracker_service;app,events,moves=make_app(c);t=app.tracking
+        timestamps=[];send=app._body.send_body_pose
+        async def timed(*args,**kwargs):
+            timestamps.append(time.monotonic())
+            return await send(*args,**kwargs)
+        app._body.send_body_pose=timed
         with pytest.raises(ValueError,match='mounted'):await t.arm({})
         await t.arm({'mounted':True})
         assert t.armed and moves==[(0,300)]
         await t.preview();await t.select([650,350,180,250],t.frames[-1][0])
         await asyncio.sleep(1)
         assert len(moves)>1
+        assert all(b-a>=.14 for a,b in zip(timestamps[1:],timestamps[2:]))
         assert all(abs(b[0]-a[0])<=20 and abs(b[1]-a[1])<=20 for a,b in zip(moves,moves[1:]))
         app._voice_task=asyncio.create_task(asyncio.sleep(2));count=len(moves)
         await asyncio.sleep(.25);assert len(moves)==count

@@ -494,6 +494,8 @@ It does not establish a new physically accepted baseline.
 - Live tracking retains native JPEG and removes the added 150 ms polling sleep.
   Frame acquisition continues during a motor acknowledgement instead of freezing
   the preview. One in-flight step, no motor queue; Stop still drains the real ACK.
+  The original 150 ms interval remains between completed head steps, independently
+  of the preview, so the faster camera path does not increase servo command cadence.
   Voice keeps the visual target, pauses motor steps and drains any issued step.
   Brief loss can resume after three fresh, same-epoch, appearance-matched frames
   within five seconds. Larger jumps/long loss require another spoken request.
