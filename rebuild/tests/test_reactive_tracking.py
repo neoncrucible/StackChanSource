@@ -110,17 +110,19 @@ def test_saved_head_setup_automatically_positions_before_selecting_and_stop_canc
         assert t.saved_head_setup()=={'mounted':True,'yaw_sign':-1,'pitch_sign':1}
         await t.stop(disarm=True)
         t.locator=AsyncMock(return_value=[650,350,180,250])
-        app._voice_task=asyncio.create_task(asyncio.sleep(.3));count=len(moves)
-        await t.select(target='this pen')
-        queued=t.operation
+        release=asyncio.Event()
+        app._voice_task=asyncio.create_task(release.wait());count=len(moves)
+        result=await t.select(target='this pen')
         await asyncio.sleep(.05)
-        assert len(moves)==count and not t.active
-        await queued
+        assert len(moves)==count and t.active and result['target_confirmed'] and result['head_pending']
+        release.set();await app._voice_task
+        async with asyncio.timeout(2):
+            while not t.armed:await asyncio.sleep(.02)
         assert t.active and t.armed and t.signs==(-1,1) and len(moves)>count
         await t.stop(disarm=True)
-        app._voice_task=asyncio.create_task(asyncio.sleep(.3));count=len(moves)
+        release.clear();app._voice_task=asyncio.create_task(release.wait());count=len(moves)
         await t.select(target='this pen');await t.stop(disarm=True)
-        await app._voice_task;await asyncio.sleep(.1)
+        release.set();await app._voice_task;await asyncio.sleep(.1)
         assert not t.active and not t.armed and len(moves)==count
         # Changing the common home invalidates the previous mounting setup.
         app.motion.store.save((20,300));assert t.saved_head_setup() is None

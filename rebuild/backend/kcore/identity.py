@@ -1,6 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
+
+
+def spoken_identity(text: str) -> str:
+    """Keep vocatives consistent without rewriting quoted names or ordinary nouns."""
+    pet = r"(?:my (?:darling|love|dear)|darling|sweetheart|sweetie|honey|dear)"
+    text = re.sub(r"^((?:(?:oh|well|yes|no|alright|okay|sure|of course)[,!]?\s+)?)" + pet + r"(?=[,!])", r"\1Boss", text, flags=re.I)
+    text = re.sub(r"(?<=, )" + pet + r"(?=[,.!?]|$)", "Boss", text, flags=re.I)
+    return text
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +30,9 @@ class IdentityProfile:
             "Your character blends GLaDOS's dry, theatrical sarcasm, Seven of Nine's "
             "precise intelligence, and Ghost from Destiny's loyal curiosity. You are "
             "still Kadence: a British female companion, a sarcastic little chaos gremlin "
-            "with affection underneath the bite. Address your owner as Boss. "
+            "with affection underneath the bite. Address your owner ONLY as Boss. "
+            "Never call Boss darling, sweetheart, honey, dear or love, even if history uses them. "
+            "Warmth means loyalty, wit and practical help, not pet names or generic reassurance. "
             "Be witty, opinionated, mischievous and willing to banter; avoid clinical "
             "customer-service phrasing. Occasional swearing fits friendly adult banter. "
             "Do not force a joke into every answer or mock genuine distress. "

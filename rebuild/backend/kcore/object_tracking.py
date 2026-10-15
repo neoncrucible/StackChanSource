@@ -60,6 +60,93 @@ class ObjectTracking:
         self._last_metrics = 0
         self._last_good = None
         self._recovered = 0
+        self._observation = None
+        self._pending_head = None
+        self.watch_box = None
+        self.watch_since = None
+        self._notice = None
+        self._signature = None
+
+    def request_head_setup(self):
+        saved = self.saved_head_setup()
+        if saved: return saved
+        # A spoken follow request authorises following on the existing robot.
+        # Older accepted installs used 0/30 degrees without persisting a home.
+        # Establish that existing baseline through an acknowledged move when
+        # needed; never write the servo zero calibration or ask for an arm toggle.
+        motion = getattr(self.app, 'motion', None)
+        if motion:
+            return {'mounted': True, 'yaw_sign': 1, 'pitch_sign': 1,
+                'bootstrap_home':not motion.store.saved}
+        return None
+
+    def _save_head_setup(self):
+        path=self.head_setup_path()
+        if path:
+            temporary=path.with_suffix('.tmp')
+            temporary.write_text(json.dumps({'format':1,'home':list(self.home),
+                'yaw_sign':self.signs[0],'pitch_sign':self.signs[1]}))
+            temporary.replace(path)
+
+    async def current_frame(self):
+        """Borrow a NEW image from the existing lease; never start a second producer."""
+        from .camera_manager import CameraFrame, decode_jpeg
+        if not self.active: raise RuntimeError('Tracking camera is not running.')
+        after = self.last_sequence
+        async with asyncio.timeout(3):
+            while self.active and (not self.frames or self.frames[-1][0] <= after):
+                await asyncio.sleep(.02)
+            self.camera.check()
+            if not self.active or not self.frames: raise RuntimeError('Tracking camera stopped before a fresh image arrived.')
+            sequence, captured, jpeg = self.frames[-1]
+            png, width, height, qr = await settled_thread(decode_jpeg, jpeg)
+            self.camera.check()
+            return CameraFrame('tracking-look', str(sequence), 'unitv2-camera', png, width, height,
+                time.time() - max(0, self.clock()-captured), 0, self.camera.generation, tuple(qr))
+
+    async def watch(self, target):
+        reuse = target.casefold().strip() in POINTING_TARGETS or target.casefold().strip() == self.label.casefold().strip()
+        self._pending_head = None
+        self.armed = False
+        await self.pause_head()
+        if not (reuse and self.active and self.state == 'TRACKING' and self.last_box):
+            await self.select(target=target, follow=False)
+        if not self.last_box: raise RuntimeError("I haven't locked onto it yet, Boss. Hold it in view and ask again.")
+        self.watch_box = list(self.last_box)
+        self.watch_since = None
+        self._notice = None
+        self.started = self.clock()
+        message = f"I'm watching {self.label} for fifteen minutes, Boss. I'll tell you if it moves or I lose sight of it."
+        self.publish(message)
+        return {'spoken': message, 'watching': True}
+
+    def _watch_observation(self, box):
+        if self.watch_box is None: return
+        old = self.watch_box
+        moved = box is not None and ((box[0]+box[2]/2-old[0]-old[2]/2)**2 +
+            (box[1]+box[3]/2-old[1]-old[3]/2)**2)**.5 > max(28, min(old[2:])*.3)
+        kind = 'lost' if box is None else 'moved' if moved else None
+        if kind is None:
+            self.watch_since = None
+            return
+        if self.watch_since is None or self.watch_since[0] != kind:
+            self.watch_since = (kind, self.clock(), 1)
+            return
+        kind, started, count = self.watch_since
+        self.watch_since = (kind, started, count+1)
+        if count < 3 or self.clock()-started < 1.5: return
+        message = (f"Boss, {self.label} moved." if kind == 'moved' else
+            f"Boss, I've lost sight of {self.label}. It may be covered or out of view.")
+        self._notice = (message, self.clock(), self.intent, self.camera.generation)
+        self.watch_box = None  # One notification per explicitly armed watch.
+        self.emit('tracking_notice', {'message': message, 'reason': kind})
+        self.publish(message)
+
+    def take_notice(self):
+        notice, self._notice = self._notice, None
+        if notice and self.clock()-notice[1] < 20 and notice[2:] == (self.intent, self.camera.generation):
+            return notice[0]
+        return None
 
     def head_setup_path(self):
         services=getattr(self.app,'services',None)
@@ -75,20 +162,6 @@ class ObjectTracking:
                 return {'mounted':True,'yaw_sign':value['yaw_sign'],'pitch_sign':value['pitch_sign']}
         except (OSError,ValueError,AttributeError): pass
         return None
-
-    async def _follow_after_voice(self, target, setup):
-        me=asyncio.current_task()
-        try:
-            while self.busy(): await asyncio.sleep(.05)
-            self.camera.check()
-            await self.arm(setup)
-            await self.select(target=target)
-        except asyncio.CancelledError: raise
-        except Exception as exc:
-            self.armed=False
-            self.publish(str(exc) if isinstance(exc,RuntimeError) else 'Head following could not start. Check the connection and ask again.')
-        finally:
-            if self.operation is me: self.operation=None
 
     @property
     def home(self):
@@ -109,7 +182,9 @@ class ObjectTracking:
     def publish(self, message=None):
         if message is not None: self.message=message
         value={'state':self.state,'message':self.message,'armed':self.armed,
-               'active':self.active,'head_yaw':self.pose[0]/10,'head_pitch':self.pose[1]/10}
+               'active':self.active,'head_yaw':self.pose[0]/10,'head_pitch':self.pose[1]/10,
+               'head_pending':self._pending_head is not None,'watching':self.watch_box is not None,
+               'source':'unitv2-camera'}
         if value!=self._last_status:
             self._last_status=dict(value)
             self.emit('tracking_status',value)
@@ -117,6 +192,8 @@ class ObjectTracking:
 
     async def stop(self, message='Object tracking stopped.', *, disarm=False):
         self.intent += 1
+        self._pending_head = None
+        self.watch_box = self.watch_since = self._notice = None
         was_active = self.active
         if disarm: self.armed=False
         if self.active or self.move is not None:
@@ -134,6 +211,7 @@ class ObjectTracking:
             with contextlib.suppress(asyncio.CancelledError,Exception): await task
         await self._settle_move()
         self.frames.clear()
+        self._signature=None
         self._last_good=None
         self._recovered=0
         self.emit('tracking_preview',{})
@@ -193,6 +271,7 @@ class ObjectTracking:
             raise RuntimeError('Tracker returned an invalid target box.')
         now=self.clock()
         self.frames.append((sequence,now,jpeg))
+        self._observation = result
         if now-self._last_preview>=.08:
             self._last_preview=now
             self.emit('tracking_preview',{'jpeg':result['image'],'sequence':sequence,
@@ -220,8 +299,9 @@ class ObjectTracking:
                 if self.state=='TRACKING' and result.get('target_epoch')==self.expected_epoch and self._follow_task is None:
                     # Keep receiving fresh images while the one bounded motor
                     # command waits for its acknowledgement. Never queue steps.
-                    self._follow_task=asyncio.create_task(self._follow(result.get('box')),name='kadence-follow-step')
+                    self._follow_task=asyncio.create_task(self._follow(result.get('box'), self.frames[-1][2]),name='kadence-follow-step')
                 elif self.state=='LOST' and result.get('target_epoch')==self.expected_epoch:
+                    self._watch_observation(result.get('box'))
                     await self._recover(result.get('box'))
                 # UnitV2's authenticated observation already waits for a new
                 # image. Polling again immediately cannot replay an old frame.
@@ -255,20 +335,13 @@ class ObjectTracking:
             if self.task is me: self.task=None
             self.publish()
 
-    async def select(self, region=None, sequence=None, target=None):
-        setup=self.saved_head_setup() if target and not self.armed else None
-        if setup:
-            if self.busy():
-                # The same explicit request resumes after the voice motor lane
-                # releases. Home first, then select from a fresh live image.
-                await self.stop()
-                self.operation=asyncio.create_task(self._follow_after_voice(target,setup),name='kadence-requested-follow')
-                self.publish('I will get into position and follow '+target+' when speech finishes.')
-                return {'spoken':'I will follow '+target+'.','message':self.message}
-            await self.arm(setup)
+    async def select(self, region=None, sequence=None, target=None, *, follow=True):
+        setup=self.request_head_setup() if target and follow and not self.armed else None
+        if setup and not self.busy(): await self.arm(setup)
         if self._selection_lock.locked(): raise RuntimeError('Target selection is already running.')
         async with self._selection_lock:
             if not self.active: await self.preview()
+            self.watch_box = self.watch_since = self._notice = None
             self.operation=asyncio.current_task()
             self.state='FINDING' if target else 'SELECTING'
             try:
@@ -306,11 +379,41 @@ class ObjectTracking:
                 result=await self.camera.unitv2.tracking_frame(self.camera.config.address,roi=roi)
                 self.camera.check(generation)
                 self.expected_epoch=result['target_epoch']
-                self.stable=0;self.last_box=None;self.lost_at=None
+                # An ROI acknowledgement is not evidence of tracking. Require
+                # two distinct live target reports before saying it is locked.
+                after=self.last_sequence
+                observed=0
+                async with asyncio.timeout(3):
+                    while observed<2:
+                        await asyncio.sleep(.02)
+                        self.camera.check(generation)
+                        if intent!=self.intent or not self.active: raise RuntimeError('Tracking selection was cancelled.')
+                        current=self._observation
+                        if current and current['sequence']>after:
+                            after=current['sequence']
+                            good=current.get('target_epoch')==self.expected_epoch and current.get('box') is not None
+                            observed=observed+1 if good else 0
+                self.stable=0;self.last_box=list(current['box']);self.lost_at=None
+                from .tracking_evidence import signature
+                self._signature=await settled_thread(signature, self.frames[-1][2], self.last_box)
                 self.label=target or 'selected object'
+                self._pending_head=setup if setup and not self.armed and follow else None
                 self.state='TRACKING'
-                self.publish('Tracking '+self.label+'. '+('Head following is ready.' if self.armed else 'Camera tracking is active.'))
-                return {'spoken':f'I am tracking {self.label}.', 'message':self.message}
+                if not follow:
+                    spoken=f'Locked onto {self.label}.'
+                elif self._pending_head:
+                    spoken=f"Locked onto {self.label}, Boss. Head following starts when I finish speaking."
+                elif self.armed:
+                    spoken=f'I am tracking {self.label}, Boss. Head following is enabled.'
+                else:
+                    spoken=f"Camera tracking is active for {self.label}, Boss, but my head's home position needs setting once in Motion before I can follow physically."
+                self.publish(spoken)
+                return {'spoken':spoken, 'message':self.message, 'target_confirmed':True,
+                    'head_following':self.armed, 'head_pending':self._pending_head is not None}
+            except TimeoutError:
+                self.state='SELECTING';self.expected_epoch=None
+                self.publish("I couldn't keep a lock on that object. Hold it clearly in view and ask again.")
+                raise RuntimeError(self.message) from None
             except BaseException:
                 if self.active:
                     self.state='SELECTING';self.expected_epoch=None
@@ -318,7 +421,12 @@ class ObjectTracking:
                 raise
             finally: self.operation=None
 
-    async def _follow(self, box):
+    async def _follow(self, box, image=None):
+        if box is not None and self._signature is not None and (image or self.frames):
+            from .tracking_evidence import agrees
+            if not await settled_thread(agrees, self._signature, image or self.frames[-1][2], box):
+                box=None
+        self._watch_observation(box)
         if box is None:
             self.stable=0
             if self.lost_at is None: self.lost_at=self.clock()
@@ -337,6 +445,20 @@ class ObjectTracking:
         if self.frames: self._last_good=(self.frames[-1][2],list(box))
         self.lost_at=None
         self.stable+=1
+        if self._pending_head and not self.busy() and self.stable>=3:
+            setup=self._pending_head
+            self._pending_head=None
+            self.signs=(setup['yaw_sign'],setup['pitch_sign'])
+            if self.app._last_device_status.get('firmware')!='0.21.6' or self.clock()-self.app._last_device_status_at>5:
+                raise RuntimeError('Head following needs a fresh robot connection. The visual target is still available.')
+            # Establish a known physical origin once for this follow request.
+            # Ordinary conversation never resets an already armed tracker.
+            await self._move(self.home)
+            if setup.get('bootstrap_home') and getattr(self.app,'motion',None):
+                self.app.motion.store.save(self.home)
+            self.armed=True
+            self._save_head_setup()
+            self.publish('Target locked; head following enabled.')
         if self.stable<3 or not self.armed or self.busy() or self.clock()<self._head_ready_at: return
         dx,dy=(cx-320)/320,(cy-240)/240
         def step(error): return 0 if abs(error)<.13 else max(-20,min(20,round(error*45)))
@@ -430,7 +552,7 @@ class ObjectTracking:
         if intent!=self.intent: raise RuntimeError("Head action was superseded by Stop.")
         if args.get('mounted') is not True: raise ValueError('Head following requires UnitV2 mounted on the moving head.')
         yaw,pitch=self.home
-        if getattr(self.app,'motion',None) and not self.app.motion.store.saved:
+        if getattr(self.app,'motion',None) and not self.app.motion.store.saved and not args.get('bootstrap_home'):
             raise RuntimeError('Set the shared home in Motion before arming head following.')
         sx,sy=args.get('yaw_sign',1),args.get('pitch_sign',1)
         if type(sx) is not int or sx not in (-1,1) or type(sy) is not int or sy not in (-1,1): raise ValueError('Invalid axis direction.')
@@ -440,12 +562,10 @@ class ObjectTracking:
         try:
             await self._move((yaw,pitch))
             if intent!=self.intent: raise RuntimeError('Head setup was cancelled before saving.')
+            if args.get('bootstrap_home') and getattr(self.app,'motion',None):
+                self.app.motion.store.save((yaw,pitch))
             self.home=(yaw,pitch);self.signs=(sx,sy);self.armed=True
-            path=self.head_setup_path()
-            if path:
-                temporary=path.with_suffix('.tmp')
-                temporary.write_text(json.dumps({'format':1,'home':[yaw,pitch],'yaw_sign':sx,'pitch_sign':sy}))
-                temporary.replace(path)
+            self._save_head_setup()
             return self.publish('Head setup saved. Say “follow this pen” whenever you want to track an object.')
         finally: self.operation=None
 

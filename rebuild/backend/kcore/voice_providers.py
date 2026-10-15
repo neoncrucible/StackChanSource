@@ -10,6 +10,7 @@ from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 from .providers import Thinker
+from .identity import KADENCE_IDENTITY
 from .thinking import PLAN_FORMAT, MAX_PLAN_CHARS, ThinkingServiceError
 
 
@@ -184,6 +185,8 @@ class GeminiThinker:
         body = {
             "model": self.model,
             "input": prompt,
+            "system_instruction": KADENCE_IDENTITY.system_context(),
+            "store": False,
             "stream": True,
             "generation_config": {"thinking_level": "low"},
         }

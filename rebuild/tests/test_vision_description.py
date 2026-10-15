@@ -186,6 +186,24 @@ class SpokenLookTests(unittest.IsolatedAsyncioTestCase):
         await self.turn()
         self.assertEqual(self.spoken[-1],SCENE)
 
+    async def test_held_bottle_phrases_send_the_fresh_unitv2_image_and_keep_boss_identity(self):
+        for question in ('What do I have in my hand?', "What have I got in my hand?", 'What colour is the bottle?'):
+            with self.subTest(question=question):
+                self.adapters.text=question
+                requests=[]
+                def answer(request):
+                    payload=json.loads(request.content);requests.append(payload)
+                    self.assertEqual(base64.b64decode(payload['input'][1]['data']),frame().png)
+                    self.assertIn(question,payload['input'][0]['text'])
+                    self.assertIn('ONLY as Boss',payload['system_instruction'])
+                    return httpx.Response(200,json={'outputs':[{'type':'text','text':"It's a blue bottle, darling."}]})
+                self.http_handler=answer
+                await self.turn()
+                self.assertEqual(len(requests),1)
+                self.assertEqual(self.spoken[-1],"It's a blue bottle, Boss.")
+                self.assertEqual(self.app.camera.acquire.call_args.kwargs['source'],'unitv2-camera')
+                self.assertEqual(self.app.vision.source_device,'unitv2-camera')
+
     async def test_touch_cancel_during_description_leaves_no_stale_speech_and_next_look_works(self):
         entered=asyncio.Event();cancelled=asyncio.Event()
         async def hung(request):

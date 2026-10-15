@@ -220,7 +220,7 @@ class PerceptionController:
             elif pending["generation"] != self.camera.generation or pending["session"] != self.sampler.reflex.session_id:
                 self.pending = None
                 self._decision(pending["trigger"], "suppressed", "session_changed")
-            elif not self.busy() and not (self.task and not self.task.done()) and self.budget.delay(now)==0:
+            elif self.gate()=='ready' and not self.busy() and not (self.task and not self.task.done()) and self.budget.delay(now)==0:
                 self.pending = None
                 self.request(pending["trigger"], defer=False)
         if self._arrival_retry:
@@ -296,6 +296,11 @@ class PerceptionController:
         if trigger not in TRIGGERS: return False
         reason=self.gate()
         if reason != "ready":
+            if reason == 'lifecycle_check_required' and trigger == 'arrival' and defer:
+                self.pending={'trigger':trigger,'expires':self.clock()+45,
+                    'generation':self.camera.generation,'session':self.sampler.reflex.session_id}
+                self._decision(trigger,'deferred',reason)
+                return False
             # Quiet baseline: Gate 2 already records the proposals.
             if reason != "observation_only": self._decision(trigger,"suppressed",reason)
             return False

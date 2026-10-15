@@ -123,6 +123,8 @@ class KadenceAppliance:
         self._warmup_task = None
         self._speech_workers = None
         self._camera_ready_task = None
+        from .presence_motion import PresenceMotion
+        self.presence_motion = PresenceMotion(self)
         self._voice_stage = "idle"
         self._voice_deadline = 0.0
         self._voice_progress = asyncio.Event()
@@ -160,7 +162,7 @@ class KadenceAppliance:
             from .camera_manager import CameraConfig
             from .perception import PerceptionController
             self.camera.unitv2.verification_root = self.services.paths.root
-            self.camera.configure(CameraConfig.load(self.services.paths.root))
+            self.camera.configure(CameraConfig.companion_defaults(self.services.paths.root))
             with contextlib.suppress(Exception): await self.camera.settle_settings()
             config=self.camera.config
             if not config.privacy and config.perception_enabled and config.policy!='OFF' and config.source!='robot-camera':
@@ -201,6 +203,7 @@ class KadenceAppliance:
                     self._last_device_status = {}
                     self._last_device_status_at = 0.0
                     self._body = body
+                    self.presence_motion.faulted = False
                     self._reconnect_requested.clear()
                     self.emit("robot", {"connected": True})
                     if self._recovering_voice:
@@ -218,6 +221,7 @@ class KadenceAppliance:
                             f"reason={type(exc).__name__}:{_safe_message(exc)}"
                         )
                 finally:
+                    await self.presence_motion.pause()
                     await self.tracking.stop("Robot disconnected; tracking stopped.",disarm=True)
                     await self.factory.stop()
                     await self.motion.stop()
@@ -262,6 +266,7 @@ class KadenceAppliance:
 
     async def close(self) -> None:
         self._stop.set()
+        await self.presence_motion.pause()
         if self._camera_ready_task is not None:
             self._camera_ready_task.cancel()
             await asyncio.gather(self._camera_ready_task,return_exceptions=True)
@@ -359,6 +364,12 @@ class KadenceAppliance:
                         if (self._voice_task is None or self._voice_task.done()) and any(r["state"] == "due" and r["robot"] == "pending" for r in reminders):
                             self._voice_task = asyncio.create_task(self._deliver_reminders(body), name="kadence-alert")
                             self._voice_task.add_done_callback(self._voice_task_done)
+                        if self._voice_task is None or self._voice_task.done():
+                            notice = self.tracking.take_notice()
+                            if notice:
+                                self._voice_task = asyncio.create_task(self._deliver_tracking_notice(body, notice), name='kadence-watch-alert')
+                                self._voice_task.add_done_callback(self._voice_task_done)
+                    self.presence_motion.tick()
                 except asyncio.CancelledError: raise
                 except Exception:
                     self.emit("device_status", {"state": "unavailable"})
@@ -381,6 +392,23 @@ class KadenceAppliance:
         if not self._stop.is_set() and body is self._body and body.connected and self.perception:
             observation = self.sensor_sampler.sample(tof, gesture)
             await self.perception.sample(observation)
+
+    async def _deliver_tracking_notice(self, body, message):
+        generation = self.camera.generation
+        await self.tracking.pause_head()
+        await self.presence_motion.pause()
+        try:
+            providers = LiveVoiceProviders.from_settings(self.settings.providers)
+            pcm = await _synthesize_reply(providers, message)
+            self.camera.check(generation)
+            if body is not self._body or not body.connected: return
+            self._alert_pcm = pcm
+            await self._run_media(body, 'voice.alert', preserve_tracking=True)
+        except asyncio.CancelledError: raise
+        except Exception:
+            self.emit('tracking_notice', {'message':message+' The spoken alert could not be delivered.', 'reason':'speech_unavailable'})
+        finally:
+            self._alert_pcm = b''
 
     async def _deliver_reminders(self, body):
         rows = await self.services.store.call("claim_robot")
@@ -543,7 +571,14 @@ class KadenceAppliance:
                 if self.perception: await self.perception.interrupt()
                 self.vision.clear()
                 self.emit("activity", {"state":"camera"})
-                frame = await self.camera.acquire(purpose="voice", in_voice=self._capture_in_voice)
+                if self.tracking.active:
+                    frame = await self.tracking.current_frame()
+                else:
+                    # AUTO means the extra camera for spoken visual requests.
+                    # A silent built-in fallback changes the field of view and
+                    # makes an otherwise plausible answer misleading.
+                    source='robot-camera' if self.camera.config.source=='robot-camera' else 'unitv2-camera'
+                    frame = await self.camera.acquire(purpose="voice", source=source, in_voice=self._capture_in_voice)
                 self.camera.check(frame.generation)
                 self.vision.accept_frame(frame)
                 result = await self.vision.describe(question, self.settings.providers)
@@ -564,7 +599,11 @@ class KadenceAppliance:
             self.emit("vision_description", {"state":"failed", "reason":"missing_key"})
             raise VisionServiceError("missing_key")
         self.vision.clear()
-        await self.capture_camera()
+        if self.tracking.active:
+            self.vision.accept_frame(await self.tracking.current_frame())
+        else:
+            source='robot-camera' if self.camera.config.source=='robot-camera' else 'unitv2-camera'
+            await self.capture_camera(source=source)
         return await self.vision.describe(question, self.settings.providers)
 
     async def _deliver_presence(self, action, check):
@@ -689,6 +728,7 @@ class KadenceAppliance:
     async def _run_voice_turn(self, body: RuntimeBody) -> None:
         # Speech owns motors, but an ordinary conversation must not destroy the
         # camera's target. Explicit camera actions still switch the one owner.
+        await self.presence_motion.pause()
         await self.tracking.pause_head()
         if asyncio.current_task().cancelling(): raise asyncio.CancelledError
         await self.factory.stop()

@@ -123,7 +123,8 @@ def test_voice_commands_are_direct_but_model_changes_need_confirmation(tmp_path)
         await companion.respond('Switch to extra camera',NoPlanner())
         assert CameraConfig.load(tmp_path).source=='unitv2-camera'
         reply=await companion.respond('Enable greetings',NoPlanner())
-        assert 'still off' in reply
+        assert 'Saved' in reply
+        assert CameraConfig.load(tmp_path).greetings and CameraConfig.load(tmp_path).perception_enabled
         await companion.respond('Turn privacy on',NoPlanner())
         assert CameraConfig.load(tmp_path).privacy
         assert 'UnitV2 extra camera' in await companion.respond('Camera status',NoPlanner())
@@ -166,9 +167,9 @@ def test_voice_look_uses_selected_source_and_privacy_without_second_serial_owner
         vision=DeskVision();vision.guard=e.camera.check
         vision.describe=AsyncMock(return_value={'spoken':'A desk.'})
         capture=AsyncMock()
-        app=SimpleNamespace(camera=e.camera,perception=e.pc,vision=vision,settings=SimpleNamespace(providers=SimpleNamespace(gemini_api_key='fake-test-only')),_capture_in_voice=capture,emit=lambda *a:None)
+        app=SimpleNamespace(camera=e.camera,tracking=SimpleNamespace(active=False),perception=e.pc,vision=vision,settings=SimpleNamespace(providers=SimpleNamespace(gemini_api_key='fake-test-only')),_capture_in_voice=capture,emit=lambda *a:None)
         assert (await KadenceAppliance._look_during_voice(app,'What can you see?'))['spoken']=='A desk.'
-        assert e.camera.acquire.call_args.kwargs=={'purpose':'voice','in_voice':capture}
+        assert e.camera.acquire.call_args.kwargs=={'purpose':'voice','source':'unitv2-camera','in_voice':capture}
         assert vision.source_device=='unitv2-camera'
         capture.assert_not_called()
         e.camera.configure(replace(e.camera.config,privacy=True))

@@ -35,12 +35,12 @@ def render(output):
         window.show()
         for width,height in [(1160,800),(980,690)]:
             window.resize(width,height)
-            for index,name in enumerate(['overview','reminders','workbench','vision','device','diagnostics']):
+            for index,name in enumerate(['home','activity','tools','settings']):
                 window.navigate(index)
                 for _ in range(4): app.processEvents()
                 assert window.grab().save(str(output/f'{name}-{width}.png'))
         window.tray.hide(); window.hide(); window.deleteLater(); app.processEvents()
-    print('DESKTOP_RENDER PASS pages=6 sizes=2 synthetic_data=1')
+    print('DESKTOP_RENDER PASS pages=4 sizes=2 synthetic_data=1')
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('output',type=Path); args=parser.parse_args(); render(args.output)

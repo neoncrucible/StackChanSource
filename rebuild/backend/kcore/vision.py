@@ -117,6 +117,7 @@ class DeskVision:
         self.description_state = "idle"
         self.description_error = ""
         self._description_task = None
+        self.frame_id = ''
 
     async def accept(self, raw: bytes):
         self.png, self.qr = await asyncio.to_thread(decode_image, raw)
@@ -161,6 +162,7 @@ class DeskVision:
         self.png, self.qr = frame.png, list(frame.qr)
         self.width, self.height = frame.width, frame.height
         self.source_device, self.captured = frame.source, frame.captured_at
+        self.frame_id = frame.frame_id
         self.description = self.question = ""
         self.description_state, self.description_error = "captured", ""
         self.generation += 1
@@ -221,7 +223,9 @@ class DeskVision:
         self.emit("vision_description", {**status, "state": "complete", "chars": len(reply),
                   "elapsed_ms": round((time.monotonic()-started)*1000)})
         self.publish()
-        return {"spoken": reply, "qr": self.qr, "source": "Gemini"}
+        return {"spoken": reply, "qr": self.qr, "source": "Gemini",
+            "camera_source": self.source_device, "frame_id":self.frame_id,
+            "captured_at":self.captured, "description_status":"complete"}
 
     async def save(self, directory: Path | KadencePaths, store, project_id: int):
         self.guard()

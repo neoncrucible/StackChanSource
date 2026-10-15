@@ -21,8 +21,10 @@ def normalise_request(text):
     for _ in range(5):
         previous = normal
         normal = re.sub(r"^(?:(?:hey |okay |ok )?(?:kadence|kade)\b|please\b)\s*", "", normal)
-        normal = re.sub(r"^(?:(?:can|could|would|will) you(?: please)? |i (?:want|need) you to )(?=(?:tell|show|describe|look|read|identify|track|follow|keep|stop|start|turn|enable|disable|use|switch)\b)", "", normal)
+        normal = re.sub(r"^(?:(?:can|could|would|will) you(?: please)? |i (?:want|need) you to )(?=(?:tell|show|describe|look|read|identify|track|follow|watch|monitor|let|notify|alert|keep|stop|start|turn|enable|disable|use|switch)\b)", "", normal)
         normal = re.sub(r"\s+(?:for me(?: please)?|please(?: now)?|now)$", "", normal).strip()
+        normal = re.sub(r'^(?:would you mind|do you mind|start) (tracking|following|watching|monitoring)\b',
+            lambda match: {'tracking':'track','following':'follow','watching':'watch','monitoring':'monitor'}[match[1]], normal)
         if normal == previous:
             break
     return normal
@@ -38,6 +40,12 @@ def is_visual_request(text):
         r"what (?:can|do) you see\b",
         r"what (?:are you|you're) looking at\b",
         r"what (?:am i|i'm) holding\b",
+        r"what (?:do i have|have i got|i have|i've got|is|have i|am i holding)(?: here)? in (?:my|this|the) hands?\b",
+        r"what(?:'s| is) (?:in my hands?|this i'm holding|that i'm holding)\b",
+        r"(?:what|which) (?:object|item|thing) (?:am i holding|is (?:this|that)|do i have)\b",
+        r"(?:what|which) (?:colou?r|shape) (?:am i holding|do you see|does .{1,80} (?:have|look))\b",
+        r"(?:is|are) (?:this|that|it|the .{1,50}) (?:still |really )?(?:there|visible|blue|red|green|yellow|black|white|orange|purple|pink)\b",
+        r"(?:where (?:is|did)|has|have) (?:it|that|the (?:bottle|object|item|pen|mug|cup))\b",
         r"what(?:'s| is) (?:this|that|in (?:front of you|your view)|on (?:my|the) desk)\b",
         r"(?:look at|have a look at|take a look at) (?:this|that|the|my)\b",
         r"(?:describe|identify|read|scan) (?:this|that)\b",
@@ -54,13 +62,20 @@ def is_visual_request(text):
 
 def camera_plan(text):
     normal = normalise_request(text)
+    # Watches are real persistent operations, never ordinary model promises.
+    watch = re.fullmatch(r"(?:tell me|let me know|notify me|alert me)(?: if| when)? (.{1,80}?) (?:gets? moved|moves|is moved|disappears|goes missing|is gone|is removed|gets? removed|gets? taken|is taken)(?: again)?", normal)
+    if watch:
+        return {'tool':'tracking_control','arguments':{'action':'watch','target':watch[1]}}
+    watch = re.fullmatch(r'(?:watch|monitor) (.{1,80}?)(?: for (?:movement|changes))?', normal)
+    if watch:
+        return {'tool':'tracking_control','arguments':{'action':'watch','target':watch[1]}}
     if is_visual_request(text):
         return {"tool":"desk_look","arguments":{"question":text}}
     if normal in {"camera status", "which camera are you using", "what cameras do you have", "do you have a camera", "is your camera on", "are you looking", "can you use the extra camera", "do you have an extra camera", "is automatic perception on", "why aren't you greeting me"}:
         return {"tool":"camera_status","arguments":{}}
     if normal in {'tracking status','are you tracking','what are you tracking'}:
         return {'tool':'tracking_status','arguments':{}}
-    if re.fullmatch(r'stop (?:object tracking|tracking|following)(?: .{1,80})?', normal):
+    if re.fullmatch(r'stop (?:object tracking|tracking|following|watching|monitoring)(?: .{1,80})?', normal):
         return {'tool':'tracking_control','arguments':{'action':'stop'}}
     match=re.fullmatch(r'(?:follow|track|keep track of|keep an eye on) (.{1,80})',normal)
     if match:

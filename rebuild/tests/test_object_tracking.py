@@ -71,6 +71,11 @@ def test_native_box_is_cleared_on_each_lost_frame_and_new_lease(tracker_service)
     first=c.call('track_frame',lease);assert first['box'] is None
     selected=c.call('track_select',lease,roi=[300,180,80,100])
     result=c.call('track_frame',lease)
+    # Selection ACK can precede the first native detection. The host now waits
+    # for positive live evidence too; a returned image alone is not a lock.
+    for _ in range(10):
+        if result['box'] is not None: break
+        result=c.call('track_frame',lease)
     assert result['box']==[300,180,80,100] and result['target_epoch']==selected['target_epoch']
     (root/'scene').write_text('lost')
     for _ in range(5): result=c.call('track_frame',lease)

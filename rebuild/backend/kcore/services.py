@@ -63,8 +63,8 @@ class LocalServices:
             if self.tracking_handler is None: return {'spoken':'Object tracking is available in the desktop server.'}
             return await self.tracking_handler(args)
         self.tools.register(KadenceToolSpec('tracking_status','Read actual object tracking state; never infer a target from memory.',schema({}),tracking))
-        self.tools.register(KadenceToolSpec('tracking_control','Follow one explicitly requested visible object using UnitV2, or stop tracking. Head movement requires prior desktop arming. Hold the object still for initial selection. Does not monitor theft or identify people.',
-            schema({'action':{'type':'string','enum':['follow','stop']},'target':string(80)},'action'),tracking,timeout=30,writes=True))
+        self.tools.register(KadenceToolSpec('tracking_control','Follow a visible object with the head using its saved home, watch one object for sustained movement or loss of sight, or stop. Selection must be confirmed from fresh UnitV2 images. Watch alerts do not prove theft or removal.',
+            schema({'action':{'type':'string','enum':['follow','watch','stop']},'target':string(80)},'action'),tracking,timeout=30,writes=True))
         async def factory(args):
             if self.factory_handler is None: return {'spoken':'Factory vision is available in the desktop server.'}
             return await self.factory_handler(args)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import asyncio
 import contextlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import io
 import ipaddress
@@ -52,6 +52,27 @@ class CameraConfig:
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
         temporary.replace(path)
+
+    @classmethod
+    def companion_defaults(cls, root):
+        """Apply the requested autonomous defaults once; retain privacy and rollback.
+
+        A later choice of OFF is never undone on restart. Per-person recognition
+        and greeting preferences and an explicit camera choice stay intact.
+        """
+        root = Path(root)
+        marker = root/'companion-defaults.json'
+        config = cls.load(root)
+        if marker.exists(): return config
+        previous = root/'camera-settings.json'
+        backup = root/'camera-settings.pre-0.6.1.json'
+        if previous.exists() and not backup.exists(): backup.write_bytes(previous.read_bytes())
+        config = replace(config, policy='AWARE', perception_enabled=True, greetings=True)
+        config.save(root)
+        temporary = marker.with_suffix('.tmp')
+        temporary.write_text(json.dumps({'format':1,'version':'0.6.1'}))
+        temporary.replace(marker)
+        return config
 
 
 @dataclass(frozen=True)

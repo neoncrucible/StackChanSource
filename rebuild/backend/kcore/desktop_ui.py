@@ -250,9 +250,12 @@ class MainWindow(QMainWindow):
         camera_box.addWidget(row(self.home_question,self.home_ask))
         self.home_camera_status=label('Connect Kadence to use the camera.','muted')
         camera_box.addWidget(self.home_camera_status)
+        self._home_evidence=''
+        self.home_preview=QLabel('The image used for your answer appears here.'); self.home_preview.setAlignment(Qt.AlignCenter)
+        self.home_preview.setMinimumSize(200,110); self.home_preview.setMaximumHeight(150)
         self.home_answer=QPlainTextEdit(); self.home_answer.setReadOnly(True); self.home_answer.setFixedHeight(70)
         self.home_answer.setPlaceholderText('Fresh camera answers appear here. You can say the same requests aloud.')
-        camera_box.addWidget(self.home_answer)
+        camera_box.addWidget(row(self.home_preview,self.home_answer))
         layout.addWidget(camera)
         awareness=QGroupBox("Background awareness"); box=QVBoxLayout(awareness)
         self.camera_policy=QComboBox()
@@ -1139,6 +1142,15 @@ class MainWindow(QMainWindow):
             return
         if name=="tracking_preview":
             self.tracking_panel.preview.frame(data)
+            if data.get('jpeg'):
+                pixmap=QPixmap(); pixmap.loadFromData(base64.b64decode(data['jpeg'],validate=True),'JPEG')
+                self.home_preview.setPixmap(pixmap.scaled(self.home_preview.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
+            elif not self.snapshot_pixmap:
+                self.home_preview.clear(); self.home_preview.setText('No live camera image.')
+            return
+        if name=='tracking_notice':
+            self.home_answer.setPlainText(data.get('message',''))
+            self.message.setText(data.get('message',''))
             return
         if name=="factory_status":
             self.factory_panel.update_status(data)
@@ -1325,6 +1337,7 @@ class MainWindow(QMainWindow):
             if encoded:
                 pixmap=QPixmap(); pixmap.loadFromData(base64.b64decode(encoded,validate=True),"PNG"); self.snapshot_pixmap=pixmap
                 self.preview.setPixmap(pixmap.scaled(self.preview.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
+                self.home_preview.setPixmap(pixmap.scaled(self.home_preview.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
             else: self.snapshot_pixmap=None; self.preview.setPixmap(QPixmap()); self.preview.setText("NO SNAPSHOT\n\nCapture a snapshot to begin.")
             values=[("UnitV2" if data.get("source_device")=="unitv2-camera" else "StackChan") + f" · {data.get('width',320)} × {data.get('height',240)}" if encoded else "",data.get("description","")]
             values.extend("QR (local, text only): "+str(qr) for qr in data.get("qr",[]))
@@ -1335,6 +1348,9 @@ class MainWindow(QMainWindow):
                 self.home_answer.clear()
             state=data.get("description_state","captured" if encoded else "idle")
             stamp=datetime.fromtimestamp(data["captured"],ZoneInfo(self.active_timezone)).strftime("%H:%M:%S %Z") if data.get("captured") else ""
+            self._home_evidence=(values[0]+' · captured '+stamp) if encoded else ''
+            if not encoded:
+                self.home_preview.clear(); self.home_preview.setText('No camera image retained.')
             detail={"idle":"No snapshot retained.", "captured":"Image captured · ready to describe.",
                 "describing":"Image captured · Gemini is describing it…", "complete":"Description received."}.get(state,data.get("description_error","Description interrupted."))
             self.vision_description_status.setText((f"{stamp} · " if stamp else "")+detail)
@@ -1348,8 +1364,9 @@ class MainWindow(QMainWindow):
             if not data.get("ok"): self.message.setText(data.get("message","Operation was not confirmed."))
             elif isinstance(data.get("result"),dict) and data["result"].get("message"): self.message.setText(data["result"]["message"])
         elif name=="tracking_timing":
-            if type(data.get('frame_ms')) is int:
-                self.home_camera_status.setText(f"Tracking · live frame {data['frame_ms']} ms")
+            if type(data.get('frame_ms')) is int and self.tracking_snapshot.get('state')=='TRACKING':
+                mode='Watching for change' if self.tracking_snapshot.get('watching') else 'Head following' if self.tracking_snapshot.get('armed') else 'Visual lock · head waiting'
+                self.home_camera_status.setText(f"UnitV2 · {mode} · frame {data['frame_ms']} ms")
         elif name=="timing":
             if data.get("stage") in {"stt","reasoning","tts","first_pcm","first_audio"}:
                 self.timings[data["stage"]]=data.get("elapsed_ms",0)
@@ -1434,7 +1451,7 @@ class MainWindow(QMainWindow):
         elif self.server_state!='running':
             self.home_camera_status.setText('Connect Kadence to use the camera.')
         elif not self._look_pending and not self.tracking_snapshot.get('active'):
-            self.home_camera_status.setText('On demand · the camera starts when you ask.')
+            self.home_camera_status.setText(self._home_evidence or 'Ready for a fresh camera look.')
 
     def tick(self):
         self.refresh_activity()

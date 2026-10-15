@@ -76,10 +76,12 @@ class DesktopController:
         if action=='stop':
             await tracker.stop(disarm=True)
             return {'spoken':'Object tracking stopped and head following disarmed.'}
-        if action=='follow':
+        if action in {'follow','watch'}:
             if self._media and not self._media.done(): return {'spoken':'Finish the current camera check before tracking an object.'}
             if not args.get('target'): args={**args,'target':'that'}
-            try: return await tracker.select(target=args['target'])
+            try:
+                if action=='watch': return await tracker.watch(args['target'])
+                return await tracker.select(target=args['target'])
             except RuntimeError as exc: return {'spoken':str(exc)}
         raise ValueError('Unsupported tracking action.')
 
@@ -119,7 +121,7 @@ class DesktopController:
             "privacy_on":{"privacy":True},"privacy_off":{"privacy":False},
             "perception_on":{"perception_enabled":True,"policy":config.policy if config.policy!="OFF" else "EVENT_ONLY"},
             "perception_off":{"perception_enabled":False},
-            "greetings_on":{"greetings":True},"greetings_off":{"greetings":False},
+            "greetings_on":{"greetings":True,"perception_enabled":True,"policy":config.policy if config.policy!='OFF' else 'AWARE'},"greetings_off":{"greetings":False},
             "unitv2":{"source":"unitv2-camera"},"robot":{"source":"robot-camera"},"auto":{"source":"auto"},
             "aware":{"policy":"AWARE","perception_enabled":True},"event_only":{"policy":"EVENT_ONLY","perception_enabled":True},
         }
@@ -151,7 +153,7 @@ class DesktopController:
         await self.services.start()
         from .camera_manager import CameraConfig
         from dataclasses import asdict
-        self.emit("camera_settings", asdict(CameraConfig.load(self.services.paths.root)))
+        self.emit("camera_settings", asdict(CameraConfig.companion_defaults(self.services.paths.root)))
         self.emit("ready", {"protocol": 1})
         self.remote.status()
         from .motion import HomeStore
@@ -231,6 +233,7 @@ class DesktopController:
             if tool == 'desk_look':
                 return await self.command('camera_look', values)
             if tool == 'tracking_control':
+                if values['action']=='watch': return await self.tracking_voice(values)
                 return await self.command('tracking_stop' if values['action'] == 'stop' else 'tracking_find',
                     {} if values['action'] == 'stop' else {'target': values['target']})
             if tool == 'tracking_status':
@@ -270,7 +273,7 @@ class DesktopController:
             if action=='tracking_home': return await self.app.motion.command('motion_home',{})
             raise ValueError('Unsupported tracking control.')
         if self.app and getattr(self.app,'tracking',None) and action in {'camera_settings','camera_patch','unitv2_mode','unitv2_check','unitv2_train_open','factory_start','factory_stop','factory_config',
-                'recognition_test','perception_test','face_enroll','camera_capture','camera_look','media_cancel'}:
+                'recognition_test','perception_test','face_enroll','camera_capture','media_cancel'}:
             if action in {'camera_patch','camera_settings'} and args.get('privacy') is True:
                 from dataclasses import replace
                 self.app.camera.configure(replace(self.app.camera.config,privacy=True))

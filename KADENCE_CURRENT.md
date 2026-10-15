@@ -1,13 +1,13 @@
 # PROJECT KADENCE — canonical state and Astra handover
 **Audit date:** 2026-10-12 (Europe/London)
-**Latest engineering continuation:** 2026-10-15 — reactive companion 0.6.0 candidate; see section 13 and `rebuild/docs/REACTIVE_COMPANION_0_6_0.md`.
+**Latest engineering continuation:** 2026-10-15 — 0.6.0 rejected in owner testing; 0.6.1 repairs in section 14 and `rebuild/docs/GROUNDED_COMPANION_0_6_1.md`.
 **Owner decision:** ONE active development branch: `main`.
 **Repository:** `neoncrucible/StackChanSource`
 **Promoted source head (pre-documentation):** `4a0a816a0442f391533591db52b5a82a58bc1bad` from `kadence/sticks3-remote`.
 **Previous main:** `3b9890063b3abe03e96cf2b00c1b94409532a8eb`; changed by a NON-FORCED fast-forward.
 **Accepted fallback:** `kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`.
-**Target release:** host 0.6.0, "Reactive Companion".
-**Status:** 0.6.0 Windows candidate built and verified; physical timing and owner acceptance pending.
+**Target release:** host 0.6.1, grounded camera and companion repairs.
+**Status:** 0.6.0 FAILED owner acceptance. 0.6.1 source repairs under verification; Windows artifact and physical acceptance pending.
 
 ## 0. Astra: read this first
 Do not continue from the former `kadence/functionality`, `kadence/sensor-clean-base`, `kadence/sticks3-remote`, `kadence/rebuild-kade`, or any alpha branch. All new development must target `main` unless the owner explicitly changes this policy. Preserve existing commit SHAs and the 0.4.13 rollback package. Never assume that a code branch or passing CI reflects what is installed on the Windows computer. The owner wants one-shot, autonomous, fail-fast changes and only unavoidable hardware acceptance requests.
@@ -567,3 +567,40 @@ persists; do not ask the owner to navigate repeated readiness/arming switches.
   `Install-Kadence.cmd`. No new CoreS3 flash, UnitV2 install or face retraining.
   This session did not install the package on the owner's PC or measure the actual
   robot's two-second response target, camera LAN latency or physical following.
+
+
+## 14. Owner rejection of 0.6.0 and 0.6.1 repairs — 2026-10-15
+
+The owner reports: held-bottle questions produced generic answers; colour was not
+recognised; tracking was claimed without head following; requested movement/loss
+notification hallucinated; the persona used unwanted pet names; greetings and
+idle movement were absent. These are failures, not passed physical acceptance.
+The 0.6.0 download also required replacing a truncated local ZIP; always verify
+the actual final downloadable file, not only an earlier build or metadata file.
+
+Confirmed source faults: held-object intent gaps; a queued follow promise before
+selection; visual tracking spoken as success with the head disarmed; image
+answers lacking Kadence identity; no real object-watch operation; startup arrival
+discarded during camera readiness; legacy OFF defaults; idle motion unimplemented.
+Earlier 0.4.13 tracking used a 0°/30° home but did not persist it.
+
+0.6.1 changes the existing camera/motion/service owners: fresh UnitV2 spoken looks,
+Home image provenance, identity in model system instructions and spoken vocatives,
+two-frame target confirmation, automatic confirmed Home setup, live-image
+appearance validation, bounded one-shot object watches with honest loss wording,
+readiness-aware arrival deferral, versioned awareness defaults and low-frequency
+idle glances. Ordinary conversation retains tracking; visual questions borrow a
+fresh tracking image instead of destroying the session. No CoreS3, UnitV2 service,
+face enrolment, SQLite schema, Stick microphone or locomotion change.
+
+The owner explicitly requests autonomy by default. This supersedes the older
+manual-arming product flow: explicit follow requests initialise the existing
+bounded head baseline when needed; AWARE presence can do the same before idle
+glances. Existing calibrated Home and valid axis directions take precedence.
+No servo zero writes, concurrent motor owner, unbounded movement or silent camera
+fallback is introduced. Privacy remains absolute. The prior awareness settings
+are copied before the once-only upgrade; subsequent OFF choices are respected.
+
+Verification and artifact evidence will be recorded here after the Windows gate.
+Do not label retail readiness, two-second voice, physical colour recognition,
+mechanical following or live camera latency as passed without owner evidence.
