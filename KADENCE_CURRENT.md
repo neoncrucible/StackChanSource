@@ -7,7 +7,7 @@
 **Previous main:** `3b9890063b3abe03e96cf2b00c1b94409532a8eb`; changed by a NON-FORCED fast-forward.
 **Accepted fallback:** `kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`.
 **Target release:** host 0.6.1 + CoreS3 0.21.7, grounded companion and speech endpoint repairs.
-**Status:** 0.6.0 FAILED owner acceptance. 0.6.1 source repairs under verification; Windows artifact and physical acceptance pending.
+**Status:** 0.6.0 FAILED owner acceptance. 0.6.1 Windows and CoreS3 builds passed, complete download independently verified; physical acceptance pending. Exact package source: `10b3e709020d040892fa7c93dd9533db70d9d8ed` (section 14).
 
 ## 0. Astra: read this first
 Do not continue from the former `kadence/functionality`, `kadence/sensor-clean-base`, `kadence/sticks3-remote`, `kadence/rebuild-kade`, or any alpha branch. All new development must target `main` unless the owner explicitly changes this policy. Preserve existing commit SHAs and the 0.4.13 rollback package. Never assume that a code branch or passing CI reflects what is installed on the Windows computer. The owner wants one-shot, autonomous, fail-fast changes and only unavoidable hardware acceptance requests.
@@ -19,8 +19,8 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 ## 1. Audited component inventory and evidence
 | Component | Current source/candidate | Evidence and limits |
 |---|---|---|
-| CoreS3 firmware | 0.21.7 candidate; accepted foundation 0.21.6 | New microphone VAD is required to remove fixed capture. No calibration/storage migration. Physical endpointing acceptance pending. |
-| Windows host | 0.6.1 candidate source | 0.6.0 failed owner acceptance. Grounded vision/tracking, persona, presence and broad natural-language reminders; see section 14. |
+| CoreS3 firmware | 0.21.7 candidate; accepted foundation 0.21.6 | Compiled and bundled, startup stack and endpoint logic gates passed. New microphone VAD is required to remove fixed capture. No calibration/storage migration. Physical endpointing acceptance pending. |
+| Windows host | 0.6.1 verified candidate package | 0.6.0 failed owner acceptance. Grounded vision/tracking, persona, presence and broad natural-language reminders; exact package and test evidence in section 14. |
 | UnitV2 service | 1.3.0 | Factory Vision modes exposed; many physical mode tests still unproven. |
 | StickS3 | firmware 1.0.3 candidate | Boot/pair/display corrections and driver fix recorded, but PTT still lacks successful hardware acceptance. Remote OFF. |
 | Data | SQLite schema 5 | Native UnitV2 face files live on camera, not in PC SQLite backup. |
@@ -28,7 +28,7 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 | Speech | OpenAI STT + Sonia Edge TTS / local Windows fallback | User accepted the restored audio baseline (0.4.11); preserve existing speech output and cancellation. |
 | Vision | UnitV2 native face recognition, greeting, snapshots, target tracker | 0.4.12 face/greetings physically accepted 2026-09-27. 0.4.13 object tracking reported working quite well. |
 | Sensors | PaHub, PAJ7620U2 Gesture, VL53L1X ToF | Physically signed off 2026-09-17. ToF is range evidence, NOT person identity. |
-| Motion | CoreS3 servo yaw/pitch and shared Home | Bounded ACK/torque-release, explicit arming. New cross-tab shared Home physical acceptance limited. |
+| Motion | CoreS3 servo yaw/pitch and shared Home | Bounded ACK/torque-release. Explicit follow requests establish/arm saved Home automatically; AWARE presence can initialise idle glances. New physical behaviour acceptance pending. |
 | Utilities | Reminders, lab notes/workbench, calculations | Previous physical reminder checks; preserve states/DB. |
 | Open known bugs | Volume slider/top-swipe; remote PTT | Do not silently mark fixed. Review volumes independently before closing. |
 
@@ -627,6 +627,78 @@ No servo zero writes, concurrent motor owner, unbounded movement or silent camer
 fallback is introduced. Privacy remains absolute. The prior awareness settings
 are copied before the once-only upgrade; subsequent OFF choices are respected.
 
-Verification and artifact evidence will be recorded here after the Windows gate.
+### Final 0.6.1 build and complete download evidence
+
+- **Package source:** `10b3e709020d040892fa7c93dd9533db70d9d8ed` on `main`.
+  Implementation commits: `772d093` (grounded camera, following and presence),
+  `afe6f26` (semantic visual requests and first idle glance), `9aa34f5` (natural
+  reminders, speech endpoint firmware and updater), `4548f1b` (capture evidence
+  and watch phrases), `10b3e70` (correct updater-before-installer instructions).
+  Later changes to this handover do not change the package's source identity.
+- **Local source evidence:** full suite **578 passed, 4 Windows-only skips,
+  122 subtests passed**; final capture-feedback/watch compatibility changes then
+  passed **100 focused tests with 1 Windows-only skip**. The C++ endpoint
+  controller passed pause, no-speech and hard-limit checks with address/undefined
+  behaviour sanitizers. The runtime ownership gate also passed locally.
+- **Exact-source Windows run:**
+  https://github.com/neoncrucible/StackChanSource/actions/runs/38783573978
+  — all three jobs **SUCCESS**. The six Windows groups passed **526 tests and
+  94 subtests**. Runtime ownership/cancellation/reconnect gate passed. Frozen
+  executable checks passed: incremental MP3 decode before EOF (first PCM after
+  576 encoded bytes), warm native speech decoder, real Windows local speech
+  (119,360 PCM bytes in 359 ms), camera contract, tracking tools, face replay,
+  persistence/backup, private worker, remote-off and clean shutdown. These are
+  test-runner measurements, not end-to-end latency on the owner's system.
+- **Firmware:** ESP-IDF 5.5.4 build of CoreS3 0.21.7 succeeded. Linked-image
+  startup stack gate passed (`main_bytes=8192`, baseline frame 672 bytes);
+  application size **1,072,592 bytes**, 74% of its partition free. Packager
+  verified flash offsets and calibration preservation. Application SHA-256:
+  `7315f98279bfec463463cab1df9f7b3722ec4ee5abd82707205ba350fae58acd`.
+- **Artifact:** `Kadence-Desktop-Windows`, ID **11997026805**. The delivered
+  inner ZIP is named **Kadence-0.6.1-Windows-and-CoreS3-10b3e709.zip**,
+  **186,045,461 bytes**, SHA-256:
+  `244e595803a23473b33d2323928e39d1c7989dd30ff5c698ff62c931775f3bcb`.
+  All **1,197** manifest-listed files matched their hashes; all **1,198** ZIP
+  entries passed CRC/path/duplicate checks with complete manifest coverage.
+  Host BUILD, host RELEASE and firmware RELEASE agree on the exact source above,
+  host 0.6.1, firmware 0.21.7 and schema 5. Candidate and physical-signoff=false
+  markers were checked. The actual final downloadable pathname was re-read for
+  size, SHA-256 and ZIP CRC after its atomic rename, to catch truncation.
+- **Outer Actions archive:** **186,045,651 bytes**, SHA-256:
+  `109bc83506f6d1a7a47e5f0b82eca132b934c0fb4461dfd85128b54083555e06`.
+  Downloaded bytes matched GitHub's artifact digest. Artifact expiry is
+  **2027-01-13 18:11:37 UTC**; retain an accepted package separately.
+- **Earlier runners:** run 38782448498 timed out in local Windows SAPI render;
+  run 38783080125 timed out in firewall inspection and database cancellation
+  checks. The final exact-source run above passed those checks, including frozen
+  speech. Production speech deadlines were not increased and tests were not
+  removed to obtain the result. Retain these failures as diagnostic history if
+  similar stalls occur on the owner's Windows computer.
+
+### Installation and remaining physical acceptance
+
+Quit Kadence completely, extract the complete ZIP to a new folder, connect only
+the CoreS3/StackChan by USB (unplug any StickS3), and run **Update-Robot.cmd**.
+Select its USB port and click **Update robot**; keep USB connected until success.
+The updater saves NVS under the existing data directory's `firmware-backups`,
+verifies it is unchanged after flashing, and does not write servo calibration.
+Restart the robot and close the updater, then run **Install-Kadence.cmd**, which
+opens the new host automatically. Click **Connect**. No UnitV2 reinstall, face
+retraining, provider reconfiguration or manual camera/head arming is requested.
+Keep accepted CoreS3 0.21.6 and host 0.4.13 available as rollback.
+
+No owner hardware was connected to this build environment. The updater GUI was
+rendered and its package/backup/error paths tested with fixtures, not a physical
+flash. The remaining short acceptance sequence is: a short and a longer spoken
+turn (Diagnostics records actual capture end reason/duration); present the blue
+bottle and ask its identity/colour; say “track the bottle” and move it slowly;
+ask “tell me if it gets moved” and cover/remove it; then ordinary conversation,
+arrival greeting/idle glance and Stop/Privacy. A lost image must be described as
+loss of sight, never proof of theft. Watches are one-shot and last at most
+15 minutes; arbitrary location/event and recurring reminders remain unsupported.
+
 Do not label retail readiness, two-second voice, physical colour recognition,
 mechanical following or live camera latency as passed without owner evidence.
+PC/Bluetooth speech remains incremental; Robot/Both retains complete-buffer PCM
+transport. The microphone endpoint repair reduces capture waiting but does not
+establish a new end-to-end latency result or restore the old Silero server.
