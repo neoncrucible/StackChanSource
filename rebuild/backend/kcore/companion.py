@@ -104,18 +104,20 @@ class Companion:
         if not isinstance(plan, dict):
             return "I couldn't safely interpret that. Could you try again?"
         if set(plan) == {"reply"} and isinstance(plan["reply"], str) and plan["reply"].strip():
-            if re.search(r"\b(?:i(?:'m| am) (?:tracking|monitoring|watching) (?:it|that|the|your)|i(?:'ll| will) (?:alert you|let you know|tell you when)|i can see (?:a |the |your ))", plan['reply'], re.I) and not re.search(r'\b(?:pretend|imagine|roleplay|story|fiction)\b', text, re.I):
+            claim = re.search(r"\b(?:i(?:'m| am) (?:tracking|monitoring|watching) (?:it\b|that\b|(?:the|your) (?!reasoning\b|logic\b))|i(?:'ll| will) (?:alert you|let you know|tell you when)|i can see (?:a |the |your )(?!point\b|reasoning\b|logic\b|perspective\b|argument\b|problem\b|meaning\b))", plan['reply'], re.I)
+            if claim and not re.search(r'\b(?:pretend|imagine|roleplay|story|fiction)\b', text, re.I):
                 return "I haven't verified that with my camera, Boss. Ask me for a fresh look, or tell me which object to watch."
             return plan["reply"].strip()[:1200]
         if set(plan) != {"tool", "arguments"}:
             return "I couldn't safely interpret that request."
         name, arguments = plan["tool"], plan["arguments"]
-        from .camera_voice import is_visual_request
-        if name == "desk_look" and not is_visual_request(text):
+        from .camera_voice import allows_visual_tool
+        if name == "desk_look" and not allows_visual_tool(text):
             return "Ask me to look at something when you want a camera snapshot."
         rejection = self.tools.validate(name, arguments)
         if rejection:
             return self._format_result(rejection)
+        if name == 'desk_look': arguments={'question':text[:500]}
         if explicit_local and name in {"remember", "task_add", "camera_control", "tracking_control", "factory_vision"}:
             return await self._execute(name, arguments, state_sink, confirmed=True)
         if self.tools.requires_confirmation(name):

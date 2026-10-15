@@ -43,6 +43,7 @@ class PresenceMotion:
         generation = self.generation
         async def move():
             issued = False
+            established_home = False
             def guard():
                 if generation != self.generation or not self.permitted():
                     raise RuntimeError('Idle movement yielded to another task.')
@@ -63,14 +64,15 @@ class PresenceMotion:
                 await self.app.motion.move(target, guard=dispatch_guard)
                 if needs_home and generation==self.generation:
                     self.app.motion.store.save(target)
-                self.index += 1
+                    established_home = True
+                if not needs_home: self.index += 1
                 self.app.emit('presence_motion', {'state':'settled','message':'Idle glance completed; torque released.'})
             except asyncio.CancelledError: raise
             except Exception:
                 if issued and self.app.motion.last_pose is None: self.faulted = True
                 self.app.emit('presence_motion', {'state':'paused','message':'Idle movement paused.'})
             finally:
-                self.next_at = self.clock()+45
+                self.next_at = self.clock()+(5 if established_home else 45)
         self.task = asyncio.create_task(move(), name='kadence-idle-presence')
 
     async def pause(self):

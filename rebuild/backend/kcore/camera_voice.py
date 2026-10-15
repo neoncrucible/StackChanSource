@@ -60,6 +60,20 @@ def is_visual_request(text):
     return any(re.match(pattern, normal) for pattern in patterns)
 
 
+def allows_visual_tool(text):
+    """Let semantic routing handle new wording without granting unrelated looks.
+
+    Fast paths above avoid model latency. They are examples, not a closed list
+    of everything the owner is allowed to say about the current view.
+    """
+    if is_visual_request(text): return True
+    normal = normalise_request(text)
+    if re.match(r"^(?:don't|do not|never|stop|if|when|explain|pretend|imagine|how (?:do|can))\b",normal): return False
+    inquiry = re.match(r'^(?:what|which|where|is|are|does|do|can|could|would|will|any (?:idea|clue)|name|identify|inspect|describe|read|scan|tell me|show me|how many)\b',normal)
+    current = re.search(r"\b(?:this|that|these|those|here|there|holding|wearing|hands?|camera|view|looking|see)\b",normal)
+    return bool(inquiry and current)
+
+
 def camera_plan(text):
     normal = normalise_request(text)
     # Watches are real persistent operations, never ordinary model promises.

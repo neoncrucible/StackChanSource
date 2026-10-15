@@ -50,6 +50,44 @@ def test_defaults_are_once_only_preserve_privacy_and_back_up_the_previous_choice
     assert CameraConfig.companion_defaults(tmp_path)==chosen
 
 
+def test_semantic_vision_fallback_accepts_new_wording_without_loosening_privacy_intent(tmp_path):
+    import json
+    class Planner:
+        async def stream_reply(self,text):
+            yield json.dumps({'tool':'desk_look','arguments':{'question':'model wording'}})
+    async def run():
+        worker=DesktopController(lambda *a:None,directory=tmp_path);await worker.start()
+        try:
+            look=worker.services.look_handler=AsyncMock(return_value={'spoken':'A blue bottle, Boss.'})
+            companion=Companion(worker.services.tools)
+            for question in ("Any idea what I've got here?", "Can you make out what I'm holding?", 'Could you inspect this for me?'):
+                assert await companion.respond(question,Planner())=='A blue bottle, Boss.'
+                look.assert_awaited_with(question)
+            count=look.await_count
+            for question in ('Tell me a joke', 'Describe the French Revolution', "Don't look at this", 'Explain what this phrase means'):
+                await companion.respond(question,Planner())
+            assert look.await_count==count
+        finally:await worker.close()
+    asyncio.run(run())
+
+
+def test_grounding_guard_keeps_ordinary_banter_and_rejects_fake_action_claims(tmp_path):
+    import json
+    class Reply:
+        def __init__(self,text):self.text=text
+        async def stream_reply(self,prompt):yield json.dumps({'reply':self.text})
+    async def run():
+        worker=DesktopController(lambda *a:None,directory=tmp_path);await worker.start()
+        try:
+            companion=Companion(worker.services.tools)
+            text='I can see your point, Boss. Annoyingly, you are right.'
+            assert await companion.respond('That makes more sense.',Reply(text))==text
+            answer=await companion.respond('What about the bottle?',Reply("I'm tracking the bottle, darling."))
+            assert "haven't verified" in answer and 'darling' not in answer
+        finally:await worker.close()
+    asyncio.run(run())
+
+
 def test_voice_follow_reuses_legacy_shared_home_and_proves_target_before_promise(tracker_service):
     async def run():
         p,b,c,root=tracker_service;app,events,moves=make_app(c);t=app.tracking
@@ -212,5 +250,14 @@ def test_idle_presence_uses_one_bounded_motion_lane_and_yields_to_voice(tmp_path
         assert moves==[(-35,310)]
         app.camera.config=replace(app.camera.config,privacy=True);presence.next_at=0;presence.tick()
         assert moves==[(-35,310)]
+        await presence.pause()
+        # An older install first establishes Home, then makes its first glance;
+        # it must not spend two further idle intervals commanding Home again.
+        app.camera.config=replace(app.camera.config,privacy=False)
+        app.motion.store.saved=False;presence=PresenceMotion(app,clock=lambda:now[0]);presence.next_at=0
+        presence.tick();await presence.task
+        assert moves[-1]==(0,300) and presence.next_at==95
+        now[0]=95;app._last_device_status_at=95;presence.tick();await presence.task
+        assert moves[-1]==(-35,310)
         await presence.pause()
     asyncio.run(run())
