@@ -3,6 +3,9 @@ import sys
 
 
 def main():
+    if '--body-flash' in sys.argv:
+        from .body_flash import main as body_flash
+        return body_flash()
     if "--remote-protocol-check" in sys.argv:
         import asyncio,json
         from .remote_check import check

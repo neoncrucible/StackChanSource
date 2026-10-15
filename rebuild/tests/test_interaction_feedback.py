@@ -70,3 +70,16 @@ class FeedbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(commands[0].request_id,host._retired)
         host._resolve_pending(Envelope(MessageKind.ACK,"voice.turn",{"ok":False},request_id=commands[0].request_id))
         self.assertEqual(host._pending,{})
+
+    async def test_capture_endpoint_reports_only_the_correlated_completed_capture(self):
+        app=self.app();body=SimpleNamespace(host=SimpleNamespace(_pending={'current':object()}))
+        app._body=body;app._turn_token='a'*32
+        payload={'request_id':'current','state':'thinking','capture_ms':0,
+                 'endpoint':'silence','captured_ms':1800,'speech_seen':True}
+        app._handle_voice_phase(body,Envelope(MessageKind.EVENT,'voice.phase',payload))
+        self.assertIn(('voice_capture',{'reason':'silence','captured_ms':1800,'speech_seen':True}),self.events)
+        self.events.clear()
+        app._handle_voice_phase(body,Envelope(MessageKind.EVENT,'voice.phase',{**payload,'request_id':'old'}))
+        self.assertEqual(self.events,[])
+        app._handle_voice_phase(body,Envelope(MessageKind.EVENT,'voice.phase',{**payload,'captured_ms':True}))
+        self.assertNotIn('voice_capture',[name for name,_ in self.events])

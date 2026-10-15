@@ -43,6 +43,16 @@ class LocalServices:
         await self.store.start()
         self.tools = make_local_tools(self.context, timezone_name=self.reminders.timezone_name)
         register_workbench(self.tools, self.store)
+        async def reminder_create(args):
+            return self.reminders.tool_result(await self.reminders.create(args['text'], args['when']))
+        async def reminder_manage(args):
+            return self.reminders.tool_result(await self.reminders.manage(args['action'], args['target'], args.get('when', '')))
+        self.tools.register(KadenceToolSpec('reminder_create',
+            "Schedule a requested reminder or timer. Understand paraphrases such as give me a nudge, don't let me forget, set a reminder. Copy text (task) and when (time phrase) from the current request, not an invented timestamp; use empty strings for missing details. The local calendar asks for ambiguity before saving. Observable object movement uses tracking_control watch. Location/event and repeating triggers are not supported; never promise them.",
+            schema({'text':string(800,0),'when':string(240,0)},'text','when'),reminder_create,writes=True))
+        self.tools.register(KadenceToolSpec('reminder_manage',
+            "Cancel, dismiss, snooze or reschedule an existing reminder. target is its returned ID, unique task words or 'that' for the last reminder handled within two minutes. when is the owner's exact time phrase, empty for cancel/dismiss. Never guess an ID; ambiguity is resolved locally.",
+            schema({'action':{'type':'string','enum':['cancel','dismiss','snooze','reschedule']},'target':string(160),'when':string(240,0)},'action','target'),reminder_manage,writes=True))
         async def look(args):
             from .vision_provider import VisionServiceError
             if self.look_handler is None: return {"spoken":"Start the server and connect the robot before asking me to look."}
@@ -58,7 +68,7 @@ class LocalServices:
             if self.camera_handler is None: return {"spoken":"Camera controls are available in the desktop server."}
             return await self.camera_handler(args.get("command","status"))
         self.tools.register(KadenceToolSpec("camera_status","Read actual camera selection, privacy, automatic perception and latest recognition/greeting status. Both UnitV2 and StackChan are supported; status is not a fresh image.",schema({}),camera))
-        self.tools.register(KadenceToolSpec("camera_control","Change a camera setting only at the owner's explicit request. Privacy and lifecycle checks always apply. Enabling greetings alone does not enable automatic perception.",schema({"command":{"type":"string","enum":list(CAMERA_CHANGES)}},"command"),camera,timeout=12,writes=True))
+        self.tools.register(KadenceToolSpec("camera_control","Change a camera setting only at the owner's explicit request. Privacy and lifecycle checks always apply. Enabling greetings also enables the awareness needed to recognise arrivals.",schema({"command":{"type":"string","enum":list(CAMERA_CHANGES)}},"command"),camera,timeout=12,writes=True))
         async def tracking(args):
             if self.tracking_handler is None: return {'spoken':'Object tracking is available in the desktop server.'}
             return await self.tracking_handler(args)

@@ -11,7 +11,8 @@ inline void (*g_voice_phase_emit)(const char*) = nullptr;
 inline char g_voice_phase_request_id[48]{};
 inline uint32_t g_voice_phase_sequence = 0;
 
-void voice_phase(const char* state, uint32_t capture_ms = 0)
+void voice_phase(const char* state, uint32_t capture_ms = 0, const char* endpoint = nullptr,
+                 uint32_t captured_ms = 0, bool speech_seen = false)
 {
     if (!g_voice_phase_emit || !g_voice_phase_request_id[0]) return;
     cJSON* root=cJSON_CreateObject();
@@ -27,6 +28,11 @@ void voice_phase(const char* state, uint32_t capture_ms = 0)
     cJSON_AddStringToObject(payload,"request_id",g_voice_phase_request_id);
     cJSON_AddStringToObject(payload,"state",state);
     cJSON_AddNumberToObject(payload,"capture_ms",capture_ms);
+    if (endpoint) {
+        cJSON_AddStringToObject(payload,"endpoint",endpoint);
+        cJSON_AddNumberToObject(payload,"captured_ms",captured_ms);
+        cJSON_AddBoolToObject(payload,"speech_seen",speech_seen);
+    }
     cJSON_AddItemToObject(root,"payload",payload);
     char line[kadence_control::FrameBytes]{};
     if (cJSON_PrintPreallocated(root,line,sizeof(line),false)) g_voice_phase_emit(line);

@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'rebuild/backend/**'
+      - 'rebuild/firmware/**'
+      - 'rebuild/tools/package_firmware.py'
       - 'rebuild/tests/**'
       - 'rebuild/unitv2/**'
       - 'rebuild/sticks3/**'
@@ -29,6 +31,37 @@ permissions:
   contents: read
 
 jobs:
+  body-firmware:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Speech endpoint, pause and hard-limit regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -fsanitize=address,undefined rebuild/tests/speech_endpoint_test.cpp -o /tmp/speech-endpoint-test
+          /tmp/speech-endpoint-test
+      - name: Build CoreS3 with speech endpointing
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd rebuild/firmware
+          idf.py build
+      - name: Verify startup stack and package matching firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          python rebuild/tools/boot_stack_gate.py --build rebuild/firmware/build
+          python rebuild/tools/package_firmware.py --source-commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kadence-CoreS3-Firmware
+          path: rebuild/dist/Kadence-RC2-Firmware-*.zip
+          if-no-files-found: error
   sticks3:
     runs-on: ubuntu-latest
     steps:
@@ -49,7 +82,7 @@ jobs:
           path: rebuild/dist/StickS3
           if-no-files-found: error
   voice-alignment:
-    needs: sticks3
+    needs: [sticks3, body-firmware]
     runs-on: windows-latest
     env:
       QT_QPA_PLATFORM: offscreen
@@ -72,7 +105,7 @@ jobs:
       - name: Observe-only reflex and desktop regression
         run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py rebuild/tests/test_presence_console.py rebuild/tests/test_baseline_audit.py -q
       - name: Autonomous perception, rate limits and visit semantics
-        run: python -m pytest rebuild/tests/test_autonomous_perception.py rebuild/tests/test_retail_requests.py rebuild/tests/test_reactive_tracking.py rebuild/tests/test_grounded_companion.py -q
+        run: python -m pytest rebuild/tests/test_autonomous_perception.py rebuild/tests/test_retail_requests.py rebuild/tests/test_reactive_tracking.py rebuild/tests/test_grounded_companion.py rebuild/tests/test_natural_requests.py rebuild/tests/test_reminders.py rebuild/tests/test_body_flash.py -q
       - name: Voice completion and recovery regression
         run: python -m pytest rebuild/tests/test_appliance_candidate.py rebuild/tests/test_voice_failures.py rebuild/tests/test_voice_recovery.py rebuild/tests/test_audio_network.py rebuild/tests/test_database_shutdown.py rebuild/tests/test_interaction_feedback.py rebuild/tests/test_rc2_media.py rebuild/tests/test_provider_selection.py rebuild/tests/test_ollama_models.py rebuild/tests/test_thinking.py rebuild/tests/test_phase_b.py rebuild/tests/test_desktop.py rebuild/tests/test_desktop_installer.py -q
       - name: Runtime ownership and alignment gate
@@ -85,8 +118,18 @@ jobs:
         with:
           name: Kadence-StickS3-Firmware
           path: rebuild/dist/StickS3
+      - uses: actions/download-artifact@v4
+        with:
+          name: Kadence-CoreS3-Firmware
+          path: rebuild/dist/CoreS3-download
+      - name: Expand matching robot firmware
+        shell: pwsh
+        run: |
+          $zip = @(Get-ChildItem rebuild/dist/CoreS3-download -Filter *.zip)
+          if ($zip.Count -ne 1) { throw 'Expected one matching CoreS3 firmware archive' }
+          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath rebuild/dist/CoreS3
       - name: Build and exercise the Windows executable
-        run: python rebuild/tools/package_desktop.py --source-commit "${{ github.sha }}" --host-only
+        run: python rebuild/tools/package_desktop.py --source-commit "${{ github.sha }}" --host-only --body-firmware rebuild/dist/CoreS3
       - uses: actions/upload-artifact@v4
         with:
           name: Kadence-Desktop-Windows

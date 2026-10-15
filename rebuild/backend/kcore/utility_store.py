@@ -94,6 +94,12 @@ class UtilityStore:
                     raise ValueError("snooze must be 1..10080 minutes")
                 return db.execute("UPDATE reminders SET due=?,state='scheduled',robot='pending' WHERE id=? AND state IN ('scheduled','due')",
                                   (now + minutes * 60, args["id"])).rowcount == 1
+            if action == "reminder_reschedule":
+                due = args['due']
+                if type(due) not in (int, float) or not now < due <= now + 366 * 86400:
+                    raise ValueError('reminder deadline must be within the next year')
+                return db.execute("UPDATE reminders SET due=?,timezone=?,state='scheduled',robot='pending' WHERE id=? AND state IN ('scheduled','due')",
+                    (due, args['timezone'], args['id'])).rowcount == 1
             if action == "project_add":
                 name = self._text(args["name"], 80)
                 if db.execute("SELECT count(*) FROM projects").fetchone()[0] >= 100:

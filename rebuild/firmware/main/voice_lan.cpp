@@ -9,6 +9,8 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_opus_enc.h"
+#include "esp_vad.h"
+#include "speech_endpoint.h"
 #include "esp_wifi.h"
 #include "freertos/event_groups.h"
 #include "lwip/inet.h"
@@ -379,6 +381,12 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
         static_cast<uint8_t*>(heap_caps_malloc(uplink_capacity,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)),
         heap_caps_free);
     if (!uplink) { esp_opus_enc_close(encoder); return voice_lan_fail("capture-memory"); }
+    struct VadOwner {
+        vad_handle_t handle = vad_create(VAD_MODE_1);
+        ~VadOwner() { if (handle) vad_destroy(handle); }
+    } vad;
+    if (!vad.handle) { esp_opus_enc_close(encoder); return voice_lan_fail("speech-detector"); }
+    kadence_speech::Endpoint endpoint(capture_ms);
     if (!voice_listening_cue()) {
         esp_opus_enc_close(encoder);
         return voice_lan_fail("listening-cue");
@@ -391,6 +399,7 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
 
     bool ok = true;
     size_t uplink_length=0;
+    uint32_t captured_ms=0;
     const uint64_t capture_deadline=voice_io_now_ms()+capture_ms+1000;
     presentation_capture_begin(capture_ms);
     voice_phase("listening",capture_ms);
@@ -411,6 +420,12 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
         for (std::size_t frame = 0; frame < kVoiceLanMonoFrames; ++frame) {
             g_voice_lan_mono[frame] = g_voice_lan_stereo[frame * 2];
         }
+        // The cue has finished before input opens. Classify both 30 ms halves
+        // locally; keep all PCM (including the start and tail) in the uplink.
+        for (std::size_t offset=0; offset<kVoiceLanMonoFrames; offset+=480) {
+            endpoint.feed(vad_process(vad.handle, g_voice_lan_mono.data()+offset, 16000, 30)==VAD_SPEECH);
+        }
+        captured_ms += kVoiceLanFrameMs;
 
         esp_audio_enc_in_frame_t input_frame{};
         input_frame.buffer = reinterpret_cast<uint8_t*>(g_voice_lan_mono.data());
@@ -428,18 +443,20 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
             break;
         }
         // No network call while the microphone is open. A slow peer cannot
-        // stretch a 4.8-second recording into a minute of apparent listening.
+        // stretch a bounded recording into a minute of apparent listening.
         const uint16_t packet_length=htons(static_cast<uint16_t>(output_frame.encoded_bytes));
         if (uplink_length+2+output_frame.encoded_bytes > uplink_capacity) { ok=voice_lan_fail("capture-memory"); break; }
         std::memcpy(uplink.get()+uplink_length,&packet_length,2);
         std::memcpy(uplink.get()+uplink_length+2,output_frame.buffer,output_frame.encoded_bytes);
         uplink_length+=2+output_frame.encoded_bytes;
+        if (endpoint.finished()) break;
     }
 
     const bool input_closed=close_input();
     if (!input_closed) { voice_lan_fail("input-close"); ok = false; }
     presentation_capture_end(input_closed);
-    voice_phase(input_closed ? "thinking" : "degraded");
+    voice_phase(input_closed ? "thinking" : "degraded", 0,
+        ok ? endpoint.reason() : "failed", captured_ms, endpoint.speech_seen());
     esp_opus_enc_close(encoder);
 
     if (!ok) return false;
@@ -451,9 +468,10 @@ bool voice_lan_capture_opus(int sock, uint32_t capture_ms)
     }
 
     ESP_LOGI(kLogTag,
-             "VOICE_LAN uplink=complete codec=opus sample_rate=%u frame_ms=%u",
+             "VOICE_LAN uplink=complete codec=opus sample_rate=%u frame_ms=%u endpoint=%s captured_ms=%u speech_seen=%d",
              static_cast<unsigned>(kVoiceLanSampleRate),
-             static_cast<unsigned>(kVoiceLanFrameMs));
+             static_cast<unsigned>(kVoiceLanFrameMs), endpoint.reason(),
+             static_cast<unsigned>(captured_ms), endpoint.speech_seen());
     return true;
 }
 

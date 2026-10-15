@@ -28,7 +28,7 @@ def archive_package(output: Path):
     return archive
 
 
-def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None = None):
+def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None = None, body: Path | None = None):
     if not (desktop/'Kadence.exe').is_file(): raise ValueError('Windows executable is missing')
     output.mkdir(parents=True,exist_ok=False)
     shutil.copytree(desktop,output,dirs_exist_ok=True)
@@ -46,6 +46,7 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     shutil.copyfile(ROOT/'rebuild'/'docs'/'STICKS3_REMOTE_0_4_14.md',output/'STICKS3-REMOTE.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'FACTORY_VISION_0_4_15.md',output/'FACTORY-VISION.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'GROUNDED_COMPANION_0_6_1.md',output/'WHATS-NEW.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'NATURAL_REQUESTS_0_6_1.md',output/'TALK-NATURALLY.txt')
     stick=stick or ROOT/'rebuild'/'dist'/'StickS3'
     metadata=json.loads((stick/'RELEASE.json').read_text())
     if metadata['source_commit']!=commit:raise ValueError('Stick firmware source does not match host')
@@ -53,9 +54,16 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     shutil.copytree(stick,output/'StickS3')
     (output/'Flash-StickS3.cmd').write_text('@echo off\n"%~dp0Kadence.exe" --stick-flash\n',encoding='ascii')
     shutil.copytree(ROOT/'rebuild'/'unitv2',output/'UnitV2',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+    if body is not None:
+        from kcore.body_flash import verified_files
+        verified_files(body, commit)
+        shutil.copytree(body,output/'Firmware')
+        (output/'Update-Robot.cmd').write_text('@echo off\n"%~dp0Kadence.exe" --body-flash\n',encoding='ascii')
     (output/'RELEASE.json').write_text(json.dumps({'format':1,'package_kind':'desktop-host',
         'host_version':HOST_VERSION,'source_commit':commit,'entry':'Kadence.exe',
-        'firmware_included':False,'remote_firmware_included':True,'remote_firmware_version':'1.0.3','compatible_firmware':['0.21.6'],
+        'firmware_included':body is not None,'firmware_version':'0.21.7' if body else None,
+        'remote_firmware_included':True,'remote_firmware_version':'1.0.3','compatible_firmware':['0.21.6','0.21.7'],
+        'automatic_speech_endpoint_requires':'0.21.7',
         'release_status':'candidate','database_schema':5,'physical_signoff':False},indent=2)+'\n')
     return archive_package(output)
 
@@ -94,7 +102,7 @@ def combine(desktop: Path, firmware: Path, commit: str, output: Path):
     return archive_package(output)
 
 
-def build(commit: str, firmware: Path | None = None):
+def build(commit: str, firmware: Path | None = None, *, body_firmware: Path | None = None):
     if sys.platform!='win32': raise RuntimeError('Build the Windows package on Windows')
     if not re.fullmatch('[0-9a-f]{40}',commit): raise ValueError('Full source commit required')
     work=ROOT/'rebuild'/'dist'/('desktop-build-'+commit[:12])
@@ -142,15 +150,16 @@ def build(commit: str, firmware: Path | None = None):
     prepare_fixtures(ROOT/'rebuild'/'dist'/'face_fixtures')
     subprocess.run([sys.executable,str(ROOT/'rebuild'/'tools'/'desktop_frozen_check.py'),str(desktop/'Kadence.exe'),commit,'--offline'],check=True)
     if firmware is None:
-        return host_package(desktop,commit,ROOT/'rebuild'/'dist'/('Kadence-Desktop-'+HOST_VERSION+'-'+commit[:12]))
+        return host_package(desktop,commit,ROOT/'rebuild'/'dist'/('Kadence-Desktop-'+HOST_VERSION+'-'+commit[:12]),body=body_firmware)
     return combine(desktop,firmware,commit,ROOT/'rebuild'/'dist'/('Kadence-RC2-'+commit[:12]))
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--source-commit',required=True)
+    parser.add_argument('--body-firmware',type=Path)
     mode=parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--firmware',type=Path)
     mode.add_argument('--host-only',action='store_true')
     args=parser.parse_args()
-    print(build(args.source_commit,args.firmware))
+    print(build(args.source_commit,args.firmware,body_firmware=args.body_firmware))

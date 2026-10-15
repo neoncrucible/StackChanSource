@@ -23,7 +23,7 @@ class PresenceMotion:
         return (not self.faulted and not app._stop.is_set() and not camera.config.privacy
             and camera.config.policy == 'AWARE' and camera.config.perception_enabled
             and app._body is not None and app._body.connected
-            and app._last_device_status.get('firmware') == '0.21.6'
+            and app._last_device_status.get('firmware') in {'0.21.6','0.21.7'}
             and not app._last_device_status.get('media_busy')
             and not app._last_device_status.get('quiet')
             and self.clock()-app._last_device_status_at < 5

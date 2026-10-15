@@ -449,7 +449,7 @@ class ObjectTracking:
             setup=self._pending_head
             self._pending_head=None
             self.signs=(setup['yaw_sign'],setup['pitch_sign'])
-            if self.app._last_device_status.get('firmware')!='0.21.6' or self.clock()-self.app._last_device_status_at>5:
+            if self.app._last_device_status.get('firmware') not in {'0.21.6','0.21.7'} or self.clock()-self.app._last_device_status_at>5:
                 raise RuntimeError('Head following needs a fresh robot connection. The visual target is still available.')
             # Establish a known physical origin once for this follow request.
             # Ordinary conversation never resets an already armed tracker.
@@ -556,7 +556,7 @@ class ObjectTracking:
             raise RuntimeError('Set the shared home in Motion before arming head following.')
         sx,sy=args.get('yaw_sign',1),args.get('pitch_sign',1)
         if type(sx) is not int or sx not in (-1,1) or type(sy) is not int or sy not in (-1,1): raise ValueError('Invalid axis direction.')
-        if self.app._last_device_status.get('firmware')!='0.21.6' or self.clock()-getattr(self.app,'_last_device_status_at',0)>5: raise RuntimeError('Head following requires connected firmware 0.21.6 and a fresh device status.')
+        if self.app._last_device_status.get('firmware') not in {'0.21.6','0.21.7'} or self.clock()-getattr(self.app,'_last_device_status_at',0)>5: raise RuntimeError('Head following requires supported firmware 0.21.6/0.21.7 and a fresh device status.')
         self.camera.check()
         self.operation=asyncio.current_task()
         try:

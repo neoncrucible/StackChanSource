@@ -174,11 +174,13 @@ class NetworkTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform=='win32','Windows firewall COM validation without rule changes')
 class WindowsNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_windows_rule_construction_is_private_local_tcp_and_does_not_register(self):
-        report=await audio_network._powershell('Validate')
+        # Cold Windows CI runners can spend >15 s starting PowerShell/COM.
+        # This read-only integration gate is not the interactive runtime budget.
+        report=await audio_network._powershell('Validate',timeout=60)
         self.assertTrue(report['rule_validated']);self.assertTrue(report['program_matches'])
         self.assertEqual((report['profiles'],report['protocol'],report['direction'],report['action']),(2,6,1,1))
         self.assertEqual(report['remote'].lower(),'localsubnet');self.assertFalse(report['edge'])
         # The actual read-only helper must execute, not a mocked cmdlet response.
-        report=await audio_network._powershell('Inspect')
+        report=await audio_network._powershell('Inspect',timeout=60)
         self.assertIn(report['firewall'],{'checked','unknown'})
         self.assertIsInstance(report['interfaces'],list)

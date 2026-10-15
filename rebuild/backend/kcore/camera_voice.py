@@ -21,7 +21,7 @@ def normalise_request(text):
     for _ in range(5):
         previous = normal
         normal = re.sub(r"^(?:(?:hey |okay |ok )?(?:kadence|kade)\b|please\b)\s*", "", normal)
-        normal = re.sub(r"^(?:(?:can|could|would|will) you(?: please)? |i (?:want|need) you to )(?=(?:tell|show|describe|look|read|identify|track|follow|watch|monitor|let|notify|alert|keep|stop|start|turn|enable|disable|use|switch)\b)", "", normal)
+        normal = re.sub(r"^(?:(?:can|could|would|will) you(?: please)? |i (?:want|need) you to |i'd like you to )(?=(?:tell|show|describe|look|read|identify|track|follow|watch|monitor|remind|let|notify|alert|keep|stop|start|turn|enable|disable|use|switch)\b)", "", normal)
         normal = re.sub(r"\s+(?:for me(?: please)?|please(?: now)?|now)$", "", normal).strip()
         normal = re.sub(r'^(?:would you mind|do you mind|start) (tracking|following|watching|monitoring)\b',
             lambda match: {'tracking':'track','following':'follow','watching':'watch','monitoring':'monitor'}[match[1]], normal)
@@ -33,13 +33,14 @@ def normalise_request(text):
 def is_visual_request(text):
     """A request for current visual evidence, not a general knowledge question."""
     normal = normalise_request(text)
-    normal = re.sub(r"^(?:tell me |show me )", "", normal)
+    normal = re.sub(r"^(?:tell me |show me |let me know )", "", normal)
     if re.match(r"^(?:don't|do not|never|stop|if|when|how (?:do|can))\b", normal):
         return False
     patterns = (
         r"what (?:can|do) you see\b",
         r"what (?:are you|you're) looking at\b",
-        r"what (?:am i|i'm) holding\b",
+        r"what (?:am i|i am|i'm) holding\b",
+        r"what (?:this|that) is\b",
         r"what (?:do i have|have i got|i have|i've got|is|have i|am i holding)(?: here)? in (?:my|this|the) hands?\b",
         r"what(?:'s| is) (?:in my hands?|this i'm holding|that i'm holding)\b",
         r"(?:what|which) (?:object|item|thing) (?:am i holding|is (?:this|that)|do i have)\b",
@@ -74,10 +75,15 @@ def allows_visual_tool(text):
     return bool(inquiry and current)
 
 
+def allows_tracking_tool(text):
+    normal = normalise_request(text)
+    return bool(re.match(r'^(?:track|follow|watch|monitor|keep|stop|tell me|let me know|notify me|alert me|remind me)\b', normal))
+
+
 def camera_plan(text):
     normal = normalise_request(text)
     # Watches are real persistent operations, never ordinary model promises.
-    watch = re.fullmatch(r"(?:tell me|let me know|notify me|alert me)(?: if| when)? (.{1,80}?) (?:gets? moved|moves|is moved|disappears|goes missing|is gone|is removed|gets? removed|gets? taken|is taken)(?: again)?", normal)
+    watch = re.fullmatch(r"(?:tell me|let me know|notify me|alert me|remind me)(?: if| when)? (.{1,80}?) (?:gets? moved|moves|is moved|disappears|goes missing|is gone|is removed|gets? removed|gets? taken|is taken)(?: again)?", normal)
     if watch:
         return {'tool':'tracking_control','arguments':{'action':'watch','target':watch[1]}}
     watch = re.fullmatch(r'(?:watch|monitor) (.{1,80}?)(?: for (?:movement|changes))?', normal)

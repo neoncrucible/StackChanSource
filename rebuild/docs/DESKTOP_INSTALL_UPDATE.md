@@ -1,8 +1,22 @@
 # Current candidate: 0.6.1 — grounded camera and companion repairs
 
 Close Kadence completely, extract the entire new ZIP, run **Install-Kadence.cmd**
-and open the desktop shortcut. Click **Connect**. Existing settings, pairing and
-faces are reused. No robot flash, UnitV2 reinstall or face retraining is required.
+and keep Kadence closed for the robot update below. Existing settings, pairing
+and faces are reused; no UnitV2 reinstall or face retraining is needed.
+
+**To remove the fixed recording window:** run **Update-Robot.cmd** from the
+extracted folder, select the CoreS3 / StackChan USB port and click **Update robot**.
+Connect only the robot, with any StickS3 unplugged. The updater verifies the
+matching 0.21.7 images, backs up robot NVS settings, writes only the allowed
+firmware regions and verifies that NVS was preserved. It uses the bundled
+flasher; no ESP-IDF installation or terminal commands are needed. Keep USB
+connected until completion. Restart the robot, open the desktop shortcut and
+click **Connect**.
+
+0.21.7 ends capture after 720 ms of classified silence following detected speech.
+Brief pauses stay within the utterance. Eight seconds is a ceiling, not a wait;
+no-speech capture ends after three seconds. The old recording-window setting is
+ignored for 0.21.7. Installing only the host leaves 0.21.6's fixed capture intact.
 
 Camera questions now start the camera automatically. Say “What colour is this?”,
 “Track that” or “Follow this pen”; there is no manual readiness/arming step for
@@ -12,15 +26,17 @@ uses the saved Home, or establishes the original 0° yaw / 30° pitch baseline
 through an acknowledged move. “Tell me if it gets moved” arms a real watch.
 Home shows the actual image used for the answer. Awareness and greetings are
 enabled once on upgrade, with privacy and individual face preferences preserved.
-See **WHATS-NEW.txt** for the behaviour and limits.
+See **WHATS-NEW.txt** for the behaviour and limits and **TALK-NATURALLY.txt** for
+camera, tracking, reminder and follow-up examples.
 
 For the fastest audible response, **Settings → Voice & connection → Speaker**
 offers PC / Bluetooth streaming. Existing saved speaker choices are preserved.
 Robot and Both use the existing complete-buffer robot transport.
 
 This is a candidate pending physical timing on the owner's robot. Keep the
-accepted 0.4.13 installation available. Firmware remains 0.21.6 and SQLite remains
-schema 5. Keep Stick remote off; its microphone work is parked.
+accepted 0.4.13 installation and 0.21.6 firmware available. SQLite remains schema
+5. Keep Stick remote off; its microphone work is parked. Robot 0.21.7 is a new
+hardware acceptance candidate, not a claimed physical sign-off.
 
 ---
 

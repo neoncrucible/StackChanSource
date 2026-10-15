@@ -6,7 +6,7 @@
 **Promoted source head (pre-documentation):** `4a0a816a0442f391533591db52b5a82a58bc1bad` from `kadence/sticks3-remote`.
 **Previous main:** `3b9890063b3abe03e96cf2b00c1b94409532a8eb`; changed by a NON-FORCED fast-forward.
 **Accepted fallback:** `kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`.
-**Target release:** host 0.6.1, grounded camera and companion repairs.
+**Target release:** host 0.6.1 + CoreS3 0.21.7, grounded companion and speech endpoint repairs.
 **Status:** 0.6.0 FAILED owner acceptance. 0.6.1 source repairs under verification; Windows artifact and physical acceptance pending.
 
 ## 0. Astra: read this first
@@ -19,8 +19,8 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 ## 1. Audited component inventory and evidence
 | Component | Current source/candidate | Evidence and limits |
 |---|---|---|
-| CoreS3 firmware | 0.21.6 | Hardware-tested sensor/voice/body foundation. No new flash required for host changes. |
-| Windows host | 0.6.0 candidate source | Continues main from f4ced1e. Natural camera commands, streaming warm-up and reactive tracking; see section 13. Installed Windows version and physical acceptance remain unobserved. |
+| CoreS3 firmware | 0.21.7 candidate; accepted foundation 0.21.6 | New microphone VAD is required to remove fixed capture. No calibration/storage migration. Physical endpointing acceptance pending. |
+| Windows host | 0.6.1 candidate source | 0.6.0 failed owner acceptance. Grounded vision/tracking, persona, presence and broad natural-language reminders; see section 14. |
 | UnitV2 service | 1.3.0 | Factory Vision modes exposed; many physical mode tests still unproven. |
 | StickS3 | firmware 1.0.3 candidate | Boot/pair/display corrections and driver fix recorded, but PTT still lacks successful hardware acceptance. Remote OFF. |
 | Data | SQLite schema 5 | Native UnitV2 face files live on camera, not in PC SQLite backup. |
@@ -590,8 +590,34 @@ two-frame target confirmation, automatic confirmed Home setup, live-image
 appearance validation, bounded one-shot object watches with honest loss wording,
 readiness-aware arrival deferral, versioned awareness defaults and low-frequency
 idle glances. Ordinary conversation retains tracking; visual questions borrow a
-fresh tracking image instead of destroying the session. No CoreS3, UnitV2 service,
-face enrolment, SQLite schema, Stick microphone or locomotion change.
+fresh tracking image instead of destroying the session. UnitV2 service, face
+enrolment, SQLite schema, Stick microphone and locomotion are unchanged.
+
+The owner then explicitly requested extensive natural language and reported the
+fixed four-second capture window had returned. Reminder creation/management now
+have semantic tools and local common-phrase paths, bounded clarification context,
+task-name resolution and same-record corrections. Examples and actual limitations
+are in `rebuild/docs/NATURAL_REQUESTS_0_6_1.md` (packaged as TALK-NATURALLY.txt).
+
+Speech history was recovered and checked against source: Alpha 1 commit b51bd76
+accepted server Silero endpointing at 700 ms plus AFE fallback at 850 ms, with a
+recorded physical endpoint result of 718 ms. The standalone rebuild's
+`voice_lan_capture_opus` instead captured the full configured interval before
+uploading, so a host-only change cannot restore microphone completion. This
+newly requested repair includes CoreS3 0.21.7: ESP-SR 2.5.4 WebRTC VAD on retained
+30 ms PCM frames, 90 ms speech onset, 720 ms silence hold, three-second no-speech
+timeout and eight-second ceiling. Capture-end telemetry reports the actual reason.
+The prior buffered network protection, last-packet flush, cancel lane and sensor/
+motion code remain intact. This is local VAD, not a claim that the old Silero
+server was restored or its physical measurements reproduced.
+
+The complete Windows package includes a matching CoreS3 image and
+`Update-Robot.cmd`. Its small GUI verifies source/version/image hashes, uses the
+bundled esptool, backs up NVS before writing only the known firmware regions and
+verifies NVS unchanged afterward. It requires an explicit Update robot click;
+installation never flashes automatically. This firmware step is now required
+for end-of-speech completion, superseding the initial host-only 0.6.1 instructions.
+Keep the accepted 0.21.6 image and 0.4.13 host as rollback, and do not re-enrol faces.
 
 The owner explicitly requests autonomy by default. This supersedes the older
 manual-arming product flow: explicit follow requests initialise the existing

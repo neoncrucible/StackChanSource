@@ -696,6 +696,11 @@ class KadenceAppliance:
             if self._voice_stage == "connecting":
                 self._set_voice_stage("recording", duration / 1000 + 8)
         self.emit("activity", data)
+        if state == 'thinking' and event.payload.get('endpoint') in {'silence','no-speech','limit'}:
+            captured = event.payload.get('captured_ms')
+            seen = event.payload.get('speech_seen')
+            if type(captured) is int and 0 < captured <= 8060 and type(seen) is bool:
+                self.emit('voice_capture', {'reason':event.payload['endpoint'], 'captured_ms':captured, 'speech_seen':seen})
 
     def _begin_voice_turn(self, body: RuntimeBody, event: Envelope) -> None:
         if self._reconnect_requested.is_set():
@@ -749,7 +754,9 @@ class KadenceAppliance:
                 password=self.settings.password,
                 host=self.settings.lan_host,
                 port=self._server_port,
-                capture_ms=self.settings.capture_ms,
+                # VAD firmware treats this as a ceiling. Old firmware retains
+                # its saved fixed window; never silently make that wait longer.
+                capture_ms=8000 if self._last_device_status.get('firmware') == '0.21.7' else self.settings.capture_ms,
                 timeout=210.0,
                 token=self._turn_token,
             ))

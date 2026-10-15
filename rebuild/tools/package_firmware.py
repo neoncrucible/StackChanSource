@@ -63,7 +63,15 @@ def package(build: Path, output: Path, *, source_commit: str | None = None) -> P
     shutil.copyfile(ROOT / "rebuild" / "tools" / "flash_bundle.ps1",output / "flash.ps1")
     shutil.copytree(ROOT / "rebuild" / "firmware" / "main" / "third_party",
                     output / "THIRD-PARTY-NOTICES", dirs_exist_ok=True)
-    release={"format":1,"candidate":"Kadence sensor bus Phase 1","source_commit":source_commit,"branch":"main",
+    for component in (build.parent/'managed_components').glob('*'):
+        if component.is_dir():
+            for notice in component.glob('*'):
+                if notice.is_file() and notice.name.upper().startswith(('LICENSE','NOTICE','COPYING')):
+                    target=output/'THIRD-PARTY-NOTICES'/component.name/notice.name
+                    target.parent.mkdir(parents=True,exist_ok=True)
+                    shutil.copyfile(notice,target)
+    version=re.search(r'set\(PROJECT_VER "([0-9.]+)"\)',(ROOT/'rebuild'/'firmware'/'CMakeLists.txt').read_text())[1]
+    release={"format":1,"candidate":"Kadence speech endpoint repair","device":"CoreS3-StackChan","firmware_version":version,"source_commit":source_commit,"branch":"main",
              "idf":"5.5.4","chip":"esp32s3","flash_size":"16MB","files":entries,"physical_signoff":False}
     (output / "RELEASE.json").write_text(json.dumps(release,indent=2)+"\n")
     sums=[]

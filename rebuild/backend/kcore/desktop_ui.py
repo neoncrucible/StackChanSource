@@ -182,6 +182,7 @@ class MainWindow(QMainWindow):
         self.reflex_snapshot={}; self.reflex_events=deque(maxlen=120)
         self.perception_snapshot={}; self.perception_decisions=deque(maxlen=120)
         self.capture_until=0.0; self.phase_started=time.monotonic(); self.provider_stage=""
+        self.speech_endpoint_enabled=False
         self.active_timezone="Europe/London"; self.timings={}
         self.setWindowTitle("Kadence")
         self.resize(1160,800); self.setMinimumSize(980,690)
@@ -288,6 +289,7 @@ class MainWindow(QMainWindow):
         self.ssid=line("Wi-Fi network",32); self.lan=QComboBox(); self.lan.setEditable(True); self.lan.addItem("Auto-detect","")
         self.timezone=line("Europe/London",80); self.timezone.setText("Europe/London")
         self.capture=QSpinBox(); self.capture.setRange(2400,8000); self.capture.setSingleStep(600); self.capture.setValue(4800); self.capture.setSuffix(" ms")
+        self.capture.setToolTip('Legacy firmware recording window. Firmware 0.21.7 ends automatically after speech; its eight-second ceiling is automatic.')
         grid.addWidget(label("Robot port"),0,0); grid.addWidget(self.port,0,1); grid.addWidget(button("SCAN",self.scan_connections),0,2)
         grid.addWidget(label("Wi-Fi network"),1,0); grid.addWidget(self.ssid,1,1,1,2)
         grid.addWidget(label("PC LAN address"),2,0); grid.addWidget(self.lan,2,1,1,2)
@@ -1278,6 +1280,9 @@ class MainWindow(QMainWindow):
             suffix=(" · microphone stays off; cancellation is available." if self._audio_testing else
                     " · wait for the recording cue; another tap cancels." if data.get("stage")=="connecting" else " · cancellation is available.")
             self.voice_health.setText(names.get(data.get("stage"),"Voice in progress") + suffix)
+        elif name=='voice_capture':
+            reason={'silence':'Finished when you stopped speaking','no-speech':'No speech detected','limit':'Recording reached its eight-second limit'}.get(data.get('reason'),'Recording finished')
+            self.voice_health.setText(f"{reason} · {data.get('captured_ms',0)/1000:.2f}s captured.")
         elif name=="audio_network":
             self.audio_network_status.setText(data.get("message","Network check incomplete."))
             self._voice_endpoint=f"{data.get('host','')}:{data.get('port','')}"
@@ -1319,6 +1324,8 @@ class MainWindow(QMainWindow):
             if hasattr(self,"tray") and self.tray.isVisible(): self.tray.showMessage("Kadence",f"{count} reminder(s) due. Open Kadence to review.",QSystemTrayIcon.Information,6000)
             QApplication.beep()
         elif name=="device":
+            self.speech_endpoint_enabled=data.get('firmware')=='0.21.7'
+            self.capture.setEnabled(not self.speech_endpoint_enabled)
             if not self.volume.isSliderDown(): self.volume.setValue(data.get("volume",100))
             if not self.brightness.isSliderDown(): self.brightness.setValue(data.get("brightness",18))
             self.volume_value.setText(f"{data.get('volume',100)} / 100")
@@ -1415,7 +1422,7 @@ class MainWindow(QMainWindow):
     def refresh_activity(self):
         state=self.avatar.phase
         if state=="listening" and self.capture_until:
-            text=f"LISTENING  {max(0,self.capture_until-time.monotonic()):.1f}s"
+            text='LISTENING · speak naturally' if self.speech_endpoint_enabled else f"LISTENING  {max(0,self.capture_until-time.monotonic()):.1f}s"
         elif state in {"thinking","tool-working"}:
             title="WORKING" if state=="tool-working" else self.provider_stage or "THINKING"
             text=f"{title}  {int(time.monotonic()-self.phase_started)}s"
@@ -1552,7 +1559,7 @@ class MainWindow(QMainWindow):
             reasons=reasons | THINKING_REASONS
         if name=="camera_transfer": reasons=reasons | IMAGE_REASONS
         if name=="device_diagnostic": reasons=reasons | DEVICE_REASONS
-        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","capture_remaining_ms","media_busy","camera_active","cpu","reset_code","sensor_pid","received_bytes","expected_bytes","chars","timeout_ms"):
+        for key in ("state","connected","completed","count","free_heap","free_psram","elapsed_ms","stage","provider_stage","device_stage","reason","error_code","wifi_reason","front_touch","top_touch","leds","touch_seq","capture_ms","captured_ms","speech_seen","capture_remaining_ms","media_busy","camera_active","cpu","reset_code","sensor_pid","received_bytes","expected_bytes","chars","timeout_ms"):
             value=data.get(key)
             if type(value) in {int,float,bool}: safe[key]=value
             elif isinstance(value,str) and (key=="state" and value in states or key in {"stage","provider_stage"} and value in stages or key=="device_stage" and value in VoiceTurnFailure.STAGES or key=="reason" and value in reasons): safe[key]=value

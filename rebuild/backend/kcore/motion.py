@@ -93,8 +93,8 @@ class Motion:
         if self.task and not self.task.done():raise RuntimeError('Wait for the current movement to settle.')
         if self.app.perception:await self.app.perception.interrupt()
         if generation!=self.generation:raise RuntimeError('Head action was superseded by Stop.')
-        if self.app._last_device_status.get('firmware')!='0.21.6' or time.monotonic()-self.app._last_device_status_at>5:
-            raise RuntimeError('Motion requires connected firmware 0.21.6 and a fresh device status.')
+        if self.app._last_device_status.get('firmware') not in {'0.21.6','0.21.7'} or time.monotonic()-self.app._last_device_status_at>5:
+            raise RuntimeError('Motion requires supported firmware 0.21.6/0.21.7 and a fresh device status.')
         if action=='motion_home' and not self.store.saved:raise RuntimeError('Set the shared home before returning Home.')
         target=self.store.home if action=='motion_home' else pose(args)
         await self.move(target)
