@@ -283,7 +283,12 @@ class PerceptionController:
         if not self.camera.config.perception_enabled: return "observation_only"
         if self.camera.config.policy == "OFF": return "policy_off"
         if self.camera.unitv2.mode == "STOPPED": return "stopped"
-        if self.camera.config.source != "robot-camera" and not self.camera.unitv2.verified: return "lifecycle_check_required"
+        if self.camera.config.source != "robot-camera":
+            if not self.camera.unitv2.verified: return "lifecycle_check_required"
+            # Pairing verified != a healthy camera producer. Don't announce
+            # "accepted / ready" while a stop remains unconfirmed.
+            if self.camera.unitv2.status.get('state') in {'STOP_UNCONFIRMED', 'UNAVAILABLE', 'FAULT', 'STOPPING'}:
+                return "lifecycle_check_required"
         if self._enrolling or getattr(self.camera.unitv2,'web_session',False) or (self._explicit_task and not self._explicit_task.done()): return "enrolling"
         return "ready"
 
@@ -379,7 +384,14 @@ class PerceptionController:
         except Exception as exc:
             self.health = self.faces.health if self.faces.health in {"models_missing","models_invalid"} else "unavailable"
             reason = "timeout" if isinstance(exc,TimeoutError) else self.health
-            self.last_result = "Camera look failed: " + reason.replace('_',' ') + "."
+            from .camera_faults import MESSAGES
+            if getattr(exc, 'code', None) in MESSAGES:
+                # Display only the allowlisted camera fault; never raw exception
+                # text, network bodies, images, or pairing secrets.
+                fault = self.camera.report_failure(exc)
+                self.last_result = "Camera look failed: " + str(fault)
+            else:
+                self.last_result = "Camera look failed: " + reason.replace('_',' ') + "."
             self.emit("vision_activity",{"kind":"automatic_look","message":self.last_result})
             if not terminal: self._decision(trigger,"failed",reason)
         finally:

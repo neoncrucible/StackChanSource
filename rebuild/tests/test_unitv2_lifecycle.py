@@ -204,6 +204,77 @@ def test_expired_owned_lease_recovers_without_ssh_and_other_owner_is_not_stopped
     asyncio.run(case())
 
 
+
+def test_failed_stop_keeps_owned_lease_for_safe_retry_without_stop_all():
+    async def case():
+        old = uuid.uuid4().hex
+        calls = []
+        class Stub:
+            address = '127.0.0.1'
+            def call(self, operation, lease=None, **kwargs):
+                calls.append((operation, lease))
+                if operation == 'stop' and len([c for c in calls if c[0] == 'stop']) == 1:
+                    raise LifecycleError('producer did not stop', code='stop_unconfirmed')
+                if operation == 'stop':
+                    return {'state':'STOPPED','stop_confirmed':True,'producer_running':False,'version':'1.3.0'}
+                if operation == 'face_start':
+                    return {'state':'STARTING','stop_confirmed':False,'producer_running':True,
+                            'producer_mode':'faces','version':'1.3.0'}
+                raise AssertionError(operation)
+        owner = UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda *a:Stub())
+        owner.client = Stub()
+        owner.lease = old
+        owner.status = {'state':'RUNNING','stop_confirmed':False,'producer_running':True}
+        with pytest.raises(LifecycleError,match='producer did not stop'):
+            owner._stop_sync()
+        assert owner.lease == old
+        assert owner.status['state'] == 'STOP_UNCONFIRMED'
+        await owner._start(native=True)
+        assert calls[:3] == [('stop',old),('stop',old),('face_start',owner.lease)]
+        assert owner.lease != old
+        await owner._stop()
+    asyncio.run(case())
+
+
+def test_saved_pairing_does_not_claim_ready_when_device_stop_is_unconfirmed():
+    async def case():
+        class Stub:
+            address = '127.0.0.1'
+            def call(self, operation, *args, **kwargs):
+                assert operation == 'status'
+                return {'state':'FAULT','stop_confirmed':False,'producer_running':False,
+                        'reason':'stop_unconfirmed','version':'1.3.0'}
+        owner = UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda *a:Stub())
+        owner.client = Stub()
+        owner.verified = True
+        with pytest.raises(LifecycleError) as failure:
+            await owner.ensure_ready('127.0.0.1')
+        assert failure.value.code == 'stop_unconfirmed'
+        assert not owner.status['stop_confirmed']
+    asyncio.run(case())
+
+
+def test_native_face_error_survives_failed_cleanup():
+    async def case():
+        class Stub:
+            address = '127.0.0.1'
+            def call(self, operation, lease=None, **kwargs):
+                if operation == 'face_start':
+                    return {'state':'STARTING','stop_confirmed':False,'producer_running':True}
+                if operation == 'face_frame':
+                    raise LifecycleError('fresh face result timed out',code='frame_timeout')
+                if operation == 'stop':
+                    raise LifecycleError('stop not confirmed',code='stop_unconfirmed')
+                raise AssertionError(operation)
+        owner = UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda *a:Stub())
+        with pytest.raises(LifecycleError) as failure:
+            await owner.native_observe('127.0.0.1')
+        assert failure.value.code == 'frame_timeout'
+        assert owner.status['state'] == 'STOP_UNCONFIRMED'
+        assert owner.lease
+    asyncio.run(case())
+
+
 def test_primary_frame_failure_is_not_overwritten_by_failed_cleanup():
     async def case():
         class Stub:

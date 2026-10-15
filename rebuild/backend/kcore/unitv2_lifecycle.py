@@ -263,18 +263,25 @@ class UnitV2Owner:
         if not self.client: return
         lease = self.lease
         if lease is None and not all_leases: return
-        self.lease = None
         self.web_session = False
         try:
             await self._call("stop", lease=None if all_leases else lease, timeout=7)
         except BaseException:
+            # Keep the lease for a safe, lease-scoped retry: a failed stop
+            # might still have a live child, and a new lease would mask it.
             self.publish({"state":"STOP_UNCONFIRMED", "stop_confirmed":False})
             raise
+        else:
+            if self.lease == lease: self.lease = None
 
     async def _start(self, *, native=False, tracking=False):
         if self.closed: raise LifecycleError("Camera owner is closed")
         mode = 'tracking' if tracking else 'faces' if native else 'camera'
         if self.web_session: raise LifecycleError('Finish UnitV2 training before using the camera.')
+        # A failed previous stop must be settled using our original lease
+        # before claiming a fresh session. Never stop a different owner's lease.
+        if self.lease and self.status.get('state') == 'STOP_UNCONFIRMED':
+            await self._stop()
         if self.lease and self.status.get('producer_mode','camera') != mode: await self._stop()
         if self.lease is None:
             self.lease, self.sequence = uuid.uuid4().hex, 0
@@ -321,15 +328,18 @@ class UnitV2Owner:
 
     def _stop_sync(self):
         # Called while lock is retained; publication stays on the event loop.
-        lease, self.lease = self.lease, None
+        lease = self.lease
         # None means "stop every session" in the device API. Automatic cleanup
         # must never send that after an earlier stop already consumed our lease.
         if lease is None: return
         self.web_session = False
         try: result = self.client.call("stop", lease, timeout=7)
         except Exception:
+            # Don't abandon our lease when the remote stop is unconfirmed.
+            # A later attempt can retry only this lease, without a stop-all.
             self.status = {"state":"STOP_UNCONFIRMED", "stop_confirmed":False}
             raise
+        self.lease = None
         self.status = result
 
     def revoke(self):
@@ -395,10 +405,19 @@ class UnitV2Owner:
             if self.web_session:
                 raise LifecycleError('Finish the open face-training session before using the camera.')
             if self.verified:
-                # Saved verification proves the setup, not current reachability.
-                # Reopening an app must still confirm the existing service responds.
-                await self._call('status')
-                return
+                # Saved verification proves pairing, not producer health.
+                # A live HTTP response in FAULT/STOPPING is NOT a ready camera.
+                current = await self._call('status')
+                if current['state'] == 'STOPPED' and current['stop_confirmed']:
+                    return
+                if (self.lease and current.get('lease') == self.lease
+                        and current['state'] in {'RUNNING', 'STARTING'}):
+                    return
+                from .camera_faults import MESSAGES
+                code = current.get('reason')
+                if code not in MESSAGES:
+                    code = 'camera_owned' if current['producer_running'] else 'stop_unconfirmed'
+                raise LifecycleError(MESSAGES[code], code=code)
             epoch = self._cancel_epoch
             try:
                 await self._start()
@@ -475,10 +494,11 @@ class UnitV2Owner:
                 return result
             finally:
                 if (self.mode != 'KEEP_READY' and not self._holds) or epoch != self._cancel_epoch or not succeeded:
-                    cancelled = isinstance(sys.exception(),asyncio.CancelledError)
+                    primary_error = sys.exception()
+                    cancelled = isinstance(primary_error,asyncio.CancelledError)
                     try: await settled_thread(self._stop_sync)
                     except Exception:
-                        if not cancelled: raise
+                        if primary_error is None and not cancelled: raise
                     finally: self.publish()
 
     async def tracking_frame(self, address, roi=None):

@@ -1,3 +1,23 @@
+# Current candidate: 0.6.3 — native face session recovery after unconfirmed stop
+
+This is a **desktop-only repair candidate**; it does NOT flash or reinstall
+CoreS3 or UnitV2 firmware. Stop any active tracking/browsers, quit Kadence,
+extract the full ZIP, run Install-Kadence.cmd, then Connect.
+
+An unconfirmed device stop can leave the Windows host holding a stale lease.
+The host now retains its lease on failed cleanup and retries a lease-scoped stop
+before starting native face recognition. It does not send a global stop during
+automatic cleanup or steal another session. Background readiness no longer
+treats a responding but FAULTed producer as ready. Automatic face failures now
+show allowlisted camera error codes rather than only "unavailable".
+
+These source-level changes cannot fix a camera-side process that refuses every
+stop; physical owner acceptance remains mandatory. Preserve pairing, face
+profiles, SQLite schema 5, CoreS3 0.21.7 and the previous 0.6.2 rollback.
+A new first-time SSH install is NOT part of this update.
+
+---
+
 # Current candidate: 0.6.2 — reconnect using saved camera setup
 
 Quit Kadence completely, extract the whole ZIP and run **Install-Kadence.cmd**.
