@@ -1,8 +1,9 @@
 # Current candidate: 0.6.1 — grounded camera and companion repairs
 
-Close Kadence completely, extract the entire new ZIP, run **Install-Kadence.cmd**
-and keep Kadence closed for the robot update below. Existing settings, pairing
-and faces are reused; no UnitV2 reinstall or face retraining is needed.
+Close Kadence completely and extract the entire new ZIP. Run the robot update
+below first, then **Install-Kadence.cmd**, which installs and opens the new app.
+Existing settings, pairing and faces are reused; no UnitV2 reinstall or face
+retraining is needed.
 
 **To remove the fixed recording window:** run **Update-Robot.cmd** from the
 extracted folder, select the CoreS3 / StackChan USB port and click **Update robot**.
@@ -10,8 +11,8 @@ Connect only the robot, with any StickS3 unplugged. The updater verifies the
 matching 0.21.7 images, backs up robot NVS settings, writes only the allowed
 firmware regions and verifies that NVS was preserved. It uses the bundled
 flasher; no ESP-IDF installation or terminal commands are needed. Keep USB
-connected until completion. Restart the robot, open the desktop shortcut and
-click **Connect**.
+connected until completion. Restart the robot, close the updater, run
+**Install-Kadence.cmd** and click **Connect** in the new app.
 
 0.21.7 ends capture after 720 ms of classified silence following detected speech.
 Brief pauses stay within the utterance. Eight seconds is a ceiling, not a wait;

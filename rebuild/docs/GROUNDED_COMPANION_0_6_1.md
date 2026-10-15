@@ -52,13 +52,14 @@ claim that retail readiness or two-second speech has been physically proved.
 
 ## Installation and rollback
 
-Quit Kadence completely, extract the complete ZIP and run Install-Kadence.cmd.
-Keep Kadence closed and run Update-Robot.cmd to install the matching CoreS3
+Quit Kadence completely and extract the complete ZIP.
+Run Update-Robot.cmd first to install the matching CoreS3
 0.21.7 firmware through its USB port. This one-time update is required for
 automatic end-of-speech; a server cannot shorten the old firmware's buffered
 capture. The updater verifies images, backs up NVS and verifies its preservation.
 It never erases the full flash or writes calibration/storage regions. Then restart
-the robot and use the desktop shortcut. UnitV2 stays on 1.3.0 and SQLite on
+the robot, close the updater and run Install-Kadence.cmd, which opens the new
+app and creates the desktop shortcut. UnitV2 stays on 1.3.0 and SQLite on
 schema 5. Do not retrain faces or reconfigure the camera.
 Previous app versions and the accepted 0.4.13 fallback remain available.
 The previous awareness configuration can be restored from the settings copy;
