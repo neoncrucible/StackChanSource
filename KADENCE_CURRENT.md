@@ -7,7 +7,7 @@
 **Previous main:** `3b9890063b3abe03e96cf2b00c1b94409532a8eb`; changed by a NON-FORCED fast-forward.
 **Accepted fallback:** `kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`.
 **Target release:** host 0.6.0, "Reactive Companion".
-**Status:** engineering plan, not a claim of owner physical acceptance or deployed version.
+**Status:** 0.6.0 Windows candidate built and verified; physical timing and owner acceptance pending.
 
 ## 0. Astra: read this first
 Do not continue from the former `kadence/functionality`, `kadence/sensor-clean-base`, `kadence/sticks3-remote`, `kadence/rebuild-kade`, or any alpha branch. All new development must target `main` unless the owner explicitly changes this policy. Preserve existing commit SHAs and the 0.4.13 rollback package. Never assume that a code branch or passing CI reflects what is installed on the Windows computer. The owner wants one-shot, autonomous, fail-fast changes and only unavoidable hardware acceptance requests.
@@ -534,3 +534,36 @@ not measurable from this build environment. After installing the complete candid
 the next operator check is ordinary voice, “what colour is this?”, “track that”,
 conversation while tracking, then Stop/Privacy. Use the new timing fields if latency
 persists; do not ask the owner to navigate repeated readiness/arming switches.
+
+### Final 0.6.0 build and download evidence
+
+- **Package source:** `9336eefc8a05ab67e1c9a077f92cbbc962bb7622` on `main`.
+  Implementation commits: `4292c3d` (natural requests, speech warm-up and console),
+  `3d5593e` (first-use local motion selection), `be32f73` (continuous preview during
+  head movement), `9336eef` (preserved motor settling cadence).
+- **Clean full source suite:** `be32f73`, **455 passed, 4 Windows-only skips,
+  119 subtests passed** in 42.83 seconds. Final cadence change then passed **41
+  focused tracking/motion/appliance tests**; the exact final commit passed the
+  Windows gates below. Runtime ownership gate passed locally and on Windows.
+- **Windows CI:** https://github.com/neoncrucible/StackChanSource/actions/runs/38756179058
+  — both jobs **SUCCESS**. The six Windows regression groups passed **386 tests
+  and 81 subtests**. Packaged executable checks passed: incremental MP3 decoding
+  (first PCM after 576 encoded bytes, before EOF), native speech-worker preload,
+  local Windows voice, private worker protocol, database backup/profile operations,
+  model/face replay, remote-off contract and clean shutdown. Online provider latency
+  was not tested by the offline packaging gate.
+- **Downloaded and verified artifact:** `Kadence-Desktop-Windows`, ID
+  `11983798277`, contains **Kadence-Desktop-0.6.0-9336eefc8a05.zip**.
+  Inner ZIP: **185,243,723 bytes**, SHA-256
+  `0f8b5b51c3a840f88384f3e678281762e2b2d6ae16857a86bd8b5366379c8274`.
+  All **1,173** manifest-listed files matched their SHA-256, with complete manifest
+  coverage. Both BUILD and RELEASE identities matched source `9336eef` and host
+  0.6.0; candidate status, no CoreS3 firmware and schema 5 were verified.
+- **Outer Actions archive:** **185,243,913 bytes**, SHA-256
+  `1e61a34fa411100c51d334744df576c956a1d0a0af7731a61003587e87ee072c`.
+  GitHub reports artifact expiry **2027-01-13 14:58:25 UTC**. Preserve any accepted
+  package durably; this temporary artifact does not replace the 0.4.13 rollback.
+- **Installation:** quit Kadence, extract the complete inner ZIP and run
+  `Install-Kadence.cmd`. No new CoreS3 flash, UnitV2 install or face retraining.
+  This session did not install the package on the owner's PC or measure the actual
+  robot's two-second response target, camera LAN latency or physical following.
