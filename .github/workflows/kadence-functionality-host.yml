@@ -82,7 +82,7 @@ jobs:
           path: rebuild/dist/StickS3
           if-no-files-found: error
   voice-alignment:
-    needs: [sticks3, body-firmware]
+    needs: [sticks3]
     runs-on: windows-latest
     env:
       QT_QPA_PLATFORM: offscreen
@@ -101,7 +101,7 @@ jobs:
         env:
           KADENCE_TEST_MODELS: rebuild/dist/face_models
           KADENCE_TEST_FACE_FIXTURES: rebuild/dist/face_fixtures
-        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_vision_console.py rebuild/tests/test_vision_description.py rebuild/tests/test_face_review.py rebuild/tests/test_live_faces.py rebuild/tests/test_camera_diagnostics.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py rebuild/tests/test_native_unitv2.py rebuild/tests/test_object_tracking.py -q
+        run: python -m pytest rebuild/tests/test_perception_runtime.py rebuild/tests/test_perception_desktop.py rebuild/tests/test_vision_console.py rebuild/tests/test_vision_description.py rebuild/tests/test_face_review.py rebuild/tests/test_live_faces.py rebuild/tests/test_camera_diagnostics.py rebuild/tests/test_camera_reconnect.py rebuild/tests/test_schema_v4.py rebuild/tests/test_unitv2_network.py rebuild/tests/test_unitv2_lifecycle.py rebuild/tests/test_unitv2_setup.py rebuild/tests/test_native_unitv2.py rebuild/tests/test_object_tracking.py -q
       - name: Observe-only reflex and desktop regression
         run: python -m pytest rebuild/tests/test_reflex.py rebuild/tests/test_reflex_integration.py rebuild/tests/test_presence_console.py rebuild/tests/test_baseline_audit.py -q
       - name: Autonomous perception, rate limits and visit semantics
@@ -118,18 +118,8 @@ jobs:
         with:
           name: Kadence-StickS3-Firmware
           path: rebuild/dist/StickS3
-      - uses: actions/download-artifact@v4
-        with:
-          name: Kadence-CoreS3-Firmware
-          path: rebuild/dist/CoreS3-download
-      - name: Expand matching robot firmware
-        shell: pwsh
-        run: |
-          $zip = @(Get-ChildItem rebuild/dist/CoreS3-download -Filter *.zip)
-          if ($zip.Count -ne 1) { throw 'Expected one matching CoreS3 firmware archive' }
-          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath rebuild/dist/CoreS3
       - name: Build and exercise the Windows executable
-        run: python rebuild/tools/package_desktop.py --source-commit "${{ github.sha }}" --host-only --body-firmware rebuild/dist/CoreS3
+        run: python rebuild/tools/package_desktop.py --source-commit "${{ github.sha }}" --host-only
       - uses: actions/upload-artifact@v4
         with:
           name: Kadence-Desktop-Windows

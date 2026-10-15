@@ -56,3 +56,35 @@ def test_remote_preflight_is_one_python_argument_and_staging_is_private():
     assert args[:4] == ['sudo', 'python3', '-c', NULL_DEVICE_PREFLIGHT]
     assert args[4:] == ['&&', 'test', '-r', '/dev/null', '&&', 'test', '-w',
                        '/dev/null', '&&', 'umask', '077', '&&', 'mkdir', destination]
+
+
+def test_setup_address_is_shared_with_next_app_version_without_changing_privacy(tmp_path):
+    from kcore.camera_manager import CameraConfig
+    from kcore.unitv2_setup import save_address
+    saved=CameraConfig(address='192.168.40.175',privacy=True,policy='OFF',source='unitv2-camera',greetings=True)
+    saved.save(tmp_path)
+    save_address('192.168.40.42',root=tmp_path)
+    reopened=CameraConfig.load(tmp_path)
+    assert reopened.address=='192.168.40.42'
+    assert reopened.privacy and reopened.policy=='OFF' and reopened.greetings
+    assert reopened.source=='unitv2-camera'
+
+
+def test_default_setup_reuses_saved_connection_without_ssh_or_writing_pairing(tmp_path):
+    import ctypes
+    from unittest.mock import Mock
+    from kcore import unitv2_setup as setup
+    from kcore.camera_manager import CameraConfig
+    vault=Mock();vault.load.return_value={'unitv2_token':'ab'*32}
+    windows=SimpleNamespace(kernel32=SimpleNamespace(GetConsoleWindow=lambda:0))
+    with patch.object(setup,'os',SimpleNamespace(name='nt')), \
+         patch.object(ctypes,'windll',windows,create=True), \
+         patch('kcore.unitv2_lifecycle.pairing_vault',return_value=vault), \
+         patch('kcore.storage.default_data_dir',return_value=tmp_path), \
+         patch('builtins.input',side_effect=['','192.168.40.42','']), \
+         patch.object(setup,'check_existing',return_value={'version':'1.3.0','state':'STOPPED'}) as check, \
+         patch.object(setup.subprocess,'run',side_effect=AssertionError('Must not run SSH')):
+        assert setup.main()==0
+    check.assert_called_once_with('192.168.40.42','ab'*32)
+    vault.save.assert_not_called();vault.forget.assert_not_called()
+    assert CameraConfig.load(tmp_path).address=='192.168.40.42'

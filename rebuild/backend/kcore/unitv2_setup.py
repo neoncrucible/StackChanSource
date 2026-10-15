@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
 
 
 # Factory devtmpfs can recreate /dev/null as root:root 0660 after reboot.
@@ -49,6 +50,26 @@ def launch(address):
     subprocess.Popen(command+["--unitv2-setup", address], creationflags=subprocess.CREATE_NEW_CONSOLE)
 
 
+def save_address(address, *, root=None):
+    """One durable address shared by the installer and every desktop version."""
+    from .camera_manager import CameraConfig
+    from .storage import default_data_dir
+    root = Path(root) if root is not None else default_data_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    config = CameraConfig.load(root)
+    updated = replace(config, address=str(ipaddress.IPv4Address(address)))
+    CameraConfig.parse(updated.__dict__).save(root)
+
+
+def check_existing(address, key, *, client_factory=None):
+    """Authenticated status only: no SSH, camera start or pairing mutation."""
+    from .unitv2_lifecycle import Client
+    from .camera_faults import CameraFault, camera_fault
+    if not key: raise CameraFault('pairing_missing')
+    try: return (client_factory or Client)(address, key).call('status', timeout=5)
+    except Exception as exc: raise camera_fault(exc) from None
+
+
 def main(address="192.168.40.175"):
     if os.name != "nt": raise RuntimeError("Run setup on the Windows laptop")
     import ctypes
@@ -56,21 +77,35 @@ def main(address="192.168.40.175"):
     if window: ctypes.windll.user32.ShowWindow(window, 5)
     print("KADENCE / UNITV2 SETUP\n")
     print("Close the Kadence server and any UnitV2 browser preview first.")
-    print("This installs camera lifecycle control and the original UnitV2 face training bridge.")
+    print("Normal connection reuses saved pairing. App updates do not require this setup.")
+    print("Install/repair installs camera lifecycle control and the original face training bridge.")
     print("Existing onboard face profiles and the original service backup are preserved.")
     print("It does not flash firmware or change Wi-Fi. Enter R to restore the original instead.\n")
-    operation = input("Install [Enter] or restore [R]: ").strip().upper()
-    if operation not in {"", "R"}: return 1
+    operation = input("Check saved connection [Enter], install/repair [I] or restore [R]: ").strip().upper()
+    if operation not in {"", "I", "R"}: return 1
     address = str(ipaddress.IPv4Address(input("UnitV2 address ["+address+"]: ").strip() or address))
+    from .unitv2_lifecycle import pairing_vault
+    vault = pairing_vault()
+    saved_key = vault.load().get("unitv2_token")
+    if operation == '' and saved_key:
+        try:
+            status = check_existing(address, saved_key)
+            save_address(address)
+            print('\nSAVED CONNECTION WORKS. UnitV2 service '+str(status.get('version', 'unknown'))+'.')
+            print('No installation or password is needed. Close this window and start Kadence.')
+            return 0
+        except RuntimeError as exc:
+            print('\n'+str(exc))
+            print('Saved pairing was kept. Installation/repair is a separate choice, not an app-update step.')
+            return 1
+        finally: input('\nPress Enter to close. ')
     source = bundle_directory()
     bundle = ("kadence_unitv2.py", "kadence_native.py", "native_faces.html", "native_faces.js", "kadence_tracking.py", "kadence_factory.py")
     for name in (*bundle, "install_unitv2.py"):
         if not (source/name).is_file(): raise RuntimeError("UnitV2 setup files are missing. Extract the complete desktop ZIP.")
     for tool in ("ssh", "scp"):
         if not shutil.which(tool): raise RuntimeError("Install the Windows OpenSSH Client optional feature, then retry.")
-    from .unitv2_lifecycle import pairing_vault
-    vault = pairing_vault()
-    key = vault.load().get("unitv2_token") or secrets.token_hex(32)
+    key = saved_key or secrets.token_hex(32)
     # Save before remote changes so interruption cannot lose the newly installed key.
     if operation != "R": vault.save({"unitv2_token":key})
     remote = "m5stack@"+address
@@ -87,16 +122,18 @@ def main(address="192.168.40.175"):
             (temporary/"manifest.json").write_text(json.dumps({name:hashlib.sha256((temporary/name).read_bytes()).hexdigest() for name in bundle}))
             (temporary/"kadence-camera.key").write_text(key+"\n")
             subprocess.run(["scp", "-O", *options, *[str(p) for p in temporary.iterdir()], remote+":"+destination+"/"], check=True)
-        command = "sudo python3 "+destination+"/install_unitv2.py"+(" --restore" if operation == "R" else "")
+        command = ("sudo python3 "+destination+"/install_unitv2.py"+(" --restore" if operation == "R" else "")
+                   + "; kadence_setup_result=$?; rm -f "+destination+"/kadence-camera.key; exit $kadence_setup_result")
         subprocess.run(["ssh", "-t", *options, remote, command], check=True)
         if operation == "R": vault.forget()
+        else: save_address(address)
         print("\nSETUP COMPLETE. Unplug UnitV2 power, reconnect it, then start Kadence.")
-        print("In Vision select ON DEMAND and click TEST START / STOP. No robot firmware flash is needed.")
-        print("Then Profiles > OPEN UNITV2 TRAINING uses the onboard factory recognition and saved profiles.")
+        print("Kadence will reconnect and check the camera automatically. No manual arming or start/stop test is needed.")
+        print("Saved face profiles are retained. Do not repeat setup for a desktop app update.")
         return 0
     finally:
         # Fixed generated path only. Never remove the factory backup.
-        subprocess.run(["ssh", *options, remote, "rm -f "+destination+"/kadence-camera.key"], check=False)
+        subprocess.run(["ssh", "-o", "BatchMode=yes", *options, remote, "rm -f "+destination+"/kadence-camera.key"], check=False)
         input("\nPress Enter to close setup. ")
 
 

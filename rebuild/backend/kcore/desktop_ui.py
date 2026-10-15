@@ -488,8 +488,8 @@ class MainWindow(QMainWindow):
         for text,value in (("ON DEMAND · stop after capture","ON_DEMAND"),("KEEP READY · renewable lease","KEEP_READY"),("STOPPED · pause automatic looks","STOPPED")):
             self.unitv2_mode.addItem(text,value)
         box.addWidget(row(self.unitv2_mode,button("APPLY MODE",self.apply_unitv2_mode),button("STOP NOW",lambda:self.control.send("unitv2_mode",{"mode":"STOPPED"}))))
-        self.unitv2_state=label("Producer UNKNOWN · run setup once, then test start / stop.","status"); box.addWidget(self.unitv2_state)
-        box.addWidget(row(button("SET UP UNITV2",self.setup_unitv2),button("TEST START / STOP",self.check_unitv2),button("REFRESH STATUS",lambda:self.control.send("unitv2_status"))))
+        self.unitv2_state=label("Camera readiness is checked automatically using saved pairing.","status"); box.addWidget(self.unitv2_state)
+        box.addWidget(row(button("FIRST-TIME SETUP / REPAIR",self.setup_unitv2),button("TEST START / STOP",self.check_unitv2),button("REFRESH STATUS",lambda:self.control.send("unitv2_status"))))
         self.preview=label("NO SNAPSHOT\n\nCapture to check the selected camera's view.","muted")
         self.preview.setAlignment(Qt.AlignCenter); self.preview.setMinimumSize(320,180); self.preview.setMaximumHeight(180)
         self.preview.setStyleSheet("border: 1px solid #293c2f;")
@@ -508,7 +508,7 @@ class MainWindow(QMainWindow):
         camera.addWidget(label("Snapshots are temporary until saved. Privacy blocks access and requests a producer stop; board power remains on.","muted"))
         self.camera_selection=QGroupBox("CAMERA SOURCE"); box=QVBoxLayout(self.camera_selection)
         box.addWidget(row(self.camera_source,self.unitv2_address))
-        box.addWidget(row(button("Save camera",self.apply_camera_policy),button("Connect UnitV2",self.setup_unitv2)))
+        box.addWidget(row(button("Save camera",self.apply_camera_policy),button("Reconnect camera",self.reconnect_unitv2)))
         box.addWidget(label("Automatic prefers UnitV2 and falls back to the robot camera. Tracking uses UnitV2 automatically. Connection setup is only needed once.","muted"))
         camera.addWidget(button("CAMERA SETTINGS",self.show_camera_settings))
         perception=tab("Perception")
@@ -625,7 +625,14 @@ class MainWindow(QMainWindow):
             if response.get("ok"):
                 try: launch(self.unitv2_address.text().strip())
                 except Exception as exc: self.message.setText(str(exc))
-        self.control.send("server_stop",{},stopped)
+        def saved(response):
+            if response.get('ok'): self.control.send('server_stop', {}, stopped)
+        self.control.send('camera_patch', self.camera_policy_values(), saved)
+
+    def reconnect_unitv2(self):
+        def saved(response):
+            if response.get('ok'): self.control.send('unitv2_connect', {}, timeout=30)
+        self.control.send('camera_patch', self.camera_policy_values(), saved)
 
     def refresh_faces(self, *args):
         self.control.send("face_profiles",{},self.faces_result)
@@ -1192,7 +1199,16 @@ class MainWindow(QMainWindow):
             self.presence_unknown.setChecked(data.get("unknown_alerts") is True)
             self.update_controls()
         elif name=="camera_state":
-            self.camera_state.setText(f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')}")
+            from .camera_faults import MESSAGES
+            self._camera_error = MESSAGES.get(data.get('error_code'), '')
+            self.camera_state.setText(self._camera_error or f"Camera {data.get('state','UNKNOWN')} · saved policy {data.get('policy','OFF')}")
+            self.update_controls()
+        elif name=='camera_issue':
+            from .camera_faults import MESSAGES
+            self._camera_error = MESSAGES.get(data.get('code'), '')
+            if self._camera_error:
+                self.message.setText(self._camera_error)
+                self.home_camera_status.setText(self._camera_error)
         elif name=="unitv2_lifecycle":
             confirmed="stop confirmed" if data.get("stop_confirmed") else "stop not confirmed"
             proof="ready" if data.get("verified") else "readiness checked automatically on request"
@@ -1215,7 +1231,7 @@ class MainWindow(QMainWindow):
             gate=data.get('gate','observation_only')
             meanings={'ready':'Automatic perception enabled','observation_only':'Observing proposals · automatic perception not enabled',
                       'policy_off':'Automatic policy OFF','privacy':'Privacy active','stopped':'Automatic capture paused',
-                      'lifecycle_check_required':'Run TEST START / STOP first','enrolling':'Enrollment in progress'}
+                      'lifecycle_check_required':'Waiting for the camera to reconnect','enrolling':'Enrollment in progress'}
             pending=f" · pending {data['pending']}" if data.get('pending') else ''
             self.perception_gate.setText(f"{meanings.get(gate,'Perception unavailable')} · bursts {data.get('completed_bursts',0)} completed / {data.get('bursts',0)} started{pending}")
             from .perception import diagnostic_state
@@ -1458,7 +1474,7 @@ class MainWindow(QMainWindow):
         elif self.server_state!='running':
             self.home_camera_status.setText('Connect Kadence to use the camera.')
         elif not self._look_pending and not self.tracking_snapshot.get('active'):
-            self.home_camera_status.setText(self._home_evidence or 'Ready for a fresh camera look.')
+            self.home_camera_status.setText(getattr(self, '_camera_error', '') or self._home_evidence or 'Ready for a fresh camera look.')
 
     def tick(self):
         self.refresh_activity()
@@ -1520,6 +1536,12 @@ class MainWindow(QMainWindow):
             if safe is not None:
                 record={"at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"event":name,**safe}
                 self._append_diagnostic(record)
+            return
+        if name=='camera_issue':
+            from .camera_faults import diagnostic_issue
+            safe=diagnostic_issue(data)
+            if safe is not None:
+                self._append_diagnostic({'at':datetime.now(timezone.utc).isoformat(timespec='seconds'),'event':name,**safe})
             return
         if name in {"reflex_status", "reflex_event"}:
             from .reflex import diagnostic_event, diagnostic_status

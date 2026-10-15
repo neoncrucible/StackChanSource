@@ -1,4 +1,29 @@
-# Current candidate: 0.6.1 — grounded camera and companion repairs
+# Current candidate: 0.6.2 — reconnect using saved camera setup
+
+Quit Kadence completely, extract the whole ZIP and run **Install-Kadence.cmd**.
+Click **Connect** in the app. Existing camera address, pairing, saved face
+profiles and robot firmware are reused. **Do not run UnitV2 setup or flash the
+robot for this desktop update.**
+
+Kadence retries when UnitV2 is still booting and now shows the actual camera
+failure on Home. **Settings → Camera → Reconnect camera** reconnects through the
+existing saved pairing and proves a fresh image; it does not launch SSH or ask
+for the camera password. You can retry a spoken camera question immediately.
+
+First-time installation or deliberate pairing repair remains in Engineering.
+Successful setup saves the entered address in the same persistent settings used
+by every desktop version. Reopening setup with an existing pairing checks the
+connection without reinstalling. A freshly completed camera-service installation
+still requires one camera restart to run the installed service.
+
+See **WHATS-NEW.txt** for the repair and limits. Firmware 0.21.7 from the previous
+package continues to provide silence-based recording completion; installing this
+desktop package neither changes nor downgrades it. No firmware is bundled here.
+UnitV2 service remains 1.3.0 and SQLite schema remains 5.
+
+---
+
+## Historical candidate: 0.6.1 — grounded camera and companion repairs
 
 Close Kadence completely and extract the entire new ZIP. Run the robot update
 below first, then **Install-Kadence.cmd**, which installs and opens the new app.

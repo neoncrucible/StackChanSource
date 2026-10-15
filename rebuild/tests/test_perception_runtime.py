@@ -134,16 +134,18 @@ def test_manual_preempts_automatic_and_third_request_is_rejected():
     run(case())
 
 
-def test_camera_deadline_and_backoff_prevent_restart_storm():
+def test_automatic_camera_backoff_prevents_restart_storm_but_explicit_retry_is_allowed():
     async def case():
         count=0
         async def robot():
             nonlocal count
             count+=1;await asyncio.sleep(1)
-        manager=CameraManager(robot)
+        manager=CameraManager(robot, config=CameraConfig(policy='AWARE', perception_enabled=True))
         for _ in range(2):
-            with pytest.raises(RuntimeError,match='unavailable'):await manager.acquire(source='robot-camera',timeout=.01)
+            with pytest.raises(RuntimeError,match='deadline'):await manager.acquire(source='robot-camera',timeout=.01,purpose='automatic')
         assert count==1
+        with pytest.raises(RuntimeError,match='deadline'):await manager.acquire(source='robot-camera',timeout=.01)
+        assert count==2
     run(case())
 
 

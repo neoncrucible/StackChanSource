@@ -170,6 +170,80 @@ def test_bad_pairing_never_starts_camera(service,producer):
     assert producer.starts==0
 
 
+def test_expired_challenge_retries_once_without_repairing_or_duplicating_operation(service,producer):
+    server,client=service
+    authenticate=server.service.authenticate
+    attempts=[]
+    def expires_once(raw,signature):
+        attempts.append(True)
+        if len(attempts)==1: raise bridge.CameraError('challenge_expired',401)
+        return authenticate(raw,signature)
+    with patch.object(server.service,'authenticate',side_effect=expires_once):
+        client.call('start',uuid.uuid4().hex)
+    assert len(attempts)==2 and producer.starts==1
+
+
+def test_expired_owned_lease_recovers_without_ssh_and_other_owner_is_not_stopped(service,producer):
+    async def case():
+        _,client=service
+        owner=UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda *a:client)
+        owner.mode='KEEP_READY'
+        await owner.capture(client.address)
+        expired=owner.lease
+        producer.stop(expired,'lease_expired')
+        await owner.capture(client.address)
+        assert owner.lease != expired and producer.starts==2
+        # A real different session is not ours to stop during automatic recovery.
+        producer.stop(owner.lease)
+        other=uuid.uuid4().hex;producer.start(other)
+        with pytest.raises(LifecycleError) as failure: await owner.capture(client.address)
+        assert failure.value.code=='lease_mismatch'
+        assert producer.lease==other and producer.status()['producer_running']
+        producer.stop(other)
+        await owner.close()
+    asyncio.run(case())
+
+
+def test_primary_frame_failure_is_not_overwritten_by_failed_cleanup():
+    async def case():
+        class Stub:
+            address='127.0.0.1'
+            def call(self,operation,*a,**kw):
+                if operation=='frame': raise LifecycleError('No fresh image',code='frame_timeout')
+                if operation=='stop': raise ConnectionRefusedError('PRIVATE RAW DETAILS')
+                return {'state':'RUNNING','producer_running':True,'stop_confirmed':False}
+        owner=UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda *a:Stub())
+        with pytest.raises(LifecycleError) as failure: await owner.capture('127.0.0.1')
+        assert failure.value.code=='frame_timeout'
+        assert owner.status['state']=='STOP_UNCONFIRMED'
+    asyncio.run(case())
+
+
+def test_reconnect_uses_saved_pairing_and_proves_fresh_frame_with_no_ssh(service,producer,tmp_path):
+    from types import SimpleNamespace
+    from kcore.desktop_worker import DesktopController
+    async def case():
+        server,_=service
+        controller=DesktopController(lambda *a:None,directory=tmp_path)
+        await controller.start()
+        camera=CameraManager(None,config=CameraConfig(address='127.0.0.1'))
+        camera.unitv2=UnitV2Owner(camera.emit,key_loader=lambda:KEY,client_factory=lambda a,k:Client(a,k,port=server.server_port))
+        camera.unitv2.verification_root=tmp_path
+        controller.app=SimpleNamespace(camera=camera,perception=None)
+        try:
+            with patch('kcore.unitv2_setup.launch',side_effect=AssertionError('No SSH installation')):
+                result=await controller.command('unitv2_connect',{})
+                assert 'fresh image' in result['message']
+                assert producer.starts==1 and producer.status()['stop_confirmed'] and camera.unitv2.verified
+            camera.configure(CameraConfig(privacy=True))
+            with pytest.raises(RuntimeError,match='privacy'):await controller.command('unitv2_connect',{})
+            assert producer.starts==1
+        finally:
+            controller.app=None
+            await camera.close();await controller.close()
+    asyncio.run(case())
+
+
 def test_manager_managed_capture_releases_producer_and_privacy_blocks(service):
     server,_=service
     async def case():
@@ -270,7 +344,8 @@ def test_stop_failure_is_reported_not_claimed_as_success():
             address='127.0.0.1'
             def call(self,*a,**k):raise TimeoutError()
         owner=UnitV2Owner(lambda *a:None,key_loader=lambda:KEY,client_factory=lambda *a:Stub())
-        with pytest.raises(TimeoutError):await owner.control_mode('STOPPED','127.0.0.1')
+        with pytest.raises(LifecycleError) as failure:await owner.control_mode('STOPPED','127.0.0.1')
+        assert failure.value.code == 'timeout'
         assert owner.status['state']=='STOP_UNCONFIRMED' and not owner.status['stop_confirmed']
     asyncio.run(case())
 

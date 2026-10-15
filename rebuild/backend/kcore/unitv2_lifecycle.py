@@ -47,7 +47,10 @@ def load_key():
     return key
 
 
-class LifecycleError(RuntimeError): pass
+class LifecycleError(RuntimeError):
+    def __init__(self, message, *, code='service_error'):
+        self.code = code
+        super().__init__(message)
 
 
 class _ResponseReader(io.RawIOBase):
@@ -105,8 +108,11 @@ class Client:
             response.begin()
             length = response.getheader("Content-Length", "")
             jpeg = response.getheader("Content-Type", "").split(";")[0].strip() == "image/jpeg"
+            if response.status in {404, 410}:
+                from .camera_faults import MESSAGES
+                raise LifecycleError(MESSAGES['service_missing'], code='service_missing')
             if not length.isdigit() or not 0 < int(length) <= (MAX_JPEG if jpeg else 4*MAX_JPEG//3+65536):
-                raise LifecycleError("Invalid UnitV2 service response")
+                raise LifecycleError("Invalid UnitV2 service response", code='invalid_response')
             data = bytearray()
             while len(data) < int(length):
                 if cancel and cancel.is_set(): raise LifecycleError("UnitV2 request cancelled")
@@ -127,9 +133,10 @@ class Client:
                     'factory_result_timeout':'The UnitV2 factory mode did not produce a fresh result in time.',
                     'invalid_factory_config':'The factory mode rejected that configuration.',
                     'factory_setup_required':'Run SET UP UNITV2 and power-cycle UnitV2 before using factory vision.'}
+                from .camera_faults import MESSAGES
+                if reason in MESSAGES: raise LifecycleError(MESSAGES[reason], code=reason)
                 if reason in messages: raise LifecycleError(messages[reason])
-                if response.status == 401: raise LifecycleError("UnitV2 pairing rejected. Run UnitV2 setup again.")
-                if response.status in {404, 410}: raise LifecycleError("UnitV2 lifecycle service is not installed. Run UnitV2 setup and power-cycle the camera.")
+                if response.status == 401: raise LifecycleError(MESSAGES['pairing_rejected'], code='pairing_rejected')
                 raise LifecycleError("UnitV2 lifecycle request failed; check status and retry.")
             if jpeg:
                 sequence = response.getheader("X-Kadence-Sequence", "")
@@ -145,10 +152,19 @@ class Client:
 
     def call(self, operation, lease=None, *, timeout=5, cancel=None, roi=None, mode=None, config=None):
         deadline = time.monotonic()+timeout
+        # A rejected expired nonce has performed no operation. Obtain one fresh
+        # challenge once, within the same deadline; never mistake this for lost pairing.
+        for attempt in range(2):
+            try:
+                return self._request(operation, lease, deadline, cancel=cancel, roi=roi, mode=mode, config=config)
+            except LifecycleError as exc:
+                if exc.code != 'challenge_expired' or attempt: raise
+
+    def _request(self, operation, lease, deadline, *, cancel=None, roi=None, mode=None, config=None):
         challenge = self._http("GET", "/kadence/v1/challenge", deadline, cancel=cancel)
         if (not isinstance(challenge, dict) or challenge.get("service") != "kadence-unitv2" or challenge.get("api") != 1
                 or not isinstance(challenge.get("nonce"), str) or not re.fullmatch(r"[0-9a-f]{32}", challenge["nonce"])):
-            raise LifecycleError("UnitV2 lifecycle service is not compatible")
+            raise LifecycleError("UnitV2 lifecycle service is not compatible", code='service_incompatible')
         data = {"operation":operation, "nonce":challenge["nonce"]}
         if lease is not None: data["lease"] = lease
         if roi is not None: data["roi"] = roi
@@ -214,7 +230,12 @@ class UnitV2Owner:
         extra = {"roi":roi} if roi is not None else {}
         if mode is not None: extra['mode']=mode
         if config is not None: extra['config']=config
-        result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout, cancel=cancelled, **extra),on_cancel=interrupt)
+        try:
+            result = await settled_thread(lambda:self.client.call(operation, lease, timeout=timeout, cancel=cancelled, **extra),on_cancel=interrupt)
+        except (OSError, http.client.HTTPException) as exc:
+            from .camera_faults import camera_fault
+            fault = camera_fault(exc)
+            raise LifecycleError(str(fault), code=fault.code) from None
         if operation not in {"frame", "face_frame", "track_frame", "factory_frame"}: self.publish(result)
         return result
 
@@ -241,6 +262,7 @@ class UnitV2Owner:
     async def _stop(self, *, all_leases=False):
         if not self.client: return
         lease = self.lease
+        if lease is None and not all_leases: return
         self.lease = None
         self.web_session = False
         try:
@@ -257,7 +279,19 @@ class UnitV2Owner:
         if self.lease is None:
             self.lease, self.sequence = uuid.uuid4().hex, 0
             self.face_sequence = 0
-        await self._call("track_start" if tracking else "face_start" if native else "start", lease=self.lease)
+        operation = "track_start" if tracking else "face_start" if native else "start"
+        epoch = self._cancel_epoch
+        try:
+            await self._call(operation, lease=self.lease)
+        except LifecycleError as exc:
+            # Recover only our expired/dead lease. A different owner's session
+            # and an unowned factory process are never stopped by this path.
+            if exc.code not in {'lease_expired', 'lease_revoked', 'producer_exited'}: raise
+            await self._stop()
+            if epoch != self._cancel_epoch or self.closed:
+                raise LifecycleError('Camera start was cancelled.')
+            self.lease, self.sequence, self.face_sequence = uuid.uuid4().hex, 0, 0
+            await self._call(operation, lease=self.lease)
 
     async def capture(self, address, *, timeout=12):
         from .camera_manager import decode_jpeg, settled_thread
@@ -277,10 +311,10 @@ class UnitV2Owner:
             finally:
                 if (self.mode != "KEEP_READY" and not self._holds) or epoch != self._cancel_epoch or not succeeded:
                     # A shield alone is insufficient: wait for the stop worker to finish.
-                    cancelled = isinstance(sys.exception(), asyncio.CancelledError)
+                    primary_error = sys.exception()
                     try: await settled_thread(self._stop_sync)
                     except Exception:
-                        if not cancelled: raise
+                        if primary_error is None: raise
                     finally: self.publish()
                     if succeeded and epoch == self._cancel_epoch and self.verification_root:
                         self.record_verified(self.verification_root)
@@ -288,6 +322,9 @@ class UnitV2Owner:
     def _stop_sync(self):
         # Called while lock is retained; publication stays on the event loop.
         lease, self.lease = self.lease, None
+        # None means "stop every session" in the device API. Automatic cleanup
+        # must never send that after an earlier stop already consumed our lease.
+        if lease is None: return
         self.web_session = False
         try: result = self.client.call("stop", lease, timeout=7)
         except Exception:
@@ -308,7 +345,9 @@ class UnitV2Owner:
             with contextlib.suppress(asyncio.CancelledError): await self.heartbeat
             self.heartbeat = None
         async with self.lock:
-            if not await self._select(address): raise LifecycleError("Run UnitV2 setup once to enable start/stop control.")
+            if not await self._select(address):
+                from .camera_faults import MESSAGES
+                raise LifecycleError(MESSAGES['pairing_missing'], code='pairing_missing')
             await self._stop(all_leases=True)
             if mode == "KEEP_READY":
                 if epoch != self._cancel_epoch: raise LifecycleError("Camera start was superseded")
@@ -350,11 +389,15 @@ class UnitV2Owner:
         async with self.lock:
             guard()
             if not await self._select(address):
-                raise LifecycleError('UnitV2 needs its one-time connection setup. Open Settings > Camera.')
+                from .camera_faults import MESSAGES
+                raise LifecycleError(MESSAGES['pairing_missing'], code='pairing_missing')
             guard()
             if self.web_session:
                 raise LifecycleError('Finish the open face-training session before using the camera.')
             if self.verified:
+                # Saved verification proves the setup, not current reachability.
+                # Reopening an app must still confirm the existing service responds.
+                await self._call('status')
                 return
             epoch = self._cancel_epoch
             try:
@@ -370,8 +413,11 @@ class UnitV2Owner:
                 guard()
             finally:
                 # Settle the real producer even if privacy or cancellation arrives.
-                await settled_thread(self._stop_sync)
-                self.publish()
+                primary_error = sys.exception()
+                try: await settled_thread(self._stop_sync)
+                except Exception:
+                    if primary_error is None: raise
+                finally: self.publish()
             guard()
             if epoch != self._cancel_epoch:
                 raise LifecycleError('Camera readiness check was cancelled.')

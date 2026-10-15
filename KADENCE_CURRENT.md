@@ -6,8 +6,8 @@
 **Promoted source head (pre-documentation):** `4a0a816a0442f391533591db52b5a82a58bc1bad` from `kadence/sticks3-remote`.
 **Previous main:** `3b9890063b3abe03e96cf2b00c1b94409532a8eb`; changed by a NON-FORCED fast-forward.
 **Accepted fallback:** `kadence/baseline-0.4.13` at `1809efb48cfdd2356858e406486d19bccc2c03b6`.
-**Target release:** host 0.6.1 + CoreS3 0.21.7, grounded companion and speech endpoint repairs.
-**Status:** 0.6.0 FAILED owner acceptance. 0.6.1 Windows and CoreS3 builds passed, complete download independently verified; physical acceptance pending. Exact package source: `10b3e709020d040892fa7c93dd9533db70d9d8ed` (section 14).
+**Target release:** host 0.6.2 camera connection repair; retain existing CoreS3 0.21.7 (0.21.6 remains compatible).
+**Status:** 0.6.0 FAILED owner acceptance. 0.6.1 owner reports repeated camera-unavailable failures after setup. 0.6.2 repair under verification (section 15); no new firmware installation required.
 
 ## 0. Astra: read this first
 Do not continue from the former `kadence/functionality`, `kadence/sensor-clean-base`, `kadence/sticks3-remote`, `kadence/rebuild-kade`, or any alpha branch. All new development must target `main` unless the owner explicitly changes this policy. Preserve existing commit SHAs and the 0.4.13 rollback package. Never assume that a code branch or passing CI reflects what is installed on the Windows computer. The owner wants one-shot, autonomous, fail-fast changes and only unavoidable hardware acceptance requests.
@@ -20,7 +20,7 @@ The normal robot is NOT a fully untethered mobile device: existing COM4/USB cont
 | Component | Current source/candidate | Evidence and limits |
 |---|---|---|
 | CoreS3 firmware | 0.21.7 candidate; accepted foundation 0.21.6 | Compiled and bundled, startup stack and endpoint logic gates passed. New microphone VAD is required to remove fixed capture. No calibration/storage migration. Physical endpointing acceptance pending. |
-| Windows host | 0.6.1 verified candidate package | 0.6.0 failed owner acceptance. Grounded vision/tracking, persona, presence and broad natural-language reminders; exact package and test evidence in section 14. |
+| Windows host | 0.6.2 camera repair candidate | 0.6.1 camera access failed in owner use. Repair evidence and actual limits in section 15; prior package in section 14. |
 | UnitV2 service | 1.3.0 | Factory Vision modes exposed; many physical mode tests still unproven. |
 | StickS3 | firmware 1.0.3 candidate | Boot/pair/display corrections and driver fix recorded, but PTT still lacks successful hardware acceptance. Remote OFF. |
 | Data | SQLite schema 5 | Native UnitV2 face files live on camera, not in PC SQLite backup. |
@@ -702,3 +702,54 @@ mechanical following or live camera latency as passed without owner evidence.
 PC/Bluetooth speech remains incremental; Robot/Both retains complete-buffer PCM
 transport. The microphone endpoint repair reduces capture waiting but does not
 establish a new end-to-end latency result or restore the old Silero server.
+
+## 15. UnitV2 connection repair — 2026-10-15
+
+The owner reports persistent “camera unavailable ... retry after 15 seconds”
+after re-running setup and entering the camera address/password. The live cause
+cannot be determined from that message: 0.6.1 catches every capture exception
+and discards its category. No remote access to the owner's PC or UnitV2 exists
+in this build environment. Do not claim the hardware fault has been diagnosed.
+
+Confirmed host defects repaired in **0.6.2**:
+
+- The normal Settings “Connect UnitV2” button launched the full SSH installer.
+  It is now **Reconnect camera**, using the saved authenticated service and a
+  fresh-image/confirmed-stop check. First-time setup/repair remains explicit in
+  Engineering. Reconnect never runs SSH, changes keys or re-enrols faces.
+- Setup did not save the address entered in its console to `camera-settings.json`.
+  It now writes the canonical persistent address while preserving privacy and
+  other choices. The app reloads that address when starting its server. Default
+  setup checks an existing saved pairing without installation/password prompts.
+  Explicit install/repair retains the key and removes the redundant interactive
+  SSH cleanup prompt. A newly installed service still requires one camera reboot.
+- Camera capture masked pairing, service, transport, producer and image failures.
+  Home and allowlisted Diagnostics now preserve distinct failure codes. Raw
+  response bodies, credentials and image bytes never enter these diagnostics.
+  A failed cleanup no longer replaces the original capture failure.
+- Every failure imposed a 15-second lockout, even after the user fixed the
+  connection. Explicit requests now retry immediately; automatic captures retain
+  backoff. Failure state is scoped by camera address and cleared on configuration.
+- Startup made one readiness attempt, then silently abandoned a camera that
+  booted late. Background readiness retries at 2/5/10/30 seconds with bounded
+  requests, yielding to active camera ownership. Privacy, OFF, address change and
+  shutdown revoke the old task. Existing saved verification still requires a
+  live status response before being treated as ready.
+- Expired/dead sessions owned by this host get one confirmed-stop/new-lease
+  recovery. Expired authentication challenges get one fresh nonce within the
+  existing deadline. Automatic cleanup never sends a stop-all after its lease
+  was consumed, and recovery cannot stop another owner's active session.
+
+**Validation before Windows packaging:** full source suite **599 passed,
+4 Windows-only skips, 122 subtests passed** in 51.46 seconds. Focused HTTP/Qt
+checks proved saved pairing reuse without SSH, same persistent address across
+app versions, late boot recovery, exact failure categories, immediate explicit
+retry, privacy/revocation and no interference with another camera session.
+The local OpenCV installation was repaired after detecting a truncated native
+library; no project dependency requirements were changed for that environment fix.
+
+**Delivery:** desktop-only 0.6.2. No CoreS3 image or Update-Robot.cmd is bundled.
+Keep existing CoreS3 0.21.7/0.21.6, UnitV2 service 1.3.0, saved native faces,
+pairing and SQLite schema 5. Install only with Install-Kadence.cmd. The previous
+0.21.7 speech endpoint firmware remains in use. Windows/package evidence follows
+after the final gate. Physical camera recovery is still awaiting owner evidence.

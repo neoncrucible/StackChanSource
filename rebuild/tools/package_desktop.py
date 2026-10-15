@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
-HOST_VERSION='0.6.1'
+HOST_VERSION='0.6.2'
 
 
 def archive_package(output: Path):
@@ -45,7 +45,8 @@ def host_package(desktop: Path, commit: str, output: Path, *, stick: Path | None
     shutil.copyfile(ROOT/'rebuild'/'docs'/'OBJECT_TRACKING_0_4_13.md',output/'OBJECT-TRACKING.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'STICKS3_REMOTE_0_4_14.md',output/'STICKS3-REMOTE.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'FACTORY_VISION_0_4_15.md',output/'FACTORY-VISION.txt')
-    shutil.copyfile(ROOT/'rebuild'/'docs'/'GROUNDED_COMPANION_0_6_1.md',output/'WHATS-NEW.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'CAMERA_RECONNECT_0_6_2.md',output/'WHATS-NEW.txt')
+    shutil.copyfile(ROOT/'rebuild'/'docs'/'GROUNDED_COMPANION_0_6_1.md',output/'COMPANION-0.6.1.txt')
     shutil.copyfile(ROOT/'rebuild'/'docs'/'NATURAL_REQUESTS_0_6_1.md',output/'TALK-NATURALLY.txt')
     stick=stick or ROOT/'rebuild'/'dist'/'StickS3'
     metadata=json.loads((stick/'RELEASE.json').read_text())

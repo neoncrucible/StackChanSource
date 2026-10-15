@@ -91,17 +91,21 @@ class CameraFrame:
 
 def decode_jpeg(jpeg):
     from PIL import Image
-    with Image.open(io.BytesIO(jpeg)) as image:
-        if image.format != "JPEG" or not (0 < image.width <= 1920 and 0 < image.height <= 1080):
-            raise ValueError("Unsupported UnitV2 image dimensions.")
-        image.load()
-        image = image.convert("RGB")
-        image.thumbnail((640, 480))
-        output = io.BytesIO()
-        image.save(output, format="PNG")
-        png = output.getvalue()
-        if len(png) > 700 * 1024: raise ValueError("Camera frame exceeds limit.")
-        return png, image.width, image.height, ()
+    try:
+        with Image.open(io.BytesIO(jpeg)) as image:
+            if image.format != "JPEG" or not (0 < image.width <= 1920 and 0 < image.height <= 1080):
+                raise ValueError("Unsupported UnitV2 image dimensions.")
+            image.load()
+            image = image.convert("RGB")
+            image.thumbnail((640, 480))
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            png = output.getvalue()
+            if len(png) > 700 * 1024: raise ValueError("Camera frame exceeds limit.")
+            return png, image.width, image.height, ()
+    except (ValueError, OSError, Image.DecompressionBombError):
+        from .camera_faults import CameraFault
+        raise CameraFault('invalid_image') from None
 
 
 async def settled_thread(function, *args, on_cancel=None):
@@ -131,6 +135,7 @@ class CameraManager:
         self._active = None
         self._purpose = None
         self._fail_until = {}
+        self.failure = None
         self._closed = False
         self._waiter = False
         from .unitv2_lifecycle import UnitV2Owner
@@ -145,15 +150,49 @@ class CameraManager:
         self.emit("camera_state", {"state": "PRIVACY" if self.config.privacy else self.state,
             "policy": self.config.policy, "privacy": self.config.privacy,
             "source": self.config.source, "producer_standby": self.unitv2.status.get("state", "UNKNOWN"),
-            "busy": self._active is not None})
+            "busy": self._active is not None, "error_code": self.failure.code if self.failure else None})
         self.unitv2.publish()
 
     def configure(self, config):
         self.generation += 1
+        self._fail_until.clear()
+        self.failure = None
         self.config = config
         if self._active: self._active.cancel()
         self.unitv2.revoke()
         self.publish("IDLE")
+
+    def report_failure(self, error, *, source='unitv2-camera'):
+        from .camera_faults import camera_fault
+        fault = camera_fault(error)
+        if self.failure is None or self.failure.code != fault.code:
+            self.emit('camera_issue', {'code':fault.code, 'source':source})
+        self.failure = fault
+        self.publish('FAULT')
+        return fault
+
+    async def prepare_automatically(self, *, pause=asyncio.sleep):
+        """A late camera boot must recover without repeating SSH setup."""
+        generation, attempt = self.generation, 0
+        config = self.config
+        if config.privacy or config.source == 'robot-camera' or not config.perception_enabled or config.policy == 'OFF': return
+        while not self._closed and generation == self.generation and not self.config.privacy:
+            if self._active or self.unitv2.lock.locked() or self.unitv2._holds:
+                await pause(1)
+                continue
+            try:
+                async with asyncio.timeout(20):
+                    await self.unitv2.ensure_ready(config.address, guard=lambda:self.check(generation))
+            except asyncio.CancelledError: raise
+            except Exception as exc:
+                if self._closed or generation != self.generation or self.config.privacy: return
+                self.report_failure(exc)
+                await pause((2, 5, 10, 30)[min(attempt, 3)])
+                attempt += 1
+            else:
+                self.failure = None
+                self.publish('IDLE')
+                return
 
     async def settle_settings(self):
         if self._active:
@@ -203,7 +242,7 @@ class CameraManager:
         self.check()
         generation = self.generation
         self._purpose = purpose
-        task = asyncio.create_task(self._capture(source, address or self.config.address, in_voice, timeout, generation, allow_legacy=purpose!="automatic"))
+        task = asyncio.create_task(self._capture(source, address or self.config.address, in_voice, timeout, generation, allow_legacy=purpose=="manual", automatic=purpose=="automatic"))
         self._active = task
         try: return await task
         finally:
@@ -211,14 +250,17 @@ class CameraManager:
                 self._active = self._purpose = None
                 if self.state != "FAULT": self.publish("IDLE")
 
-    async def _capture(self, source, address, in_voice, timeout, generation, *, allow_legacy=True):
+    async def _capture(self, source, address, in_voice, timeout, generation, *, allow_legacy=True, automatic=False):
         started = self.clock()
         deadline = started + timeout
         request_id = str(uuid.uuid4())
         sources = ("unitv2-camera", "robot-camera") if source == "auto" else (source,)
         self.publish("STARTING")
+        error = self.failure
+        actual = sources[0]
         for actual in sources:
-            if self._fail_until.get(actual, 0) > self.clock(): continue
+            failure_key = (actual, address)
+            if automatic and self._fail_until.get(failure_key, 0) > self.clock(): continue
             self.check(generation)
             remaining = deadline - self.clock()
             if remaining <= 0: break
@@ -229,7 +271,9 @@ class CameraManager:
                     if managed is not None:
                         png, width, height, qr = managed
                     else:
-                        if not allow_legacy: raise RuntimeError("Automatic capture requires the UnitV2 lifecycle service.")
+                        if not allow_legacy:
+                            from .camera_faults import CameraFault
+                            raise CameraFault('pairing_missing')
                         png, width, height, qr = await self._legacy_unitv2(address, remaining, source)
                 else:
                     async with asyncio.timeout(max(.1, deadline-self.clock())):
@@ -239,14 +283,15 @@ class CameraManager:
                         width, height = 320, 240
                 self.check(generation)
                 if self.clock() > deadline: raise TimeoutError()
-                self._fail_until.pop(actual, None)
+                self._fail_until.pop(failure_key, None)
+                self.failure = None
                 return CameraFrame(request_id, str(uuid.uuid4()), actual, png, width, height,
                     time.time(), round((self.clock()-started)*1000), generation, tuple(qr))
             except asyncio.CancelledError: raise
-            except Exception:
-                self._fail_until[actual] = self.clock() + 15
-        self.publish("FAULT")
-        raise RuntimeError("Camera unavailable. Check its power, connection and address; retry after 15 seconds.")
+            except Exception as exc:
+                error = exc
+                self._fail_until[failure_key] = self.clock() + 15
+        raise self.report_failure(error or TimeoutError(), source=actual) from None
 
     async def _legacy_unitv2(self, address, remaining, source):
         interrupted = threading.Event()

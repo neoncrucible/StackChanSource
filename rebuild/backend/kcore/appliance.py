@@ -166,15 +166,9 @@ class KadenceAppliance:
             with contextlib.suppress(Exception): await self.camera.settle_settings()
             config=self.camera.config
             if not config.privacy and config.perception_enabled and config.policy!='OFF' and config.source!='robot-camera':
-                generation=self.camera.generation
                 # A saved awareness choice includes permission for this bounded
-                # readiness check. Failure never prevents ordinary voice startup.
-                async def prepare_camera():
-                    with contextlib.suppress(RuntimeError, TimeoutError):
-                        async with asyncio.timeout(20):
-                            await self.camera.unitv2.ensure_ready(config.address,
-                                guard=lambda:self.camera.check(generation))
-                self._camera_ready_task=asyncio.create_task(prepare_camera(),name='kadence-camera-readiness')
+                # readiness check. A late camera boot is retried without blocking voice.
+                self._camera_ready_task=asyncio.create_task(self.camera.prepare_automatically(),name='kadence-camera-readiness')
             self.perception = PerceptionController(self.camera, self.services.paths, self.emit,
                 self._deliver_presence, lambda: (self._voice_task is not None and not self._voice_task.done()) or (self.motion.task is not None and not self.motion.task.done()),
                 sampler=self.sensor_sampler)

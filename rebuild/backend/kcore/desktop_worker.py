@@ -188,6 +188,9 @@ class DesktopController:
         # The timezone is authoritative for all new relative-date requests.
         self.services.reminders.timezone_name = settings.timezone_name
         self.app = self.appliance_factory(settings, services=self.services, emit=self.state_event)
+        from .camera_manager import CameraConfig
+        from dataclasses import asdict
+        self.emit('camera_settings', asdict(CameraConfig.load(self.services.paths.root)))
         self.state = "starting"; self.emit("server", {"state": self.state})
         self.task = asyncio.create_task(self._serve(self.app), name="kadence-server")
         voice_ready = not settings.providers.missing_credentials()
@@ -272,7 +275,7 @@ class DesktopController:
             if action=='tracking_arm': return await tracker.arm(args)
             if action=='tracking_home': return await self.app.motion.command('motion_home',{})
             raise ValueError('Unsupported tracking control.')
-        if self.app and getattr(self.app,'tracking',None) and action in {'camera_settings','camera_patch','unitv2_mode','unitv2_check','unitv2_train_open','factory_start','factory_stop','factory_config',
+        if self.app and getattr(self.app,'tracking',None) and action in {'camera_settings','camera_patch','unitv2_mode','unitv2_check','unitv2_connect','unitv2_train_open','factory_start','factory_stop','factory_config',
                 'recognition_test','perception_test','face_enroll','camera_capture','media_cancel'}:
             if action in {'camera_patch','camera_settings'} and args.get('privacy') is True:
                 from dataclasses import replace
@@ -340,9 +343,32 @@ class DesktopController:
                         try:
                             await self.app.camera.unitv2.ensure_ready(config.address,
                                 guard=lambda:self.app.camera.check(generation))
-                        except (RuntimeError,TimeoutError):
-                            return {'message':'Awareness saved. UnitV2 is not ready; check its connection in Camera settings. Camera privacy remains available.', 'camera_ready':False}
+                        except (RuntimeError, OSError, TimeoutError) as exc:
+                            fault = self.app.camera.report_failure(exc)
+                            previous = getattr(self.app, '_camera_ready_task', None)
+                            if previous:
+                                previous.cancel()
+                                await asyncio.gather(previous, return_exceptions=True)
+                            self.app._camera_ready_task = asyncio.create_task(self.app.camera.prepare_automatically(), name='kadence-camera-readiness')
+                            return {'message':'Camera settings saved. '+str(fault), 'camera_ready':False}
             return {"message": "Camera policy saved."}
+        if action == 'unitv2_connect':
+            if not self.app: raise RuntimeError('Connect Kadence first, then reconnect the camera.')
+            camera = self.app.camera
+            camera.check()
+            if self._media and not self._media.done(): raise RuntimeError('Wait for the current camera request to finish.')
+            if self.app.perception: await self.app.perception.interrupt()
+            try:
+                await camera.unitv2_control('ON_DEMAND')
+                camera.unitv2.verified = False
+                generation = camera.generation
+                await camera.unitv2.ensure_ready(camera.config.address, guard=lambda:camera.check(generation))
+            except asyncio.CancelledError: raise
+            except Exception as exc: raise camera.report_failure(exc) from None
+            camera.failure = None
+            camera._fail_until.clear()
+            camera.publish('IDLE')
+            return {'message':'UnitV2 connected: a fresh image and clean capture stop are confirmed. Saved pairing reused; no setup needed.'}
         if action in {"unitv2_mode", "unitv2_status", "unitv2_check"}:
             if not self.app: raise RuntimeError("Start the server to control UnitV2.")
             camera = self.app.camera
@@ -586,7 +612,9 @@ async def run_worker(incoming, outgoing):
             # Only project-owned messages may cross into the UI. Never expose
             # provider/serial exception strings (which may include request data).
             from .vision_provider import VisionServiceError
-            message_text = str(exc) if type(exc) in {ValueError, RuntimeError, VisionServiceError} else "Operation failed. Check connection and configuration."
+            from .unitv2_lifecycle import LifecycleError
+            from .camera_faults import CameraFault
+            message_text = str(exc) if type(exc) in {ValueError, RuntimeError, VisionServiceError, LifecycleError, CameraFault} else "Operation failed. Check connection and configuration."
             emit("result", {"id": ident, "ok": False, "message": message_text[:240]})
         except Exception:
             emit("result", {"id": ident, "ok": False, "message": "Operation failed. Check connection and configuration."})
