@@ -282,3 +282,27 @@ def test_tracking_diagnostics_exclude_images_labels_and_messages():
     value=diagnostic_status({'state':'TRACKING','armed':True,'active':True,'head_yaw':2.0,'head_pitch':30.0,
                             'message':'private object','png':'private pixels','target':'private label'})
     assert value=={'state':'TRACKING','armed':True,'active':True,'head_yaw':2.0,'head_pitch':30.0}
+
+
+def test_tracking_lifecycle_error_reports_real_cause_not_setup_prompt(tracker_service):
+    async def run():
+        producer,bridge,client,root=tracker_service
+        app,events,moves=make_app(client)
+        async def unavailable(*args,**kwargs):
+            raise LifecycleError('UnitV2 lifecycle service not available',code='service_missing')
+        app.camera.unitv2.ensure_ready=unavailable
+        with pytest.raises(RuntimeError,match='camera service is not running'):
+            await app.tracking.preview()
+        assert ('camera_issue',{'code':'service_missing','source':'unitv2-camera'}) in events
+        assert not moves
+        assert app.camera.unitv2.verified
+        await app.camera.close()
+    asyncio.run(run())
+
+
+def test_missing_native_tracker_is_distinct_from_lost_pairing(tracker_service):
+    producer,bridge,client,root=tracker_service
+    producer.tracking=None
+    with pytest.raises(LifecycleError,match='tracking component is unavailable') as failure:
+        client.call('track_start',uuid.uuid4().hex)
+    assert failure.value.code=='tracking_setup_required'

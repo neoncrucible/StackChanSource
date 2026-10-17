@@ -25,6 +25,11 @@ MESSAGES = {
     'stop_unconfirmed': 'UnitV2 has not confirmed that capture stopped. Check its connection before starting another camera session.',
     'invalid_image': 'UnitV2 returned an unreadable image. The camera connection succeeded; image capture needs checking.',
     'invalid_response': 'The camera returned an invalid service response. Check the saved UnitV2 address and camera status.',
+    'tracking_setup_required': 'The UnitV2 tracking component is unavailable, although other camera features may still work. Check native tracking status before considering a targeted service repair.',
+    'tracking_frame_timeout': 'The UnitV2 tracker did not return a fresh frame. Stop tracking and reconnect the camera; your pairing is retained.',
+    'tracking_session_ended': 'The UnitV2 tracking session ended. Stop tracking and retry after the camera reports ready; no setup is needed.',
+    'tracking_selection_timeout': 'UnitV2 did not acknowledge target selection in time. Hold the object still and retry after checking camera status.',
+    'tracking_selection_failed': 'The UnitV2 tracker could not apply the target region. Stop tracking and check the camera status.',
     'service_error': 'The camera request failed. Check the camera status for the failed stage; saved setup has not been cleared.',
 }
 

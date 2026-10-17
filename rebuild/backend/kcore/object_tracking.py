@@ -309,9 +309,24 @@ class ObjectTracking:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            # LifecycleError derives from RuntimeError. Exact-type comparison
+            # previously replaced *every* remote tracking failure with a false
+            # instruction to reinstall UnitV2, losing its typed cause.
+            from .camera_faults import CameraFault, camera_fault
+            from .unitv2_lifecycle import LifecycleError
             self.armed=False
             self.state='FAULT'
-            self.publish(str(exc) if type(exc) is RuntimeError else 'Tracking unavailable. Update UnitV2 using SET UP UNITV2, or check its connection.')
+            if isinstance(exc,(LifecycleError,CameraFault,OSError,TimeoutError)):
+                fault=camera_fault(exc)
+                message=str(fault)
+                self.emit('camera_issue',{'code':fault.code,'source':'unitv2-camera'})
+            elif isinstance(exc,RuntimeError):
+                # Locally validated image/sequence errors are safe and specific.
+                message=str(exc)
+            else:
+                message='Tracking stopped unexpectedly. Check Diagnostics; saved UnitV2 setup is unchanged.'
+                self.emit('camera_issue',{'code':'service_error','source':'unitv2-camera'})
+            self.publish(message)
             if not ready.done(): ready.set_exception(RuntimeError(self.message))
         finally:
             await self.pause_head()
